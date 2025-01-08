@@ -25,9 +25,6 @@ STM32/
 │   ├── Example_Accelerometer/
 │   ├── Example_RTC/
 │
-├── Documentation/   # Documentación adicional
-│
-├── .gitignore       # Archivos ignorados por Git
 ├── LICENSE          # Licencia del proyecto
 └── README.md        # Este archivo
 ```
