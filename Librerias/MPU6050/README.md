@@ -53,6 +53,7 @@ int main(void) {
 
         MPU6050_Read_Gyro(&gyro_x, &gyro_y, &gyro_z);
         printf("X: %.2f, Y: %.2f, Z: %.2f\n", gyro_x, gyro_y, gyro_z);
+
         HAL_Delay(1000);
     }
 }
