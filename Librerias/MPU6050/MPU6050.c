@@ -1,5 +1,5 @@
 /*
- * Acelerometro.c
+ * MPU6050.c
  *
  *  @brief    Implementación de funciones para el manejo del acelerómetro MPU6050
  *  @author   Daniel Ruiz
@@ -10,7 +10,9 @@
  *  del acelerómetro y giroscopio MPU6050 mediante la interfaz I2C en un microcontrolador STM32F4.
  */
 
-#include "Acelerometro.h"
+#include "MPU6050.h"
+
+extern I2C_HandleTypeDef hi2c1;
 
 /*-------------------- Variables Globales --------------------*/
 /** @brief Almacenan valores RAW del acelerómetro. */
