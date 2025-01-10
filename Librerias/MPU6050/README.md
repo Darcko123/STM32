@@ -1,7 +1,7 @@
 # Librería para el Acelerómetro en STM32
 
 ## **Descripción General**
-Esta librería proporciona una interfaz para comunicarse con un acelerómetro utilizando el protocolo I2C en microcontroladores STM32. Permite la inicialización del sensor, la lectura de datos de aceleración en los ejes X, Y y Z, y la obtención de valores interpretados en unidades físicas.
+Esta librería proporciona una interfaz para comunicarse con un acelerómetro y giroscopio utilizando el protocolo I2C en microcontroladores STM32. Permite la inicialización del sensor, la lectura de datos de aceleración en los ejes X, Y y Z, la lectura de datos del giroscopio en los ejes X, Y y Z, y la obtención de valores interpretados en unidades físicas.
 
 ## **Características**
 - Comunicación mediante protocolo I2C.
@@ -15,32 +15,44 @@ Esta librería proporciona una interfaz para comunicarse con un acelerómetro ut
 - Protocolo I2C habilitado en el microcontrolador
 
 ## **Archivos de la Librería**
-- `accelerometer.h`: Archivo de cabecera con declaraciones de funciones y definiciones.
-- `accelerometer.c`: Implementación de las funciones para el manejo del acelerómetro.
+- `MPU6050.h`: Archivo de cabecera con declaraciones de funciones y definiciones.
+- `MPU6050.c`: Implementación de las funciones para el manejo del acelerómetro y giroscopio.
 
 ## **Funciones Principales**
 
-### `void accelerometer_init(void)`
-Inicializa el acelerómetro configurando los registros necesarios mediante I2C.
+### `void MPU6050_init(void)`
+Inicializa el módulo configurando los registros necesarios mediante I2C.
 
-### `void accelerometer_read(float *x, float *y, float *z)`
+### `void MPU6050_Read_Accel(float *Ax, float *Ay, float *Az);`
 Obtiene los valores de aceleración en los ejes X, Y y Z.
 - **Parámetros:**
-  - `float *x`: Puntero para almacenar el valor de aceleración en el eje X.
-  - `float *y`: Puntero para almacenar el valor de aceleración en el eje Y.
-  - `float *z`: Puntero para almacenar el valor de aceleración en el eje Z.
+  - `float *Ax`: Puntero para almacenar el valor de aceleración en el eje X.
+  - `float *Ay`: Puntero para almacenar el valor de aceleración en el eje Y.
+  - `float *Az`: Puntero para almacenar el valor de aceleración en el eje Z.
+
+### `voidMPU6050_Read_Gyro(float *Gx, float *Gy, float *Gz)`
+Obtiene los valores del giroscopio en los ejes X, Y y Z.
+- **Parámetros:**
+  - `float *Gx`: Puntero para almacenar el valor del giroscopio en el eje X.
+  - `float *Gy`: Puntero para almacenar el valor del giroscopio en el eje Y.
+  - `float *Gz`: Puntero para almacenar el valor del giroscopio en el eje Z.
 
 ## **Ejemplo de Uso**
 ```c
-#include "accelerometer.h"
+#include "MPU6050.h"
 
 int main(void) {
     float acc_x, acc_y, acc_z;
-    accelerometer_init();
+    float gyro_x, gyro_y, gyro_z;
+
+    MPU6050_init();
     
     while (1) {
-        accelerometer_read(&acc_x, &acc_y, &acc_z);
+        MPU6050_Read_Accel(&acc_x, &acc_y, &acc_z);
         printf("X: %.2f, Y: %.2f, Z: %.2f\n", acc_x, acc_y, acc_z);
+
+        MPU6050_Read_Gyro(&gyro_x, &gyro_y, &gyro_z);
+        printf("X: %.2f, Y: %.2f, Z: %.2f\n", gyro_x, gyro_y, gyro_z);
         HAL_Delay(1000);
     }
 }
@@ -56,4 +68,4 @@ Consulta la hoja de datos oficial del acelerómetro para más detalles sobre los
 ## **Autor**
 - **Nombre:** Daniel Ruiz
 - **Fecha:** Sep 26, 2024
-- **Versión:** 1.0
+- **Versión:** 1.1
