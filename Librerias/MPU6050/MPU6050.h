@@ -1,5 +1,5 @@
 /*
- * Acelerometro.h
+ * MPU6050.h
  *
  *  @brief    Librería para la comunicación y lectura de datos de un acelerómetro MPU6050
  *  @author   Daniel Ruiz
@@ -11,8 +11,8 @@
  *  Permite obtener valores de aceleración y giroscopio en los tres ejes (X, Y, Z).
  */
 
-#ifndef ACELEROMETRO_H_
-#define ACELEROMETRO_H_
+#ifndef MPU6050_H_
+#define MPU6050_H_
 
 #include "stm32f4xx_hal.h"
 
