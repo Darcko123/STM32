@@ -7,7 +7,7 @@
 Este repositorio está dividido en dos secciones principales:
 
 - **Libraries/**: Contiene librerías personalizadas para diferentes periféricos y módulos externos, como sensores, RTC, y más.
-- **Examples/**: Incluye ejemplos prácticos que demuestran cómo utilizar cada una de las librerías en aplicaciones reales.
+- **LibrariesExamples/**: Incluye ejemplos prácticos que demuestran cómo utilizar cada una de las librerías en aplicaciones reales.
 
 ---
 
@@ -17,16 +17,18 @@ Este repositorio está dividido en dos secciones principales:
 STM32/
 ├── Libraries/       # Librerías para periféricos y módulos externos
 │   ├── SI7021/      # Librería para sensor de temperatura y humedad
-│   ├── Accelerometer/ # Librería para acelerómetro
+│   ├── MPU950/      # Librería para acelerómetro
 │   ├── RTC/         # Librería para módulo RTC
 │
-├── Examples/        # Ejemplos prácticos de uso
-│   ├── Example_SI7021/
-│   ├── Example_Accelerometer/
-│   ├── Example_RTC/
+├── LibrariesExamples/        # Ejemplos prácticos de uso de las librerías
+│   ├── SI7021_Example/
+│   ├── MPU6050_Example/
+│   ├── RTC_Example/
 │
 ├── LICENSE          # Licencia del proyecto
-└── README.md        # Este archivo
+├── README.md        # Este archivo
+└── .gitignore
+
 ```
 
 ---
