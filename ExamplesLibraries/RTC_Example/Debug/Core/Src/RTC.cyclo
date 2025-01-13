@@ -1,0 +1,8 @@
+RTC.c:21:16:decToBcd	1
+RTC.c:32:12:bcdToDec	1
+RTC.c:47:6:RTC_SetTime	1
+RTC.c:66:6:RTC_GetTime	1
+RTC.c:86:6:RTC_SetAlarm1	1
+RTC.c:102:6:RTC_GetAlarm1	1
+RTC.c:119:6:RTC_SetAlarm2	1
+RTC.c:134:6:RTC_GetAlarm2	1

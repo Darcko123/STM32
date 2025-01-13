@@ -1,0 +1,8 @@
+../Core/Src/RTC.c:21:16:decToBcd	16	static
+../Core/Src/RTC.c:32:12:bcdToDec	16	static
+../Core/Src/RTC.c:47:6:RTC_SetTime	48	static
+../Core/Src/RTC.c:66:6:RTC_GetTime	40	static
+../Core/Src/RTC.c:86:6:RTC_SetAlarm1	40	static
+../Core/Src/RTC.c:102:6:RTC_GetAlarm1	40	static
+../Core/Src/RTC.c:119:6:RTC_SetAlarm2	40	static
+../Core/Src/RTC.c:134:6:RTC_GetAlarm2	40	static
