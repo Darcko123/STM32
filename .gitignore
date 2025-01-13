@@ -50,3 +50,17 @@ release
 *.su
 *.idb
 *.pdb
+
+#IDE STM32Cube
+.project
+.cproject
+*.suo
+*.user
+*.tmp
+
+#Ignorar archivos binarios
+*.o
+*.a
+*.exe
+*.dll
+
