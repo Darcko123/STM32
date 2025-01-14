@@ -29,7 +29,7 @@ extern I2C_HandleTypeDef hi2c1;
  *
  * @note La comunicación se realiza a través de I2C.
  */
-void si7021_init(void);
+void SI7021_Init(void);
 
 /**
  * @brief Lee los valores de temperatura y humedad del sensor SI7021.
@@ -41,6 +41,6 @@ void si7021_init(void);
  *
  * @attention Asegúrate de llamar a `si7021_init` antes de usar esta función.
  */
-void get_si7021(float *temp, float *humid);
+void Get_SI7021(float *temp, float *humid);
 
 #endif /* __SI7021_H */
