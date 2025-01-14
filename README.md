@@ -49,7 +49,7 @@ STM32/
    ```
 2. **Navega a la carpeta deseada:**
    ```bash
-   cd STM32/Libraries/RTC
+   cd STM32/Libraries/
    ```
 3. **Abre el ejemplo correspondiente en tu entorno de desarrollo.**
 4. **Compila y sube el código a tu microcontrolador STM32.**
@@ -60,7 +60,7 @@ STM32/
 
 ## 📄 **Licencia**
 
-Este proyecto está bajo la licencia **MIT**. Consulta el archivo [LICENSE](./LICENSE) para más detalles.
+Este proyecto está bajo la licencia **MIT**. Consulta el archivo [LICENSE](./LICENSE.md) para más detalles.
 
 ---
 
