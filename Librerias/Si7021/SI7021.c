@@ -8,7 +8,7 @@
  * @version 1.0
  */
 
-#include "si7021.h"
+#include "SI7021.h"
 
 /**
  * @brief Buffers de datos para comunicación I2C.
@@ -41,7 +41,7 @@ static float tempp, hu;
  *
  * @note Esta función debe ser llamada antes de realizar lecturas de temperatura y humedad.
  */
-void si7021_init(void)
+void SI7021_Init(void)
 {
     // Envía el comando de reset (0xFE) al sensor SI7021
     HAL_I2C_Master_Transmit(&hi2c1, 0x80, da, 1, 100);
@@ -56,7 +56,7 @@ void si7021_init(void)
  *
  * @note La fórmula de conversión está basada en el datasheet del SI7021.
  */
-void get_si7021(float *temp, float *humid)
+void Get_SI7021(float *temp, float *humid)
 {
     // ----- Lectura de Temperatura -----
     HAL_I2C_Master_Transmit(&hi2c1, 0x80, &read[0], 1, 100); // Envía comando para medir temperatura (0xE3)
