@@ -111,6 +111,7 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+
 	  RTC_GetTime(&currentTime);
 	  RTC_GetAlarm1(&alarma);
 	  RTC_GetAlarm2(&alarma2);
