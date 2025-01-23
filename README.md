@@ -25,6 +25,9 @@ STM32/
 │   ├── MPU6050_Example/
 │   ├── RTC_Example/
 │
+├── Projects/        #Proyectos varios
+│   ├── ClockWithMenu/
+│
 ├── LICENSE          # Licencia del proyecto
 ├── README.md        # Este archivo
 └── .gitignore
