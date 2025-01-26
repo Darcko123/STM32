@@ -31,7 +31,7 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-#define TIM_FREQ 72000000
+#define TIM_FREQ 72000000 ///< Frecuencia base para el cálculo del prescaler del temporizador.
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -52,8 +52,12 @@ TIM_HandleTypeDef htim2;
 /* USER CODE BEGIN PV */
 
 //------------------------------------------ MENUS ------------------------------------------//
-char *menu1[] = {"Configuracion", "Alarma", "Atras"};	//Menú principal
-int sizemenu1 = sizeof(menu1) / sizeof(menu1[0]);	//Obtenemos el número de elementos ocupados en la matriz
+/**
+ * @brief Matrices que contienen las opciones de los menús.
+ * Cada matriz representa un nivel diferente del menú.
+ */
+char *menu1[] = {"Configuracion", "Alarma", "Atras"}; ///< Menú principal.
+int sizemenu1 = sizeof(menu1) / sizeof(menu1[0]); ///< Número de opciones en el menú principal.
 
 char *menu2[] = {"Hora", "Fecha", "Atras"};
 int sizemenu2 = sizeof(menu2) / sizeof(menu2[0]);
@@ -61,38 +65,46 @@ int sizemenu2 = sizeof(menu2) / sizeof(menu2[0]);
 char *menu2_1[] = {"Encendido", "Configuracion", "SIG", "Atras"};
 int sizemenu2_1 = sizeof(menu2_1) / sizeof(menu2_1[0]);
 
-char *menu3_1[] = {"Hora", "Minutos", "Segundos", "Atras"};				//Aplica para "HORA", "MINUTOS", "DIA", "MES", AÑO
+char *menu3_1[] = {"Hora", "Minutos", "Segundos", "Atras"}; ///< Opciones para la configuración de la hora.
 int sizemenu3_1 = sizeof(menu3_1) / sizeof(menu3_1[0]);
 
-char *menu3_2[] = {"Dia", "Mes", "Ano", "Atras"};				//Aplica para "HORA", "MINUTOS", "DIA", "MES", AÑO
+char *menu3_2[] = {"Dia", "Mes", "Ano", "Atras"}; ///< Opciones para la configuración de la fecha.
 int sizemenu3_2 = sizeof(menu3_2) / sizeof(menu3_2[0]);
 
-char *menu3_3[] = {"ON","OFF", "Atras"};
+char *menu3_3[] = {"ON", "OFF", "Atras"}; ///< Opciones para encender/apagar alarma o señal.
 int sizemenu3_3 = sizeof(menu3_3) / sizeof(menu3_3[0]);
 
-char *menu4[] = {"++","--", "Atras"};
+char *menu4[] = {"++", "--", "Atras"}; ///< Opciones para ajustar valores (incremento/decremento).
 int sizemenu4 = sizeof(menu4) / sizeof(menu4[0]);
 
-char *menu4_1[] = {"Reset", "Atras"};
+char *menu4_1[] = {"Reset", "Atras"}; ///< Opciones para resetear valores.
 int sizemenu4_1 = sizeof(menu4_1) / sizeof(menu4_1[0]);
 
-// Definición de cadenas de caracteres para las líneas de la LCD
-char linea1[20];  // 20 caracteres + 1 para el terminador nulo '\0'
-char linea2[20];  // 20 caracteres + 1 para el terminador nulo '\0'
-char linea3[20];  // 20 caracteres + 1 para el terminador nulo '\0'
-char linea4[20];  // 20 caracteres + 1 para el terminador nulo '\0'
+/**
+ * @brief Buffers para las cadenas mostradas en la pantalla LCD.
+ */
+char linea1[20];
+char linea2[20];
+char linea3[20];
+char linea4[20];
 
+/**
+ * @brief Variables para el control de los niveles del menú.
+ */
 int level_menu  = 0;
 int level2_menu = 0;
 int level3_menu = 0;
 int level4_menu = 0;
 
-int contador = 0;	//Contador para el desaplazamiento entre menús
+int contador = 0; ///< Control de desplazamiento entre las opciones del menú.
 
-bool btnpress = false;
+bool btnpress = false; ///< Estado del botón OK.
 
 //-------------------------------------------------------------------------------------------//
 
+/**
+ * @brief Buffers para datos adicionales como temperatura y humedad.
+ */
 char buffer[20];
 char bufferSemana[10];
 char *nombre;
@@ -112,22 +124,62 @@ static void MX_TIM2_Init(void);
 
 //-------------- Reloj --------------//
 //Algoritmo de Zeller
-int dia_semana(int, int, int);
-char* nombre_dia(int);
+/**
+ * @brief Algoritmo de Zeller para determinar el día de la semana.
+ * @param d Día del mes.
+ * @param m Mes (ajustado para enero y febrero).
+ * @param a Año.
+ * @return Número del día de la semana (0=sábado, 1=domingo, ...).
+ */
+int dia_semana(int d, int m, int a);
+
+/**
+ * @brief Devuelve el nombre del día de la semana.
+ * @param dia Número del día (0=sábado, 1=domingo, ...).
+ * @return Cadena con el nombre del día.
+ */
+char* nombre_dia(int dia);
 //-----------------------------------//
 
 //-------------- MENU --------------//
+/**
+ * @brief Lógica principal para manejar las opciones del menú.
+ */
 void selectOption(void);
 
-bool fnSwitch(uint8_t);
+/**
+ * @brief Cambia entre opciones del menú usando botones de incremento y decremento.
+ * @param sizemenu Número de opciones en el menú actual.
+ * @return true si hubo un cambio, false en caso contrario.
+ */
+bool fnSwitch(uint8_t sizemenu);
 
+/**
+ * @brief Muestra las opciones del menú actual en la pantalla LCD.
+ * @param pos Posición actual dentro del menú.
+ * @param menus Puntero al arreglo de opciones del menú.
+ * @param sizemenu Tamaño del arreglo del menú.
+ */
 void fn_menu(int pos, char *menus[], uint8_t sizemenu);
 
-void printCurrentValue(const char*, int);
+/**
+ * @brief Imprime el valor actual de una variable en la pantalla LCD.
+ * @param label Etiqueta del valor (por ejemplo, "Hora").
+ * @param value Valor a mostrar.
+ */
+void printCurrentValue(const char* label, int value);
 //---------------------------------//
 
-int presForFrequency (int);
+/**
+ * @brief Calcula el prescaler necesario para una frecuencia deseada.
+ * @param frequency Frecuencia deseada en Hz.
+ * @return Valor del prescaler.
+ */
+int presForFrequency (int frequency);
 
+/**
+ * @brief Alterna el estado del retroiluminado de la pantalla LCD.
+ */
 void Toggle_Backlight(void);
 
 /* USER CODE END PFP */
@@ -203,6 +255,7 @@ int main(void)
   //-------------------------------------//
 
   //---------------- Temperatura y humedad ----------------//
+  // Inicialización de sensores.
   SI7021_Init();
   //-------------------------------------------------------//
 
@@ -218,151 +271,149 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  RTC_GetTime(&time);
-	  RTC_GetAlarm1(&alarma);
+      // Actualizar la hora y la alarma desde el RTC.
+      RTC_GetTime(&time);
+      RTC_GetAlarm1(&alarma);
 
-	  /* Asignación del día en palabras dependiendo
-	   * del día de la semana en número
-	   */
-	  dia_semana_num = dia_semana(time.dayofmonth, time.month, time.year);
-	  nombre = nombre_dia(dia_semana_num);
+      // Determinar el día de la semana basado en la fecha actual.
+      dia_semana_num = dia_semana(time.dayofmonth, time.month, time.year);
+      nombre = nombre_dia(dia_semana_num);
 	  /*---------------------------------------- */
 
-	  selectOption();
+      // Manejo de las opciones del menú.
+      selectOption();
 
-	  //Actualización de temperatura y humedad cada segundo
-	  if(HAL_GetTick() - lastUpdateTime >= updateInterval)
-	  {
-		  Get_SI7021(&temperaturaF, &humedadF);
+      // Actualizar datos de temperatura y humedad cada segundo.
+      if (HAL_GetTick() - lastUpdateTime >= updateInterval)
+      {
+          Get_SI7021(&temperaturaF, &humedadF);
 
-		  if (lastHumedadInt != humedadF)
-		  {
-			  humedadInt = (int)humedadF;
-		  }
+          if (lastHumedadInt != humedadF)
+          {
+              humedadInt = (int)humedadF;
+          }
 
-		  lastUpdateTime = HAL_GetTick();	//Actualiza el límite de referencia
-	  }
+          lastUpdateTime = HAL_GetTick(); // Actualiza el límite de referencia.
+      }
 
 	  // PANTALLA PRINCIPAL
+      // Lógica para la pantalla principal del sistema.
 	  if(level_menu == 0)
 	  {
-		  //Imprimir hora
+		  // Mostrar hora.
 		  sprintf(buffer, "%02d:%02d:%02d   ", time.hour, time.minutes, time.seconds);
 		  HD44780_SetCursor(0, 0);
 		  HD44780_PrintStr(buffer);
 
-		  //Imprimir nombre de día de la semana
+		  // Mostrar día de la semana.
 		  HD44780_SetCursor(11, 0);
 		  HD44780_PrintStr(nombre);
 
-		  //Imprimir fecha
+		  // Mostrar fecha.
 		  sprintf(buffer, "%02d-%02d-20%02d     ", time.dayofmonth, time.month, time.year);
 		  HD44780_SetCursor(0, 1);
 		  HD44780_PrintStr(buffer);
 
-		  //Imprimir temperatura
-		  sprintf(buffer, "T = %.1f", temperaturaF);
-		  cadenaTemperatura = strlen(buffer);
+          // Mostrar temperatura.
+          sprintf(buffer, "T = %.1f", temperaturaF);
+          HD44780_SetCursor(0, 2);
+          HD44780_PrintStr(buffer);
+          HD44780_PrintSpecialChar(6); // Símbolo de grados.
+          HD44780_PrintStr("C");
 
-		  //Limpiar la pantalla si el tamaño de del buffer de tamperatura es diferente
-		  /*if(lastCadenaTemperatura != cadenaTemperatura)
-		  {
-			  HD44780_Clear();
-			  lastCadenaTemperatura = cadenaTemperatura;	//Actualizar el valor del tamaño del buffer
-		  }*/
+          // Mostrar humedad.
+          sprintf(buffer, "H = %02d %%", humedadInt);
+          HD44780_SetCursor(0, 3);
+          HD44780_PrintStr(buffer);
 
-		  HD44780_SetCursor(0, 2);
-		  HD44780_PrintStr(buffer);
-		  HD44780_PrintSpecialChar(6); //Degrees
-		  sprintf(buffer, "C");
-		  HD44780_PrintStr(buffer);
+          // Manejo de señal SIG.
+          if (SIG == true)
+          {
+              HD44780_SetCursor(15, 1);
+              HD44780_PrintStr("SIG");
 
-		  //Imprimir humedad
-		  sprintf(buffer, "H = %02d %%", humedadInt);
-		  HD44780_SetCursor(0, 3);
-		  HD44780_PrintStr(buffer);
+              if ((time.minutes == 0) && (time.seconds == 0))
+              {
+                  __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(7100));
+                  HAL_Delay(250);
+                  __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(0));
+              }
+          }
 
-	      if(SIG == true)
-	      {
-	    	  HD44780_SetCursor(15, 1);
-	    	  HD44780_PrintStr("SIG");
+          // Manejo de alarma.
+          if (Alarma == true)
+          {
+              sprintf(buffer, "%02d:%02d:%02d", alarma.hour, alarma.minutes, alarma.seconds);
+              HD44780_SetCursor(12, 2);
+              HD44780_PrintStr(buffer);
 
-	    	  if((time.minutes == 0) && (time.seconds == 0))
-	    	  {
-	    		  __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(7100));
-				  HAL_Delay(250);
-				  __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(0));
-	    	  }
-	      }
+              HD44780_SetCursor(19, 1);
+              HD44780_PrintSpecialChar(5);
 
-	      if(Alarma == true)
-	      {
-	    	  sprintf(buffer, "%02d:%02d:%02d", alarma.hour, alarma.minutes, alarma.seconds);
-	    	  HD44780_SetCursor(12, 2);
-	    	  HD44780_PrintStr(buffer);
-
-	    	  HD44780_SetCursor(19, 1);
-	    	  HD44780_PrintSpecialChar(5);
-
-	    	  if((alarma.hour == time.hour) && (alarma.minutes == time.minutes) && (alarma.seconds == time.seconds))
-	    	  {
-	    		  __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(8700));
-	    		  HAL_Delay(125);
-	    		  __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(7100));
-	    		  HAL_Delay(125);
-	    		  __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(8700));
-	    		  HAL_Delay(125);
-	    		  __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(7100));
-	    		  HAL_Delay(125);
-	    		  __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(8700));
-	    		  HAL_Delay(125);
-	    		  __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(0));
-	    	  }
-	      }else if(Alarma == false)
+              if ((alarma.hour == time.hour) && (alarma.minutes == time.minutes) && (alarma.seconds == time.seconds))
+              {
+                  __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(8700));
+                  HAL_Delay(125);
+                  __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(7100));
+                  HAL_Delay(125);
+                  __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(8700));
+                  HAL_Delay(125);
+                  __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(7100));
+                  HAL_Delay(125);
+                  __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(8700));
+                  HAL_Delay(125);
+                  __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(0));
+              }
+          }
+          else if(Alarma == false)
 	      {
 	    	  sprintf(buffer, "        ");
 	    	  HD44780_SetCursor(12, 2);
 	    	  HD44780_PrintStr(buffer);
 	      }
 
-	      if (btnpress)
-	      {
-	    	  level_menu = 1;
-	      	  fn_menu(contador, menu1, sizemenu1);
-	      	  btnpress = false;
-	       }
+          // Entrar al menú principal al presionar el botón.
+          if (btnpress)
+          {
+              level_menu = 1;
+              fn_menu(contador, menu1, sizemenu1);
+              btnpress = false;
+          }
 	  }
 
 	  // MENU 1 PRINCIPAL
-	  if (level_menu == 1)
-	  {
-		  if (fnSwitch(sizemenu1))
-		  {
-			  fn_menu(contador, menu1, sizemenu1);
-		  }
+      // Lógica para el menú principal.
+      if (level_menu == 1)
+      {
+          // Navegar entre opciones del menú principal.
+          if (fnSwitch(sizemenu1))
+          {
+              fn_menu(contador, menu1, sizemenu1);
+          }
 
-		  if (btnpress)
-		  {
-			  if (contador == 0) //Configuracion
-			  {
-				  contador = 0;
-				  fn_menu(contador, menu2, sizemenu2);
-				  level_menu = 2;
-			  }
-			  else if (contador == 1) //Mostrar Alarma
-			  {
-				  contador = 0;
-				  fn_menu(contador, menu2_1, sizemenu2_1);
-				  level_menu = 3;
-			  }
-			  else if (contador == 2) //Atras
-			  {
-				  contador = 0;
-				  level_menu = 0;
-			  }
-			  btnpress = false;
-		  }
-	  }
+          // Selección de opciones en el menú principal.
+          if (btnpress)
+          {
+              if (contador == 0) // Configuración.
+              {
+                  contador = 0;
+                  fn_menu(contador, menu2, sizemenu2);
+                  level_menu = 2;
+              }
+              else if (contador == 1) // Mostrar Alarma.
+              {
+                  contador = 0;
+                  fn_menu(contador, menu2_1, sizemenu2_1);
+                  level_menu = 3;
+              }
+              else if (contador == 2) // Atrás.
+              {
+                  contador = 0;
+                  level_menu = 0;
+              }
+              btnpress = false;
+          }
+      }
 
 	  // Detección del botón y alternar el estado del retroiluminado
 	  currentButtonState = HAL_GPIO_ReadPin(LCDLed_GPIO_Port, LCDLed_Pin);
@@ -592,70 +643,93 @@ int main(void)
 			  }
 		  }
 
-		  // Configuración día
+		  /**
+		   * @brief Configuración del día en el sistema de menús.
+		   * Este bloque de código permite ajustar el día del mes en función del mes actual
+		   * y considera años bisiestos para el mes de febrero.
+		   */
+
+		  // Configuración del día
 		  if (level3_menu == 4)
 		  {
-			  if (fnSwitch(sizemenu4))
-			  {
-				  fn_menu(contador, menu4, sizemenu4);
-				  printCurrentValue("Dia", time.dayofmonth);
-			  }
-			  if (btnpress)
-			  {
-				  printCurrentValue("Dia", time.dayofmonth);
-				  if (contador == 0) //++
-				  {
-					  time.dayofmonth++;
-					  if ((time.month == 1 || time.month == 3 || time.month == 5 || time.month == 7 ||
-					       time.month == 8 || time.month == 10 || time.month == 12) && time.dayofmonth > 31)
-					  {
-						  time.dayofmonth = 1;
-					  }
-					  else if ((time.month == 4 || time.month == 6 || time.month == 9 || time.month == 11) && time.dayofmonth > 30)
-					  {
-						  time.dayofmonth = 1;
-					  }
-					  else if(time.month == 2)
-					  {
-						  añoBisiesto = ((time.year % 4 == 0 && time.year % 100 != 0) || (time.year % 400 == 0));
-						  if ((añoBisiesto && time.dayofmonth > 29) || (!añoBisiesto && time.dayofmonth > 28))
-						  {
-							  time.dayofmonth = 1;
-						  }
-					  }
-					  RTC_SetTime(time.hour, time.minutes, time.seconds, time.dayofmonth, time.month, time.year);
-				  }
-				  else if (contador == 1) //--
-				  {
-					  time.dayofmonth--;
-					  if(time.dayofmonth < 1)
-					  {
-						  if (time.month == 1 || time.month == 3 || time.month == 5 || time.month == 7 ||
-						      time.month == 8 || time.month == 10 || time.month == 12)
-						  {
-							  time.dayofmonth = 31;
-						  }
-						  else if(time.month == 4 || time.month == 6 || time.month == 9 || time.month == 11)
-						  {
-							  time.dayofmonth = 30;
-						  }
-						  else if(time.month == 2)
-						  {
-							  añoBisiesto = ((time.year % 4 == 0 && time.year % 100 != 0) || (time.year % 400 == 0));
-							  time.dayofmonth = añoBisiesto ? 29 : 28;
-						  }
-					  }
-					  RTC_SetTime(time.hour, time.minutes, time.seconds, time.dayofmonth, time.month, time.year);
-				  }
-				  else if (contador == 2) //Atras
-				  {
-					  contador = 0;
-					  fn_menu(contador, menu3_2, sizemenu3_2);
-					  level3_menu = 0;
-				  }
-				  printCurrentValue("Dia", time.dayofmonth);
-				  btnpress = false;
-			  }
+		      // Manejo de cambios en el menú (botones incrementales y decrementales)
+		      if (fnSwitch(sizemenu4))
+		      {
+		          // Mostrar opciones de menú e imprimir el valor actual del día
+		          fn_menu(contador, menu4, sizemenu4);
+		          printCurrentValue("Dia", time.dayofmonth);
+		      }
+
+		      // Manejo de la selección con el botón OK
+		      if (btnpress)
+		      {
+		          printCurrentValue("Dia", time.dayofmonth);
+
+		          if (contador == 0) // Incrementar el día (++).
+		          {
+		              time.dayofmonth++;
+
+		              // Verificar el límite superior del día dependiendo del mes
+		              if ((time.month == 1 || time.month == 3 || time.month == 5 || time.month == 7 ||
+		                   time.month == 8 || time.month == 10 || time.month == 12) && time.dayofmonth > 31)
+		              {
+		                  time.dayofmonth = 1;
+		              }
+		              else if ((time.month == 4 || time.month == 6 || time.month == 9 || time.month == 11) && time.dayofmonth > 30)
+		              {
+		                  time.dayofmonth = 1;
+		              }
+		              else if (time.month == 2)
+		              {
+		                  // Verificar si el año es bisiesto para determinar los días de febrero
+		                  añoBisiesto = ((time.year % 4 == 0 && time.year % 100 != 0) || (time.year % 400 == 0));
+		                  if ((añoBisiesto && time.dayofmonth > 29) || (!añoBisiesto && time.dayofmonth > 28))
+		                  {
+		                      time.dayofmonth = 1;
+		                  }
+		              }
+
+		              // Actualizar la hora en el RTC con el nuevo día
+		              RTC_SetTime(time.hour, time.minutes, time.seconds, time.dayofmonth, time.month, time.year);
+		          }
+		          else if (contador == 1) // Decrementar el día (--).
+		          {
+		              time.dayofmonth--;
+
+		              // Verificar el límite inferior del día
+		              if (time.dayofmonth < 1)
+		              {
+		                  if (time.month == 1 || time.month == 3 || time.month == 5 || time.month == 7 ||
+		                      time.month == 8 || time.month == 10 || time.month == 12)
+		                  {
+		                      time.dayofmonth = 31;
+		                  }
+		                  else if (time.month == 4 || time.month == 6 || time.month == 9 || time.month == 11)
+		                  {
+		                      time.dayofmonth = 30;
+		                  }
+		                  else if (time.month == 2)
+		                  {
+		                      // Verificar si el año es bisiesto para determinar los días de febrero
+		                      añoBisiesto = ((time.year % 4 == 0 && time.year % 100 != 0) || (time.year % 400 == 0));
+		                      time.dayofmonth = añoBisiesto ? 29 : 28;
+		                  }
+		              }
+
+		              // Actualizar la hora en el RTC con el nuevo día
+		              RTC_SetTime(time.hour, time.minutes, time.seconds, time.dayofmonth, time.month, time.year);
+		          }
+		          else if (contador == 2) // Regresar al menú anterior.
+		          {
+		              contador = 0;
+		              fn_menu(contador, menu3_2, sizemenu3_2);
+		              level3_menu = 0;
+		          }
+
+		          // Imprimir el valor actualizado del día
+		          printCurrentValue("Dia", time.dayofmonth);
+		          btnpress = false; // Restablecer el estado del botón
+		      }
 		  }
 
 		  // Configuración mes
@@ -1148,9 +1222,15 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+/**
+ * @brief Algoritmo de Zeller para calcular el día de la semana basado en la fecha.
+ * @param d Día del mes (1-31).
+ * @param m Mes del año (1-12).
+ * @param a Año completo (por ejemplo, 2025).
+ * @return Número del día de la semana (0=Sábado, 1=Domingo, ..., 6=Viernes).
+ */
 int dia_semana(int d, int m, int a)
 {
-    // Algoritmo de Zeller
     if (m < 3)
     {
         m += 12;
@@ -1162,128 +1242,132 @@ int dia_semana(int d, int m, int a)
     return w;
 }
 
+/**
+ * @brief Devuelve el nombre del día de la semana.
+ * @param dia Número del día de la semana (0=Sábado, ..., 6=Viernes).
+ * @return Nombre del día de la semana como cadena.
+ */
 char* nombre_dia(int dia)
 {
-	char *dias[] = {"   Sabado","  Domingo", "    Lunes", "   Martes", "Miercoles", "   Jueves", "  Viernes"};
+    char *dias[] = {"Sabado", "Domingo", "Lunes", "Martes", "Miercoles", "Jueves", "Viernes"};
     return dias[dia];
 }
 
+/**
+ * @brief Detecta la pulsación del botón OK y actualiza la variable btnpress.
+ */
 void selectOption(void)
 {
-	if(HAL_GPIO_ReadPin(ButtonOk_GPIO_Port, ButtonOk_Pin) == 1)
-	{
-		HAL_Delay(500);
-		btnpress = true;
-	}
+    if (HAL_GPIO_ReadPin(ButtonOk_GPIO_Port, ButtonOk_Pin) == GPIO_PIN_SET)
+    {
+        HAL_Delay(500); // Anti-rebote.
+        btnpress = true;
+    }
 }
 
-bool fnSwitch(uint8_t sizemenu)	//Lee las señales de los pulsadores, excepto el de ok
+/**
+ * @brief Cambia entre opciones de un menú usando botones de incremento y decremento.
+ * @param sizemenu Cantidad de opciones en el menú actual.
+ * @return true si se realizó un cambio, false en caso contrario.
+ */
+bool fnSwitch(uint8_t sizemenu)
 {
-	bool retorno = false;
-	if((HAL_GPIO_ReadPin(ButtonPlus_GPIO_Port, ButtonPlus_Pin) == 1) || (HAL_GPIO_ReadPin(ButtonMinus_GPIO_Port, ButtonMinus_Pin) == 1))
-	{
-		if(HAL_GPIO_ReadPin(ButtonPlus_GPIO_Port, ButtonPlus_Pin) == 1)
-		{
-			contador++;
-			HAL_Delay(250);
-		}
-		else if (HAL_GPIO_ReadPin(ButtonMinus_GPIO_Port, ButtonMinus_Pin) == 1)
-		{
-			contador--;
-			HAL_Delay(250);
-		}
+    bool retorno = false;
+    if (HAL_GPIO_ReadPin(ButtonPlus_GPIO_Port, ButtonPlus_Pin) == GPIO_PIN_SET ||
+        HAL_GPIO_ReadPin(ButtonMinus_GPIO_Port, ButtonMinus_Pin) == GPIO_PIN_SET)
+    {
+        if (HAL_GPIO_ReadPin(ButtonPlus_GPIO_Port, ButtonPlus_Pin) == GPIO_PIN_SET)
+        {
+            contador++;
+            HAL_Delay(250);
+        }
+        else if (HAL_GPIO_ReadPin(ButtonMinus_GPIO_Port, ButtonMinus_Pin) == GPIO_PIN_SET)
+        {
+            contador--;
+            HAL_Delay(250);
+        }
 
-		if(contador <= 0)
-		{
-			contador = 0;
-		}
+        // Ajustar el contador al rango permitido.
+        if (contador < 0)
+            contador = 0;
+        if (contador >= sizemenu)
+            contador = sizemenu - 1;
 
-		if(contador >= sizemenu - 1)
-		{
-			contador = sizemenu - 1;
-		}
-
-		retorno = true;
-	}
-	return retorno;
+        retorno = true;
+    }
+    return retorno;
 }
 
+/**
+ * @brief Muestra las opciones de un menú en la pantalla LCD, con la opción seleccionada indicada.
+ * @param pos Posición actual en el menú.
+ * @param menus Arreglo de cadenas con las opciones del menú.
+ * @param sizemenu Número total de opciones en el menú.
+ */
 void fn_menu(int pos, char *menus[], uint8_t sizemenu)
 {
     HD44780_Clear();
+
+    // Resetear líneas del LCD.
     strcpy(linea1, "");
     strcpy(linea2, "");
     strcpy(linea3, "");
     strcpy(linea4, "");
 
-    if((pos % 4) == 0)
+    // Asignar opciones a las líneas según la posición actual.
+    if ((pos % 4) == 0)
     {
-        HD44780_SetCursor(0,0);
-        HD44780_PrintSpecialChar(4);
+        HD44780_SetCursor(0, 0);
+        HD44780_PrintSpecialChar(4); // Indicar opción seleccionada.
         strcpy(linea1, menus[pos]);
-
-        if(pos + 1 != sizemenu)
-        {
-            strcpy(linea2, menus[pos + 1]);
-        }
-        if(pos + 2 != sizemenu)
-        {
-            strcpy(linea3, menus[pos + 2]);
-        }
-        if(pos + 3 != sizemenu)
-        {
-            strcpy(linea4, menus[pos + 3]);
-        }
+        if (pos + 1 < sizemenu) strcpy(linea2, menus[pos + 1]);
+        if (pos + 2 < sizemenu) strcpy(linea3, menus[pos + 2]);
+        if (pos + 3 < sizemenu) strcpy(linea4, menus[pos + 3]);
     }
-    else if((pos % 4) == 1)
+    else if ((pos % 4) == 1)
     {
-        strcpy(linea1, menus[pos-1]);
-        HD44780_SetCursor(0,1);
+        strcpy(linea1, menus[pos - 1]);
+        HD44780_SetCursor(0, 1);
         HD44780_PrintSpecialChar(4);
         strcpy(linea2, menus[pos]);
-
-        if(pos + 1 != sizemenu)
-        {
-            strcpy(linea3, menus[pos + 1]);
-        }
-        if(pos + 2 != sizemenu)
-        {
-            strcpy(linea4, menus[pos + 2]);
-        }
+        if (pos + 1 < sizemenu) strcpy(linea3, menus[pos + 1]);
+        if (pos + 2 < sizemenu) strcpy(linea4, menus[pos + 2]);
     }
-    else if((pos % 4) == 2)
+    else if ((pos % 4) == 2)
     {
-        strcpy(linea1, menus[pos-2]);
-        strcpy(linea2, menus[pos-1]);
-        HD44780_SetCursor(0,2);
+        strcpy(linea1, menus[pos - 2]);
+        strcpy(linea2, menus[pos - 1]);
+        HD44780_SetCursor(0, 2);
         HD44780_PrintSpecialChar(4);
         strcpy(linea3, menus[pos]);
-
-        if(pos + 1 != sizemenu)
-        {
-            strcpy(linea4, menus[pos + 1]);
-        }
+        if (pos + 1 < sizemenu) strcpy(linea4, menus[pos + 1]);
     }
     else
     {
-        strcpy(linea1, menus[pos-3]);
-        strcpy(linea2, menus[pos-2]);
-        strcpy(linea3, menus[pos-1]);
-        HD44780_SetCursor(0,3);
+        strcpy(linea1, menus[pos - 3]);
+        strcpy(linea2, menus[pos - 2]);
+        strcpy(linea3, menus[pos - 1]);
+        HD44780_SetCursor(0, 3);
         HD44780_PrintSpecialChar(4);
         strcpy(linea4, menus[pos]);
     }
 
-    HD44780_SetCursor(1,0);
+    // Imprimir las líneas en el LCD.
+    HD44780_SetCursor(1, 0);
     HD44780_PrintStr(linea1);
-    HD44780_SetCursor(1,1);
+    HD44780_SetCursor(1, 1);
     HD44780_PrintStr(linea2);
-    HD44780_SetCursor(1,2);
+    HD44780_SetCursor(1, 2);
     HD44780_PrintStr(linea3);
-    HD44780_SetCursor(1,3);
+    HD44780_SetCursor(1, 3);
     HD44780_PrintStr(linea4);
 }
 
+/**
+ * @brief Imprime el valor actual de una variable en la pantalla LCD.
+ * @param label Etiqueta descriptiva del valor.
+ * @param value Valor numérico a mostrar.
+ */
 void printCurrentValue(const char* label, int value)
 {
     char buffer[20];
@@ -1292,20 +1376,29 @@ void printCurrentValue(const char* label, int value)
     HD44780_PrintStr(buffer);
 }
 
-int presForFrequency (int frequency)
+/**
+ * @brief Calcula el valor del prescaler para obtener la frecuencia deseada.
+ * @param frequency Frecuencia deseada en Hz.
+ * @return Valor del prescaler calculado.
+ */
+int presForFrequency(int frequency)
 {
-	if (frequency == 0) return 0;
-	return ((TIM_FREQ/(1000*frequency))-1);  // 1 is added in the register
+    if (frequency == 0) return 0;
+    return ((TIM_FREQ / (1000 * frequency)) - 1); // Fórmula para prescaler.
 }
 
-// Función para alternar el estado del retroiluminado
+/**
+ * @brief Alterna entre encender y apagar el retroiluminado del LCD.
+ */
 void Toggle_Backlight(void)
 {
     if (backlightState)
     {
         HD44780_NoBacklight();
         backlightState = 0;
-    } else {
+    }
+    else
+    {
         HD44780_Backlight();
         backlightState = 1;
     }
