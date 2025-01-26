@@ -7,7 +7,8 @@
 Este repositorio está dividido en dos secciones principales:
 
 - **Libraries/**: Contiene librerías personalizadas para diferentes periféricos y módulos externos, como sensores, RTC, y más.
-- **LibrariesExamples/**: Incluye ejemplos prácticos que demuestran cómo utilizar cada una de las librerías en aplicaciones reales.
+- **LibrariesExamples/**: Incluye ejemplos prácticos sencillos que demuestran cómo utilizar cada una de las librerías.
+- **Projects/**: Incluye proyectos realizados con diversos microcontroladores STM32 con aplicaciones en sistemas embebidos.
 
 ---
 
@@ -52,7 +53,7 @@ STM32/
    ```
 2. **Navega a la carpeta deseada:**
    ```bash
-   cd STM32/Libraries/
+   cd STM32/.../...
    ```
 3. **Abre el ejemplo correspondiente en tu entorno de desarrollo.**
 4. **Compila y sube el código a tu microcontrolador STM32.**
