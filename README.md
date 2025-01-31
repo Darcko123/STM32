@@ -4,7 +4,7 @@
 
 ## 📚 **Descripción General**
 
-Este repositorio está dividido en dos secciones principales:
+Este repositorio está dividido en cuatro secciones principales:
 
 - **Libraries/**: Contiene librerías personalizadas para diferentes periféricos y módulos externos, como sensores, RTC, y más.
 - **LibrariesExamples/**: Incluye ejemplos prácticos sencillos que demuestran cómo utilizar cada una de las librerías.
