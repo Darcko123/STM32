@@ -9,6 +9,7 @@ Este repositorio está dividido en dos secciones principales:
 - **Libraries/**: Contiene librerías personalizadas para diferentes periféricos y módulos externos, como sensores, RTC, y más.
 - **LibrariesExamples/**: Incluye ejemplos prácticos sencillos que demuestran cómo utilizar cada una de las librerías.
 - **Projects/**: Incluye proyectos realizados con diversos microcontroladores STM32 con aplicaciones en sistemas embebidos.
+- **PerifericosBasicos/**: Incluye ejemplos y explicaciones de cómo usar perifericos como Timers, Interrupciones, ADCs, etc.
 
 ---
 
@@ -28,6 +29,9 @@ STM32/
 │
 ├── Projects/        #Proyectos varios
 │   ├── ClockWithMenu/
+│
+├── PerifericosBasicos/        #Uso de périfericos básicos
+│   ├── ServomotorWithPWM/
 │
 ├── LICENSE          # Licencia del proyecto
 ├── README.md        # Este archivo
