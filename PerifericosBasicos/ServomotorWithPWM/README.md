@@ -6,7 +6,7 @@ Este documento explica la configuración y cálculo de parámetros para el contr
 ## Frecuencia de Trabajo del Servomotor
 Un servomotor típico opera con una frecuencia de 50 Hz, lo que significa que el periodo de la señal PWM es:
 
-\[ T = \frac{1}{frecuencia} = \frac{1}{50Hz} = 0.02s = 20ms \]
+$'\[ T = \frac{1}{frecuencia} = \frac{1}{50Hz} = 0.02s = 20ms \]'$
 
 ## Configuración del Timer
 El periodo del PWM se define mediante la siguiente ecuación:
