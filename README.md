@@ -21,6 +21,7 @@ STM32/
 │   ├── SI7021/      # Librería para sensor de temperatura y humedad
 │   ├── MPU950/      # Librería para acelerómetro
 │   ├── RTC/         # Librería para módulo RTC
+│   ├── MAX7219/     # Librería para el control de una matriz de leds
 │
 ├── LibrariesExamples/        # Ejemplos prácticos de uso de las librerías
 │   ├── SI7021_Example/
