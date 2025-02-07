@@ -27,6 +27,7 @@ STM32/
 │   ├── SI7021_Example/
 │   ├── MPU6050_Example/
 │   ├── RTC_Example/
+│   ├── MAX7219_Example/
 │
 ├── Projects/        #Proyectos varios
 │   ├── ClockWithMenu/
