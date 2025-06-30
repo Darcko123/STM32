@@ -13,8 +13,6 @@ Este proyecto implementa el control preciso de un motor paso a paso (28BYJ-48) u
 - ✅ Compatible con motores 28BYJ-48 con driver ULN2003
 - ✅ Implementación eficiente usando HAL de STM32CubeIDE
 
-## Configuración de activación de las bobinas del motor a pasos
-
 ### Componentes Requeridos
 - Placa STM32F103 (Blue Pill u otra compatible)
 - Motor paso a paso 28BYJ-48

@@ -1,7 +1,14 @@
 # Control de Servomotor con STM32 y PWM
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![STM32](https://img.shields.io/badge/Platform-STM32F411-black)](https://www.st.com/en/microcontrollers-microprocessors/stm32f4-series.html)
 
 ## Introducción
 Este documento explica la configuración y cálculo de parámetros para el control de un servomotor utilizando un microcontrolador STM32. Se detalla el cálculo de la frecuencia de trabajo del PWM, la configuración del timer y la conversión de ángulos a valores de comparación para generar los pulsos correctos.
+
+## Características Principales
+- ✅ Movimiento por ángulos exactos
+- ✅ Compatible con cualquier servomotor
+- ✅ Implementación eficiente usando HAL de STM32CubeIDE
 
 ## Frecuencia de Trabajo del Servomotor
 Un servomotor típico opera con una frecuencia de 50 Hz, lo que significa que el periodo de la señal PWM es:
@@ -98,7 +105,12 @@ $\ pulse = 5.56 \times angulo + 250 \$
 Este cálculo permite convertir un ángulo de 0 a 180 grados en el valor de comparación correspondiente para el PWM del servomotor en STM32.
 
 ---
-**Notas:**
-- Se debe ajustar el timer y los valores en función de la frecuencia de trabajo del microcontrolador.
-- La ecuación lineal permite una conversión precisa del ángulo a pulsos de control del servo.
 
+# 📝 Licencia
+Este proyecto está bajo la licencia MIT.
+Eres libre de usar, modificar y distribuir este código para cualquier propósito con o sin fines comerciales.
+
+> [!NOTE]
+> NOTA:
+> - Se debe ajustar el timer y los valores en función de la frecuencia de trabajo del microcontrolador.
+> - La ecuación lineal permite una conversión precisa del ángulo a pulsos de control del servo.
