@@ -66,16 +66,16 @@ Para generar un retardo preciso en microsegundos, se utiliza uno de los Timers g
 
 La frecuencia del reloj del bus APB1 en el STM32F103 es de 72 MHz, y es la frecuencia base para muchos timers. El timer cuenta desde 0 hasta el valor en el ARR, incrementándose con cada "tick" del reloj del timer, cuya duración depende del prescaler:
 
-$\ T_{tick} = \frac{1}{F_{clk}} * (Prescaler + 1) \$
+    $\ T_{tick} = \frac{1}{F_{clk}} * (Prescaler + 1) \$
 
-$\ T_{delay} = (ARR + 1) * T_{tick}\$
+    $\ T_{delay} = (ARR + 1) * T_{tick}\$
 
 Para lograr un delay en microsegundos, necesitamos que cada tick del timer equivalga a 1 µs:
 
-$\ 1 us = 1 MHz\$
-$\ Prescaler = \frac{F_{clk}}{1 MHz} -1  = \fracc{72,000,000}{1,000,000} - 1 = 71\$
+    $\ 1 us = 1 MHz\$
+    $\ Prescaler = \frac{F_{clk}}{1 MHz} -1  = \frac{72,000,000}{1,000,000} - 1 = 71\$
 
-Prescaler = 71 nos da un incremento de 1 us.
+    Prescaler = 71 nos da un incremento de 1 us.
 
 De este modo, un contador que llegue a x representará un retardo de x microsegundos.
 
