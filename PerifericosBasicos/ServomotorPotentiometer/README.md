@@ -17,11 +17,11 @@ Este proyecto demuestra cómo controlar el ángulo de un servomotor en función 
 ### ⏱️ Configuración del Timer
 El Timer es usado para generar la señal PWM al servomotor. La configuración utilizada es:
 
-Frecuencia del reloj (`HCLK`): 72 MHz
+**Frecuencia del reloj** (`HCLK`): 72 MHz
 
-Prescaler: 144
+**Prescaler**: 144
 
-Período (ARR): 10,000
+**Período (ARR)**: 10,000
 
 Esta configuración permite generar un PWM con un periodo de 20 ms (50 Hz), adecuado para controlar servomotores de hobby.
 > [!NOTE]
@@ -31,13 +31,13 @@ Esta configuración permite generar un PWM con un periodo de 20 ms (50 Hz), adec
 ### 🎛️ Configuración del ADC
 Se utiliza el canal `ADC_IN0`, con las siguientes configuraciones:
 
-Modo de conversión continua: Habilitado
+**Modo de conversión continua**: Habilitado
 
-Resolución: 12 bits (0–4095)
+**Resolución**: 12 bits (0–4095)
 
-Modo de escaneo: Deshabilitado
+**Modo de escaneo**: Deshabilitado
 
-Disparo externo: Ninguno (inicio por software)
+**Disparo externo**: Ninguno (inicio por software)
 
 El valor del ADC representa la posición del potenciómetro y se actualiza de forma continua.
 
