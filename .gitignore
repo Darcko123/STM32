@@ -64,3 +64,5 @@ release
 *.exe
 *.dll
 
+*.metadata
+
