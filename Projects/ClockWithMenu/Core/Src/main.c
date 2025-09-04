@@ -110,6 +110,7 @@ char bufferSemana[10];
 char *nombre;
 int dia_semana_num;
 
+/* Variables para la temperatura y humedad */
 float temperaturaF, humedadF;
 int temperaturaInt, humedadInt;
 
@@ -209,10 +210,10 @@ const uint32_t updateInterval = 1000; // Intervalo de actualización en ms
 float lastTemperaturaInt = -1.0; // Valor anterior de la temperatura para comparar
 float lastHumedadInt = -1.0;     // Valor anterior de la humedad para comparar
 
-int cadenaTemperatura = 0;
-int lastCadenaTemperatura = -1;
+int cadenaTemperatura = 0;		// Variable para controlar la cadena de actualización de temperatura
+int lastCadenaTemperatura = -1; // Último valor de la cadena de temperatura
 
-int añoBisiesto;
+int anioBisiesto;
 
 /* USER CODE END 0 */
 
@@ -222,6 +223,7 @@ int añoBisiesto;
   */
 int main(void)
 {
+
   /* USER CODE BEGIN 1 */
 
   /* USER CODE END 1 */
@@ -288,6 +290,7 @@ int main(void)
       {
           Get_SI7021(&temperaturaF, &humedadF);
 
+		  // Actualizar la temperatura solo si ha cambiado.
           if (lastHumedadInt != humedadF)
           {
               humedadInt = (int)humedadF;
@@ -650,22 +653,24 @@ int main(void)
 		   */
 
 		  // Configuración del día
+		  // Summary: Este bloque maneja el incremento y la disminución del día del mes con lógica envolvente,
+		  // asegurando límites correctos para cada mes y años bisiestos (febrero).).
 		  if (level3_menu == 4)
 		  {
-		      // Manejo de cambios en el menú (botones incrementales y decrementales)
-		      if (fnSwitch(sizemenu4))
-		      {
-		          // Mostrar opciones de menú e imprimir el valor actual del día
-		          fn_menu(contador, menu4, sizemenu4);
-		          printCurrentValue("Dia", time.dayofmonth);
-		      }
+			  // Manejo de cambios en el menú (botones incrementales y decrementales)
+			  if (fnSwitch(sizemenu4))
+			  {
+				  // Mostrar opciones de menú e imprimir el valor actual del día
+				  fn_menu(contador, menu4, sizemenu4);
+				  printCurrentValue("Dia", time.dayofmonth);
+			  }
 
-		      // Manejo de la selección con el botón OK
-		      if (btnpress)
-		      {
-		          printCurrentValue("Dia", time.dayofmonth);
+			  // Manejo de la selección con el botón OK
+			  if (btnpress)
+			  {
+				  printCurrentValue("Dia", time.dayofmonth);
 
-		          if (contador == 0) // Incrementar el día (++).
+				  if (contador == 0) // Incrementar el día (++).
 		          {
 		              time.dayofmonth++;
 
@@ -682,11 +687,11 @@ int main(void)
 		              else if (time.month == 2)
 		              {
 		                  // Verificar si el año es bisiesto para determinar los días de febrero
-		                  añoBisiesto = ((time.year % 4 == 0 && time.year % 100 != 0) || (time.year % 400 == 0));
-		                  if ((añoBisiesto && time.dayofmonth > 29) || (!añoBisiesto && time.dayofmonth > 28))
-		                  {
-		                      time.dayofmonth = 1;
-		                  }
+						  anioBisiesto = ((time.year % 4 == 0 && time.year % 100 != 0) || (time.year % 400 == 0));
+						  if ((anioBisiesto && time.dayofmonth > 29) || (!anioBisiesto && time.dayofmonth > 28))
+						  {
+							  time.dayofmonth = 1;
+						  }
 		              }
 
 		              // Actualizar la hora en el RTC con el nuevo día
@@ -711,8 +716,8 @@ int main(void)
 		                  else if (time.month == 2)
 		                  {
 		                      // Verificar si el año es bisiesto para determinar los días de febrero
-		                      añoBisiesto = ((time.year % 4 == 0 && time.year % 100 != 0) || (time.year % 400 == 0));
-		                      time.dayofmonth = añoBisiesto ? 29 : 28;
+							  anioBisiesto = ((time.year % 4 == 0 && time.year % 100 != 0) || (time.year % 400 == 0));
+							  time.dayofmonth = anioBisiesto ? 29 : 28;
 		                  }
 		              }
 
@@ -948,20 +953,12 @@ int main(void)
 				  printCurrentValue("AlarmH", alarma.hour);
 				  if (contador == 0) //++
 				  {
-					  alarma.hour++;
-					  if(alarma.hour > 23)
-					  {
-						  alarma.hour = 0;
-					  }
+					  alarma.hour = adjustHour(alarma.hour, 1);
 					  RTC_SetAlarm1(alarma.hour, alarma.minutes, alarma.seconds);
 				  }
 				  else if (contador == 1) //--
 				  {
-					  alarma.hour--;
-					  if(alarma.hour < 0)
-					  {
-						  alarma.hour = 23;
-					  }
+					  alarma.hour = adjustHour(alarma.hour, -1);
 					  RTC_SetAlarm1(alarma.hour, alarma.minutes, alarma.seconds);
 				  }
 				  else if (contador == 2) //Atras
@@ -998,7 +995,8 @@ int main(void)
 				  else if (contador == 1) //--
 				  {
 					  alarma.minutes--;
-					  if(alarma.minutes < 0)
+					  // Si ocurre underflow (menor que 0), volver a 59
+					  if(alarma.minutes == 0)
 					  {
 						  alarma.minutes = 59;
 					  }
@@ -1203,22 +1201,28 @@ static void MX_TIM2_Init(void)
 static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
-/* USER CODE BEGIN MX_GPIO_Init_1 */
-/* USER CODE END MX_GPIO_Init_1 */
+  /* USER CODE BEGIN MX_GPIO_Init_1 */
+  /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
-  /*Configure GPIO pins : ButtonPlus_Pin ButtonOk_Pin ButtonMinus_Pin LCDLed_Pin */
-  GPIO_InitStruct.Pin = ButtonPlus_Pin|ButtonOk_Pin|ButtonMinus_Pin|LCDLed_Pin;
+  /*Configure GPIO pin : LCDLed_Pin */
+  GPIO_InitStruct.Pin = LCDLed_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+  HAL_GPIO_Init(LCDLed_GPIO_Port, &GPIO_InitStruct);
 
-/* USER CODE BEGIN MX_GPIO_Init_2 */
-/* USER CODE END MX_GPIO_Init_2 */
+  /*Configure GPIO pins : ButtonMinus_Pin ButtonOk_Pin ButtonPlus_Pin */
+  GPIO_InitStruct.Pin = ButtonMinus_Pin|ButtonOk_Pin|ButtonPlus_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /* USER CODE BEGIN MX_GPIO_Init_2 */
+  /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
@@ -1272,30 +1276,35 @@ void selectOption(void)
  */
 bool fnSwitch(uint8_t sizemenu)
 {
-    bool retorno = false;
-    if (HAL_GPIO_ReadPin(ButtonPlus_GPIO_Port, ButtonPlus_Pin) == GPIO_PIN_SET ||
-        HAL_GPIO_ReadPin(ButtonMinus_GPIO_Port, ButtonMinus_Pin) == GPIO_PIN_SET)
-    {
-        if (HAL_GPIO_ReadPin(ButtonPlus_GPIO_Port, ButtonPlus_Pin) == GPIO_PIN_SET)
-        {
-            contador++;
-            HAL_Delay(250);
-        }
-        else if (HAL_GPIO_ReadPin(ButtonMinus_GPIO_Port, ButtonMinus_Pin) == GPIO_PIN_SET)
-        {
-            contador--;
-            HAL_Delay(250);
-        }
+	static uint32_t lastButtonTime = 0;
+	const uint32_t debounceDelay = 250; // ms
+	bool retorno = false;
 
-        // Ajustar el contador al rango permitido.
-        if (contador < 0)
-            contador = 0;
-        if (contador >= sizemenu)
-            contador = sizemenu - 1;
+	uint32_t now = HAL_GetTick();
 
-        retorno = true;
-    }
-    return retorno;
+	if ((HAL_GPIO_ReadPin(ButtonPlus_GPIO_Port, ButtonPlus_Pin) == GPIO_PIN_SET ||
+		 HAL_GPIO_ReadPin(ButtonMinus_GPIO_Port, ButtonMinus_Pin) == GPIO_PIN_SET) &&
+		(now - lastButtonTime > debounceDelay))
+	{
+		if (HAL_GPIO_ReadPin(ButtonPlus_GPIO_Port, ButtonPlus_Pin) == GPIO_PIN_SET)
+		{
+			contador++;
+		}
+		else if (HAL_GPIO_ReadPin(ButtonMinus_GPIO_Port, ButtonMinus_Pin) == GPIO_PIN_SET)
+		{
+			contador--;
+		}
+
+		// Ajustar el contador al rango permitido con wrap-around.
+		if (contador < 0)
+			contador = sizemenu - 1;
+		if (contador >= sizemenu)
+			contador = 0;
+
+		lastButtonTime = now;
+		retorno = true;
+	}
+	return retorno;
 }
 
 /**
@@ -1370,10 +1379,18 @@ void fn_menu(int pos, char *menus[], uint8_t sizemenu)
  */
 void printCurrentValue(const char* label, int value)
 {
-    char buffer[20];
-    sprintf(buffer, "%s: %02d", label, value);
-    HD44780_SetCursor(10, 3);
-    HD44780_PrintStr(buffer);
+	char buffer[21];
+	char truncatedLabel[11]; // Permitir hasta 10 caracteres para la etiqueta
+	strncpy(truncatedLabel, label, 10);
+	truncatedLabel[10] = '\0';
+	sprintf(buffer, "%s: %02d", truncatedLabel, value);
+
+	// Calcular la columna de inicio para que la cadena quepa en 20 caracteres
+	int startCol = 20 - strlen(buffer);
+	if (startCol < 0) startCol = 0;
+
+	HD44780_SetCursor(startCol, 3);
+	HD44780_PrintStr(buffer);
 }
 
 /**
@@ -1403,6 +1420,22 @@ void Toggle_Backlight(void)
         backlightState = 1;
     }
 }
+/**
+ * @brief Ajusta la hora de la alarma con wrap-around.
+ * @param hour Hora actual.
+ * @param delta +1 para incrementar, -1 para decrementar.
+ * @return Nueva hora ajustada.
+ */
+int adjustHour(int hour, int delta)
+{
+	hour += delta;
+	if (hour > 23)
+		hour = 0;
+	else if (hour < 0)
+		hour = 23;
+	return hour;
+}
+
 /* USER CODE END 4 */
 
 /**
@@ -1419,8 +1452,7 @@ void Error_Handler(void)
   }
   /* USER CODE END Error_Handler_Debug */
 }
-
-#ifdef  USE_FULL_ASSERT
+#ifdef USE_FULL_ASSERT
 /**
   * @brief  Reports the name of the source file and the source line number
   *         where the assert_param error has occurred.
