@@ -22,6 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "RTC.h"
+#include "SI7021.h"
 #include "liquidcrystal_i2c.h"
 #include "stdio.h"
 #include "stdlib.h"
@@ -996,7 +997,7 @@ int main(void)
 				  {
 					  alarma.minutes--;
 					  // Si ocurre underflow (menor que 0), volver a 59
-					  if(alarma.minutes == 0)
+					  if(alarma.minutes < 0)
 					  {
 						  alarma.minutes = 59;
 					  }
