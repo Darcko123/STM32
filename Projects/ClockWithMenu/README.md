@@ -197,8 +197,8 @@ Project/
 ## Consideraciones Técnicas
 ### Requisitos de Memoria
 - Flash: ≥64KB (Recomendado STM32F411CEU6)
-  >[!Note]
-  > - Se requiere un microcontrolador con una memoria Flash de al menos 64 Kbytes, ya que el uso de buffers consume una cantidad significativa de espacio de almacenamiento. Por esta razón, el microcontrolador `STM32F103C6` resulta insuficiente para esta aplicación. En su lugar, se recomienda utilizar el modelo `STM32F103C8`.
+>[!Note]
+> - Se requiere un microcontrolador con una memoria Flash de al menos 64 Kbytes, ya que el uso de buffers consume una cantidad significativa de espacio de almacenamiento. Por esta razón, el microcontrolador `STM32F103C6` resulta insuficiente para esta aplicación. En su lugar, se recomienda utilizar el modelo `STM32F103C8`.
 - RAM: ≥16KB para buffers y variables
 - EEPROM: Para configuración persistente (opcional)
 
