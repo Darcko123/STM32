@@ -209,6 +209,6 @@ Project/
 - PWM: Frecuencias 7.1KHz y 8.7KHz para alarmas
 
 ## Licencia
-Este proyecto está licenciado bajo los términos que se encuentran en el archivo `LICENSE.md` en el directorio raíz del proyecto.
+Este proyecto está licenciado bajo los términos que se encuentran en el archivo [LICENSE.md](/LICENSE.md).
 
 ---
