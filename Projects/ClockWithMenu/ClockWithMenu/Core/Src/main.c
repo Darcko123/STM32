@@ -115,6 +115,28 @@ int dia_semana_num;
 float temperaturaF, humedadF;
 int temperaturaInt, humedadInt;
 
+//------ Control de Alarma No Bloqueante ------//
+typedef enum {
+    ALARM_IDLE,
+    ALARM_RINGING,
+    ALARM_TONE1,
+    ALARM_TONE2,
+    ALARM_PAUSE
+} AlarmState_t;
+
+AlarmState_t alarmState = ALARM_IDLE;
+uint32_t alarmStartTime = 0;
+uint32_t alarmLastToneTime = 0;
+uint32_t alarmTotalDuration = 60000;   // Duración total de la alarma en ms (60 segundos)
+uint32_t alarmToneDuration = 300;      // Duración de cada tono en ms
+uint32_t alarmPauseDuration = 150;     // Pausa entre tonos en ms
+uint32_t alarmCycleDuration = 1200;    // Duración de cada ciclo completo (tono1-tono2-pausa)
+bool alarmTriggered = false;
+static int lastAlarmSecond = -1;       // Variable para el reset del trigger
+
+uint32_t Tone1 = 500;
+uint32_t Tone2 = 1000;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -183,6 +205,21 @@ int presForFrequency (int frequency);
  * @brief Alterna el estado del retroiluminado de la pantalla LCD.
  */
 void Toggle_Backlight(void);
+
+/**
+ * @brief Maneja el sistema de alarma de manera no bloqueante.
+ */
+void handleAlarmSystem(void);
+
+/**
+ * @brief Inicia la secuencia de alarma.
+ */
+void startAlarmSequence(void);
+
+/**
+ * @brief Detiene la alarma y resetea el estado.
+ */
+void stopAlarmSequence(void);
 
 /* USER CODE END PFP */
 
@@ -344,6 +381,10 @@ int main(void)
               }
           }
 
+          // Manejar sistema de alarma no bloqueante
+          handleAlarmSystem();
+
+          // En la sección de PANTALLA PRINCIPAL (level_menu == 0), reemplazar:
           // Manejo de alarma.
           if (Alarma == true)
           {
@@ -354,27 +395,26 @@ int main(void)
               HD44780_SetCursor(19, 1);
               HD44780_PrintSpecialChar(5);
 
-              if ((alarma.hour == time.hour) && (alarma.minutes == time.minutes) && (alarma.seconds == time.seconds))
+              // Mostrar indicador si la alarma está sonando
+              if (alarmState != ALARM_IDLE)
               {
-                  __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(8700));
-                  HAL_Delay(125);
-                  __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(7100));
-                  HAL_Delay(125);
-                  __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(8700));
-                  HAL_Delay(125);
-                  __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(7100));
-                  HAL_Delay(125);
-                  __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(8700));
-                  HAL_Delay(125);
-                  __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(0));
+                  HD44780_SetCursor(15, 3);
+                  HD44780_PrintStr("RING");
+              }
+              else
+              {
+                  HD44780_SetCursor(15, 3);
+                  HD44780_PrintStr("    ");
               }
           }
           else if(Alarma == false)
-	      {
-	    	  sprintf(buffer, "        ");
-	    	  HD44780_SetCursor(12, 2);
-	    	  HD44780_PrintStr(buffer);
-	      }
+          {
+              sprintf(buffer, "        ");
+              HD44780_SetCursor(12, 2);
+              HD44780_PrintStr(buffer);
+              HD44780_SetCursor(15, 3);
+              HD44780_PrintStr("    ");
+          }
 
           // Entrar al menú principal al presionar el botón.
           if (btnpress)
@@ -1263,6 +1303,20 @@ char* nombre_dia(int dia)
  */
 void selectOption(void)
 {
+    // Detener alarma si está sonando y se presiona cualquier botón
+    if (alarmState != ALARM_IDLE)
+    {
+        if (HAL_GPIO_ReadPin(ButtonOk_GPIO_Port, ButtonOk_Pin) == GPIO_PIN_SET ||
+            HAL_GPIO_ReadPin(ButtonPlus_GPIO_Port, ButtonPlus_Pin) == GPIO_PIN_SET ||
+            HAL_GPIO_ReadPin(ButtonMinus_GPIO_Port, ButtonMinus_Pin) == GPIO_PIN_SET)
+        {
+            stopAlarmSequence();
+            HAL_Delay(300); // Anti-rebote para evitar entrar al menú accidentalmente
+            return; // Salir sin procesar más botones
+        }
+    }
+
+    // Solo procesar el botón OK si no hay alarma sonando
     if (HAL_GPIO_ReadPin(ButtonOk_GPIO_Port, ButtonOk_Pin) == GPIO_PIN_SET)
     {
         HAL_Delay(500); // Anti-rebote.
@@ -1435,6 +1489,102 @@ int adjustHour(int hour, int delta)
 	else if (hour < 0)
 		hour = 23;
 	return hour;
+}
+
+void handleAlarmSystem(void)
+{
+    uint32_t currentTime = HAL_GetTick();
+
+    // Verificar si debe activarse la alarma
+    if (Alarma == true && !alarmTriggered)
+    {
+        if ((alarma.hour == time.hour) && (alarma.minutes == time.minutes) && (alarma.seconds == time.seconds))
+        {
+            startAlarmSequence();
+        }
+    }
+
+    // Manejar los estados de la alarma
+    switch (alarmState)
+    {
+        case ALARM_IDLE:
+            // No hacer nada, esperar activación
+            break;
+
+        case ALARM_RINGING:
+        case ALARM_TONE1:
+        case ALARM_TONE2:
+        case ALARM_PAUSE:
+            // Verificar si ha pasado el tiempo total de la alarma
+            if (currentTime - alarmStartTime >= alarmTotalDuration)
+            {
+                stopAlarmSequence();
+            }
+            else
+            {
+                // Calcular en qué parte del ciclo estamos
+                uint32_t cycleTime = (currentTime - alarmStartTime) % alarmCycleDuration;
+
+                if (cycleTime < alarmToneDuration)
+                {
+                    // Primer tono
+                    if (alarmState != ALARM_TONE1)
+                    {
+                        __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(Tone1));
+                        alarmState = ALARM_TONE1;
+                    }
+                }
+                else if (cycleTime < (alarmToneDuration * 2))
+                {
+                    // Segundo tono
+                    if (alarmState != ALARM_TONE2)
+                    {
+                        __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(Tone2));
+                        alarmState = ALARM_TONE2;
+                    }
+                }
+                else
+                {
+                    // Pausa (sin sonido)
+                    if (alarmState != ALARM_PAUSE)
+                    {
+                        __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(0));
+                        alarmState = ALARM_PAUSE;
+                    }
+                }
+            }
+            break;
+    }
+
+    // Reset del trigger de alarma cuando cambie el segundo
+    if (time.seconds != lastAlarmSecond)
+    {
+        if (alarmState == ALARM_IDLE)
+        {
+            alarmTriggered = false;
+        }
+        lastAlarmSecond = time.seconds;
+    }
+}
+
+/**
+ * @brief Inicia la secuencia de alarma.
+ */
+void startAlarmSequence(void)
+{
+    alarmState = ALARM_RINGING;
+    alarmStartTime = HAL_GetTick();
+    alarmTriggered = true;
+}
+
+/**
+ * @brief Detiene la alarma y resetea el estado.
+ */
+void stopAlarmSequence(void)
+{
+    alarmState = ALARM_IDLE;
+    alarmTriggered = false;
+    __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(0)); // Apagar sonido
 }
 
 /* USER CODE END 4 */

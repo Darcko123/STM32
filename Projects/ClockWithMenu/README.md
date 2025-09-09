@@ -82,6 +82,58 @@ Nivel 3: Opciones específicas de configuración
 Nivel 4: Ajustes finos (++, --, Reset)
 ```
 
+## 🚨 Sistema de Alarma No Bloqueante (Máquina de Estados)
+### Arquitectura de la Máquina de Estados
+```C
+typedef enum {
+    ALARM_IDLE,        // Estado inactivo (reposo)
+    ALARM_RINGING,     // Alarma activada (transición)
+    ALARM_TONE1,       // Reproduciendo primer tono (500 Hz)
+    ALARM_TONE2,       // Reproduciendo segundo tono (1000 Hz)
+    ALARM_PAUSE        // Pausa entre tonos (silenciado)
+} AlarmState_t;
+```
+
+### Características del Sistema
+- __No Bloqueante__: Opera en segundo plano sin interrumpir funciones principales
+- __Temporización Precisa__: Control por temporizador de hardware (TIM2)
+- __Patrón de Sonido__: Tono alternante (Tone1-Tone2-Pausa) por 60 segundos
+- __Cancelación Inteligente__: Cualquier botón detiene la alarma inmediatamente
+
+### Parámetros Configurables
+```C
+uint32_t alarmTotalDuration = 60000;   // Duración total: 60 segundos
+uint32_t alarmToneDuration = 300;      // Duración de cada tono: 300ms
+uint32_t alarmPauseDuration = 150;     // Pausa entre tonos: 150ms
+uint32_t alarmCycleDuration = 1200;    // Ciclo completo: 1200ms
+uint32_t Tone1 = 500;                 // Frecuencia primer tono: 500Hz
+uint32_t Tone2 = 1000;                 // Frecuencia segundo tono: 1KHz
+```
+
+### Máquina de estados
+```textplain
+[ALARM_IDLE] → (Condición: Hora coincidente) → [ALARM_RINGING]
+      ↑                                            |
+      |                                            ↓
+      |                                   [ALARM_TONE1] → (300ms) → [ALARM_TONE2] → (300ms) → [ALARM_PAUSE] → (150ms)
+      |                                            ↑                                               |
+      |                                            └───────────────────────────────────────────────┘
+      |                                                         (Ciclo cada 1200ms)
+      └─────────────────────────────────────────────────────────────────────────────────────────────
+                                   (Condición: Tiempo total > 60s OR Botón presionado)
+```
+
+### Mecanismo de Activación
+1. Verificación Continua: En cada iteración del loop principal
+2. Comparación de Tiempo: Hora actual vs hora de alarma configurada
+3. Trigger Único: Se activa solo una vez por evento de alarma
+4. Reset Automático: Se reinicia cuando cambia el segundo
+
+### Gestión de PWM para Sonido
+- Prescaler Dinámico: Calculado en tiempo real para frecuencias específicas
+- Fórmula: `Prescaler = (72,000,000 / (1000 * frecuencia)) - 1`
+- Silenciado: Prescaler = 0 para desactivar el sonido
+
 ## Configuración del proyecto
 ### Requisitos de software
 - STM32CubeIDE v1.8.0 o superior
