@@ -169,3 +169,65 @@ De esta manera, la configuración de la terminal quedaría de la siguiente maner
 >El puerto cambiará dependiendo de cada dispositivo. Ingresar a `Administrador de dispositivos` > `Puertos (COM y LPT)` y veríficar el puerto en el que aparece `USB Serial Port`
 
 ### Resultado
+![Result](/PerifericosBasicos/UART/images/HelloWorld.png)
+
+Recordar además que cómo en C, se pueden agregar tabulaciones, saltos de linea y regreso en la misma línea, todo esto con los comandos `/n`, `/t`, `/r`.
+
+De manera que modificando un poco el código, el array de datos podría quedar:
+
+```C
+uint8_t data[] = "Hello\tworld\n\r";
+```
+
+Y en terminal se podría ver:
+
+![HelloWordTab](/PerifericosBasicos/UART/images/HelloWorldTab.png)
+
+Adicionalmente, y cómo función totalmente extra, se pueden agregar colores a termianl, incorporando los siguientes extractos de código:
+
+```C
+/* Private define ------------------------------------------------------------*/
+/* USER CODE BEGIN PD */
+#define ANSI_COLOR_RED     "\x1b[31m"
+#define ANSI_COLOR_GREEN   "\x1b[32m"
+#define ANSI_COLOR_YELLOW  "\x1b[33m"
+#define ANSI_COLOR_BLUE    "\x1b[34m"
+#define ANSI_COLOR_RESET   "\x1b[0m"
+/* USER CODE END PD */
+
+  /* Infinite loop */
+  /* USER CODE BEGIN WHILE */
+int main()
+{
+  while (1)
+  {
+	  //Rojo
+	  sprintf(numarray, ANSI_COLOR_RED"%d\n\r", number);
+	  HAL_UART_Transmit(&huart1, numarray, strlen(numarray), 1000);
+
+	  //Verde
+	  sprintf(numarray, ANSI_COLOR_GREEN"%d\n\r", number);
+	  HAL_UART_Transmit(&huart1, numarray, strlen(numarray), 1000);
+
+	  //Amarillo
+	  sprintf(numarray, ANSI_COLOR_YELLOW"%d\n\r", number);
+	  HAL_UART_Transmit(&huart1, numarray, strlen(numarray), 1000);
+
+	  //Azúl
+	  sprintf(numarray, ANSI_COLOR_BLUE"%d\n\r", number);
+	  HAL_UART_Transmit(&huart1, numarray, strlen(numarray), 1000);
+
+	  //Reset
+	  sprintf(numarray, ANSI_COLOR_RESET"%d\n\r", number);
+	  HAL_UART_Transmit(&huart1, numarray, strlen(numarray), 1000);
+
+	  HAL_Delay(5000);
+    /* USER CODE END WHILE */
+
+    /* USER CODE BEGIN 3 */
+  }
+  /* USER CODE END 3 */
+}
+```
+
+![TerminalColor](/PerifericosBasicos/UART/images/TerminalCOlor.png)

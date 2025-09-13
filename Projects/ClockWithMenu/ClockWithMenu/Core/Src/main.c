@@ -137,6 +137,27 @@ static int lastAlarmSecond = -1;       // Variable para el reset del trigger
 uint32_t Tone1 = 500;
 uint32_t Tone2 = 1000;
 
+//------ Control de SIG No Bloqueante ------//
+typedef enum {
+    SIG_IDLE,
+    SIG_ACTIVE,
+    SIG_TONE1,
+    SIG_TONE2,
+    SIG_PAUSE
+} SigState_t;
+
+SigState_t sigState = SIG_IDLE;
+uint32_t sigStartTime = 0;
+uint32_t sigLastToneTime = 0;
+uint32_t sigTotalDuration = 600;   // Duración total del SIG en ms
+uint32_t sigToneDuration = 100;    // Duración de cada tono en ms
+uint32_t sigPauseDuration = 100;   // Pausa entre tonos en ms
+uint32_t sigCycleDuration = 300;   // Duración de cada ciclo completo
+bool sigTriggered = false;
+static int lastSigHour = -1;       // Última hora en que se activó el SIG
+
+uint32_t ToneSIG1 = 7100;
+uint32_t ToneSIG2 = 7500;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -207,6 +228,22 @@ int presForFrequency (int frequency);
 void Toggle_Backlight(void);
 
 /**
+ * @brief Ajusta la hora de la alarma con wrap-around.
+ * @param hour Hora actual.
+ * @param delta +1 para incrementar, -1 para decrementar.
+ * @return Nueva hora ajustada.
+ */
+int adjustHour(int hour, int delta);
+
+/**
+ * @brief Ajusta los minutos de la alarma con wrap-around.
+ * @param minute Minuto actual.
+ * @param delta +1 para incrementar, -1 para decrementar.
+ * @return Nueva hora ajustada.
+ */
+int adjustMinutes(int minute, int delta);
+
+/**
  * @brief Maneja el sistema de alarma de manera no bloqueante.
  */
 void handleAlarmSystem(void);
@@ -221,6 +258,20 @@ void startAlarmSequence(void);
  */
 void stopAlarmSequence(void);
 
+/**
+ * @brief Maneja el sistema SIG de manera no bloqueante.
+ */
+void handleSigSystem(void);
+
+/**
+ * @brief Inicia la secuencia SIG.
+ */
+void startSigSequence(void);
+
+/**
+ * @brief Detiene la secuencia SIG.
+ */
+void stopSigSequence(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -315,6 +366,18 @@ int main(void)
       RTC_GetTime(&time);
       RTC_GetAlarm1(&alarma);
 
+      // Manejar sistema de alarma no bloqueante
+      handleAlarmSystem();
+
+      // Manejar sistema de SIG no bloqueante
+      handleSigSystem();
+
+      // Limpiar la pantalla cada cambio de día
+      if((time.hour == 0) && (time.minutes==00) && (time.seconds == 01))
+      {
+    	  HD44780_Clear();
+      }
+
       // Determinar el día de la semana basado en la fecha actual.
       dia_semana_num = dia_semana(time.dayofmonth, time.month, time.year);
       nombre = nombre_dia(dia_semana_num);
@@ -367,22 +430,30 @@ int main(void)
           HD44780_SetCursor(0, 3);
           HD44780_PrintStr(buffer);
 
-          // Manejo de señal SIG.
+          // Mostrar indicador SIG y manejar sistema no bloqueante
           if (SIG == true)
           {
               HD44780_SetCursor(15, 1);
               HD44780_PrintStr("SIG");
 
-              if ((time.minutes == 0) && (time.seconds == 0))
+              // Mostrar indicador cuando SIG está activo
+              if (sigState != SIG_IDLE)
               {
-                  __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(7100));
-                  HAL_Delay(250);
-                  __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(0));
+                  HD44780_SetCursor(18, 1);
+                  HD44780_PrintStr("*");
+              }
+              else
+              {
+                  HD44780_SetCursor(18, 1);
+                  HD44780_PrintStr(" ");
               }
           }
-
-          // Manejar sistema de alarma no bloqueante
-          handleAlarmSystem();
+          else
+          {
+              // Limpiar indicadores si SIG está desactivado
+              HD44780_SetCursor(15, 1);
+              HD44780_PrintStr("   ");
+          }
 
           // En la sección de PANTALLA PRINCIPAL (level_menu == 0), reemplazar:
           // Manejo de alarma.
@@ -593,20 +664,12 @@ int main(void)
 				  printCurrentValue("Hora", time.hour);
 				  if (contador == 0) //++
 				  {
-					  time.hour++;
-					  if(time.hour > 23)
-					  {
-						  time.hour = 0;
-					  }
+					  time.hour = adjustHour(time.hour, 1);
 					  RTC_SetTime(time.hour, time.minutes, time.seconds, time.dayofmonth, time.month, time.year);
 				  }
 				  else if (contador == 1) //--
 				  {
-					  time.hour--;
-					  if(time.hour < 0)
-					  {
-						  time.hour = 23;
-					  }
+					  time.hour = adjustHour(time.hour, -1);
 					  RTC_SetTime(time.hour, time.minutes, time.seconds, time.dayofmonth, time.month, time.year);
 				  }
 				  else if (contador == 2) //Atras
@@ -633,20 +696,12 @@ int main(void)
 				  printCurrentValue("Minutos", time.minutes);
 				  if (contador == 0) //++
 				  {
-					  time.minutes++;
-					  if(time.minutes > 59)
-					  {
-						  time.minutes = 0;
-					  }
+					  time.minutes = adjustMinutes(time.minutes, 1);
 					  RTC_SetTime(time.hour, time.minutes, time.seconds, time.dayofmonth, time.month, time.year);
 				  }
 				  else if (contador == 1) //--
 				  {
-					  time.minutes--;
-					  if(time.minutes <= 0)
-					  {
-						  time.minutes = 0;
-					  }
+					  time.minutes = adjustMinutes(time.minutes, -1);
 					  RTC_SetTime(time.hour, time.minutes, time.seconds, time.dayofmonth, time.month, time.year);
 				  }
 				  else if (contador == 2) //Atras
@@ -1026,21 +1081,12 @@ int main(void)
 				  printCurrentValue("AlarmM", alarma.minutes);
 				  if (contador == 0) //++
 				  {
-					  alarma.minutes++;
-					  if(alarma.minutes > 59)
-					  {
-						  alarma.minutes = 0;
-					  }
+					  alarma.minutes = adjustMinutes(alarma.minutes, 1);
 					  RTC_SetAlarm1(alarma.hour, alarma.minutes, alarma.seconds);
 				  }
 				  else if (contador == 1) //--
 				  {
-					  alarma.minutes--;
-					  // Si ocurre underflow (menor que 0), volver a 59
-					  if(alarma.minutes < 0)
-					  {
-						  alarma.minutes = 59;
-					  }
+					  alarma.minutes = adjustMinutes(alarma.minutes, -1);
 					  RTC_SetAlarm1(alarma.hour, alarma.minutes, alarma.seconds);
 				  }
 				  else if (contador == 2) //Atras
@@ -1491,6 +1537,22 @@ int adjustHour(int hour, int delta)
 	return hour;
 }
 
+/**
+ * @brief Ajusta los minutos de la alarma con wrap-around.
+ * @param minute Minuto actual.
+ * @param delta +1 para incrementar, -1 para decrementar.
+ * @return Nueva hora ajustada.
+ */
+int adjustMinutes(int minute, int delta)
+{
+	minute += delta;
+	if (minute > 59)
+		minute = 0;
+	else if (minute < 0)
+		minute = 59;
+	return minute;
+}
+
 void handleAlarmSystem(void)
 {
     uint32_t currentTime = HAL_GetTick();
@@ -1585,6 +1647,133 @@ void stopAlarmSequence(void)
     alarmState = ALARM_IDLE;
     alarmTriggered = false;
     __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(0)); // Apagar sonido
+}
+
+/**
+ * @brief Maneja el sistema SIG de manera no bloqueante.
+ * El SIG se activa cada hora en punto (cuando minutos = 0 y segundos = 0)
+ */
+void handleSigSystem(void)
+{
+    uint32_t currentTime = HAL_GetTick();
+
+    // Solo verificar SIG si está habilitado
+    if (SIG == true)
+    {
+        // Detectar cuando llega una nueva hora (minutos = 0 y segundos = 0)
+        if (time.minutes == 0 && time.seconds == 0)
+        {
+            // Verificar si hay conflicto con la alarma exactamente a la misma hora/minuto/segundo
+            bool conflictoConAlarma = (Alarma == true) &&
+                                     (time.hour == alarma.hour) &&
+                                     (time.minutes == alarma.minutes) &&
+                                     (time.seconds == alarma.seconds);
+
+            // Solo activar SIG si no hay conflicto con alarma y no se ha activado ya en esta hora
+            if (!conflictoConAlarma && sigState == SIG_IDLE && time.hour != lastSigHour)
+            {
+                startSigSequence();
+                lastSigHour= time.hour;  // Guardar la hora actual para evitar reactivación
+            }
+        }
+    }
+
+    // Manejar el estado del SIG
+    switch (sigState)
+    {
+        case SIG_IDLE:
+            // No hacer nada, esperar activación
+            break;
+
+        case SIG_ACTIVE:
+        case SIG_TONE1:
+        case SIG_TONE2:
+        case SIG_PAUSE:
+            // Verificar si ha pasado el tiempo de duración del SIG
+            if (currentTime - sigStartTime >= sigTotalDuration)
+            {
+                stopSigSequence();
+            }
+            else
+            {
+                // Calcular en qué parte del ciclo estamos
+                uint32_t cycleTime = (currentTime - sigStartTime) % sigCycleDuration;
+
+                if (cycleTime < sigToneDuration)
+                {
+                    // Primer tono
+                    if (sigState != SIG_TONE1)
+                    {
+                        // Solo cambiar prescaler si no hay alarma activa
+                        if (alarmState == ALARM_IDLE)
+                        {
+                            __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(ToneSIG1));
+                        }
+                        sigState = SIG_TONE1;
+                    }
+                }
+                else if (cycleTime < (sigToneDuration * 2))
+                {
+                    // Segundo tono
+                    if (sigState != SIG_TONE2)
+                    {
+                        // Solo cambiar prescaler si no hay alarma activa
+                        if (alarmState == ALARM_IDLE)
+                        {
+                            __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(ToneSIG2));
+                        }
+                        sigState = SIG_TONE2;
+                    }
+                }
+                else
+                {
+                    // Pausa (sin sonido)
+                    if (sigState != SIG_PAUSE)
+                    {
+                        // Solo cambiar prescaler si no hay alarma activa
+                        if (alarmState == ALARM_IDLE)
+                        {
+                            __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(0));
+                        }
+                        sigState = SIG_PAUSE;
+                    }
+                }
+            }
+            break;
+    }
+}
+
+/**
+ * @brief Inicia la secuencia SIG.
+ */
+void startSigSequence(void)
+{
+    // Solo iniciar si no hay alarma activa
+    if (alarmState == ALARM_IDLE)
+    {
+        sigState = SIG_ACTIVE;
+        sigStartTime = HAL_GetTick();
+        sigTriggered = true;
+
+        // Iniciar con el primer tono
+        __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(ToneSIG1));
+        sigState = SIG_TONE1;
+    }
+}
+
+/**
+ * @brief Detiene la secuencia SIG.
+ */
+void stopSigSequence(void)
+{
+    sigState = SIG_IDLE;
+    sigTriggered = false;
+
+    // Solo apagar el sonido si no hay alarma activa
+    if (alarmState == ALARM_IDLE)
+    {
+        __HAL_TIM_SET_PRESCALER(&htim2, presForFrequency(0));
+    }
 }
 
 /* USER CODE END 4 */
