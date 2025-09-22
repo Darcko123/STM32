@@ -10,7 +10,19 @@
 
 #include "RTC.h"
 
-extern I2C_HandleTypeDef hi2c1;
+static I2C_HandleTypeDef* RTC_hi2c;     /**< Manejador de la interfaz I2C utilizado para comunicarse con el RTC */
+
+/**
+ * @brief Inicializa el sensor DS3231 (RTC)
+ * 
+ * @details
+ * - Configura el handler de I2C para la comunicación con el módulo RTC.
+ * - No realiza configuraciones adicionales ya que el DS3231 está listo para usarse tras la alimentación.
+ */
+void RTC_Init(I2C_HandleTypeDef* hi2c)
+{
+    RTC_hi2c = hi2c;
+}
 
 /**
  * @brief Convierte un número decimal a formato BCD.
@@ -55,7 +67,7 @@ void RTC_SetTime(uint8_t hour, uint8_t min, uint8_t sec, uint8_t dom, uint8_t mo
     set_time[5] = decToBcd(month);
     set_time[6] = decToBcd(year);
 
-    HAL_I2C_Mem_Write(&hi2c1, DS3231_ADDRESS, 0x00, 1, set_time, 7, 1000);
+    HAL_I2C_Mem_Write(RTC_hi2c, DS3231_ADDRESS, 0x00, 1, set_time, 7, 1000);
 }
 
 /**
@@ -66,7 +78,7 @@ void RTC_SetTime(uint8_t hour, uint8_t min, uint8_t sec, uint8_t dom, uint8_t mo
 void RTC_GetTime(TIME *time)
 {
     uint8_t get_time[7];
-    HAL_I2C_Mem_Read(&hi2c1, DS3231_ADDRESS, 0x00, 1, get_time, 7, 1000);
+    HAL_I2C_Mem_Read(RTC_hi2c, DS3231_ADDRESS, 0x00, 1, get_time, 7, 1000);
 
     time->seconds    = bcdToDec(get_time[0]);
     time->minutes    = bcdToDec(get_time[1]);
@@ -91,7 +103,7 @@ void RTC_SetAlarm1(uint8_t hourAlarm, uint8_t minAlarm, uint8_t secAlarm)
     set_alarm[1] = decToBcd(minAlarm); 
     set_alarm[2] = decToBcd(hourAlarm); 
 
-    HAL_I2C_Mem_Write(&hi2c1, DS3231_ADDRESS, 0x07, 1, set_alarm, 3, 1000);
+    HAL_I2C_Mem_Write(RTC_hi2c, DS3231_ADDRESS, 0x07, 1, set_alarm, 3, 1000);
 }
 
 /**
@@ -103,7 +115,7 @@ void RTC_GetAlarm1(ALARM1 *alarma1)
 {
     uint8_t get_alarm[3];
 
-    HAL_I2C_Mem_Read(&hi2c1, DS3231_ADDRESS, 0x07, 1, get_alarm, 3, 1000);
+    HAL_I2C_Mem_Read(RTC_hi2c, DS3231_ADDRESS, 0x07, 1, get_alarm, 3, 1000);
 
     alarma1->seconds = bcdToDec(get_alarm[0]);
     alarma1->minutes = bcdToDec(get_alarm[1]);
@@ -123,7 +135,7 @@ void RTC_SetAlarm2(uint8_t hourAlarm, uint8_t minAlarm)
     set_alarm[0] = decToBcd(minAlarm);
     set_alarm[1] = decToBcd(hourAlarm);
 
-    HAL_I2C_Mem_Write(&hi2c1, DS3231_ADDRESS, 0x0B, 1, set_alarm, 2, 1000);
+    HAL_I2C_Mem_Write(RTC_hi2c, DS3231_ADDRESS, 0x0B, 1, set_alarm, 2, 1000);
 }
 
 /**
@@ -135,7 +147,7 @@ void RTC_GetAlarm2(ALARM2 *alarma2)
 {
     uint8_t get_alarm[2];
 
-    HAL_I2C_Mem_Read(&hi2c1, DS3231_ADDRESS, 0x0B, 1, get_alarm, 2, 1000);
+    HAL_I2C_Mem_Read(RTC_hi2c, DS3231_ADDRESS, 0x0B, 1, get_alarm, 2, 1000);
 
     alarma2->minutes = bcdToDec(get_alarm[0]);
     alarma2->hour    = bcdToDec(get_alarm[1]);
