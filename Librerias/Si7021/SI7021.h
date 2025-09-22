@@ -14,22 +14,15 @@
 #include "stm32f1xx_hal.h"
 
 /**
- * @brief Handler externo para la comunicación I2C.
- *
- * Asegúrate de que el handler I2C (hi2c1) está correctamente configurado
- * en tu archivo principal (main.c) antes de llamar a las funciones de esta librería.
- */
-extern I2C_HandleTypeDef hi2c1;
-
-/**
  * @brief Inicializa el sensor SI7021.
  *
- * Envía un comando de reinicio al sensor SI7021 para asegurar su correcto funcionamiento.
- * Esta función debe ser llamada antes de leer datos del sensor.
+ * Envía un comando de reset al sensor a través de I2C para asegurar que está en un estado conocido.
  *
- * @note La comunicación se realiza a través de I2C.
+ * @param hi2c Puntero al manejador de la interfaz I2C previamente configurado.
+ * 
+ * @note Esta función debe ser llamada antes de realizar lecturas de temperatura y humedad.
  */
-void SI7021_Init(void);
+void SI7021_Init(I2C_HandleTypeDef* hi2c);
 
 /**
  * @brief Lee los valores de temperatura y humedad del sensor SI7021.
@@ -41,6 +34,6 @@ void SI7021_Init(void);
  *
  * @attention Asegúrate de llamar a `si7021_init` antes de usar esta función.
  */
-void Get_SI7021(float *temp, float *humid);
+void SI7021_Get(float *temp, float *humid);
 
 #endif /* __SI7021_H */

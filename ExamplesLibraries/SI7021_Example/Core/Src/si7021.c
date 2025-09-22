@@ -8,7 +8,9 @@
  * @version 1.0
  */
 
-#include "si7021.h"
+#include "SI7021.h"
+
+static I2C_HandleTypeDef* SI7021_hi2c;     /**< Manejador de la interfaz I2C utilizado para comunicarse con el módulo */
 
 /**
  * @brief Buffers de datos para comunicación I2C.
@@ -39,12 +41,18 @@ static float tempp, hu;
  *
  * Envía un comando de reset al sensor a través de I2C para asegurar que está en un estado conocido.
  *
+ * @param hi2c Puntero al manejador de la interfaz I2C previamente configurado.
+ * 
  * @note Esta función debe ser llamada antes de realizar lecturas de temperatura y humedad.
  */
-void si7021_init(void)
+void SI7021_Init(I2C_HandleTypeDef* hi2c)
 {
+
+    // Asigna el handler de I2C proporcionado a la variable estática
+    SI7021_hi2c = hi2c;
+
     // Envía el comando de reset (0xFE) al sensor SI7021
-    HAL_I2C_Master_Transmit(&hi2c1, 0x80, da, 1, 100);
+    HAL_I2C_Master_Transmit(SI7021_hi2c, 0x80, da, 1, 100);
     HAL_Delay(20); // Espera 20 ms para completar el reset
 }
 
@@ -56,11 +64,11 @@ void si7021_init(void)
  *
  * @note La fórmula de conversión está basada en el datasheet del SI7021.
  */
-void get_si7021(float *temp, float *humid)
+void SI7021_Get(float *temp, float *humid)
 {
     // ----- Lectura de Temperatura -----
-    HAL_I2C_Master_Transmit(&hi2c1, 0x80, &read[0], 1, 100); // Envía comando para medir temperatura (0xE3)
-    HAL_I2C_Master_Receive(&hi2c1, 0x80, data, 3, 1000); // Recibe 3 bytes de datos de temperatura
+    HAL_I2C_Master_Transmit(SI7021_hi2c, 0x80, &read[0], 1, 100); // Envía comando para medir temperatura (0xE3)
+    HAL_I2C_Master_Receive(SI7021_hi2c, 0x80, data, 3, 1000); // Recibe 3 bytes de datos de temperatura
 
     // Combina los datos recibidos en un entero de 16 bits
     sum_temp = (data[0] << 8) | data[1];
@@ -71,8 +79,8 @@ void get_si7021(float *temp, float *humid)
     HAL_Delay(20);
 
     // ----- Lectura de Humedad -----
-    HAL_I2C_Master_Transmit(&hi2c1, 0x80, &read[1], 1, 100); // Envía comando para medir humedad (0xE5)
-    HAL_I2C_Master_Receive(&hi2c1, 0x80, data1, 3, 1000); // Recibe 3 bytes de datos de humedad
+    HAL_I2C_Master_Transmit(SI7021_hi2c, 0x80, &read[1], 1, 100); // Envía comando para medir humedad (0xE5)
+    HAL_I2C_Master_Receive(SI7021_hi2c, 0x80, data1, 3, 1000); // Recibe 3 bytes de datos de humedad
 
     // Combina los datos recibidos en un entero de 16 bits
     sum_humid = (data1[0] << 8) | data1[1];
