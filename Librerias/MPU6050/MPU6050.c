@@ -12,7 +12,7 @@
 
 #include "MPU6050.h"
 
-extern I2C_HandleTypeDef hi2c1;
+static I2C_HandleTypeDef* MPU6050_hi2c;     /**< Manejador de la interfaz I2C utilizado para comunicarse con el MPU6050 */
 
 /*-------------------- Variables Globales --------------------*/
 /** @brief Almacenan valores RAW del acelerómetro. */
@@ -37,30 +37,32 @@ float GxF = 0, GyF = 0, GzF = 0;
  * - Despierta el sensor escribiendo en el registro PWR_MGMT_1.
  * - Configura el acelerómetro, giroscopio y la tasa de muestreo.
  */
-void MPU6050_Init(void)
+void MPU6050_Init(I2C_HandleTypeDef* hi2c)
 {
+    MPU6050_hi2c = hi2c;
+
     uint8_t check, data;
 
     // Comprobar conexión con el MPU6050 mediante el registro WHO_AM_I
-    HAL_I2C_Mem_Read(&hi2c1, MPU6050_ADDRESS, WHO_AM_I_REG, 1, &check, 1, 1000);
+    HAL_I2C_Mem_Read(MPU6050_hi2c, MPU6050_ADDRESS, WHO_AM_I_REG, 1, &check, 1, 1000);
 
     if (check == 104) // El valor esperado para MPU6050 es 104 (0x68)
     {
         // Despertar el sensor escribiendo 0 en PWR_MGMT_1
         data = 0x00;
-        HAL_I2C_Mem_Write(&hi2c1, MPU6050_ADDRESS, PWR_MGMT_1_REG, 1, &data, 1, 1000);
+        HAL_I2C_Mem_Write(MPU6050_hi2c, MPU6050_ADDRESS, PWR_MGMT_1_REG, 1, &data, 1, 1000);
 
         // Configurar la tasa de muestreo (Sample Rate Divider) a 1 kHz
         data = 0x07;
-        HAL_I2C_Mem_Write(&hi2c1, MPU6050_ADDRESS, SMPLRT_DIV_REG, 1, &data, 1, 1000);
+        HAL_I2C_Mem_Write(MPU6050_hi2c, MPU6050_ADDRESS, SMPLRT_DIV_REG, 1, &data, 1, 1000);
 
         // Configurar acelerómetro con rango ±2g
         data = 0x00;
-        HAL_I2C_Mem_Write(&hi2c1, MPU6050_ADDRESS, ACCEL_CONFIG_REG, 1, &data, 1, 1000);
+        HAL_I2C_Mem_Write(MPU6050_hi2c, MPU6050_ADDRESS, ACCEL_CONFIG_REG, 1, &data, 1, 1000);
 
         // Configurar giroscopio con rango ±250 dps
         data = 0x00;
-        HAL_I2C_Mem_Write(&hi2c1, MPU6050_ADDRESS, GYRO_CONFIG_REG, 1, &data, 1, 1000);
+        HAL_I2C_Mem_Write(MPU6050_hi2c, MPU6050_ADDRESS, GYRO_CONFIG_REG, 1, &data, 1, 1000);
     }
 }
 
@@ -80,7 +82,7 @@ void MPU6050_Read_Accel(float *Ax, float *Ay, float *Az)
     uint8_t Rec_Data[6];
 
     // Leer 6 bytes de datos del acelerómetro
-    HAL_I2C_Mem_Read(&hi2c1, MPU6050_ADDRESS, ACCEL_XOUT_H_REG, 1, Rec_Data, 6, 1000);
+    HAL_I2C_Mem_Read(MPU6050_hi2c, MPU6050_ADDRESS, ACCEL_XOUT_H_REG, 1, Rec_Data, 6, 1000);
 
     // Convertir datos RAW a valores enteros de 16 bits
     Accel_X_RAW = (int16_t)(Rec_Data[0] << 8 | Rec_Data[1]);
@@ -109,7 +111,7 @@ void MPU6050_Read_Gyro(float *Gx, float *Gy, float *Gz)
     uint8_t Rec_Data[6];
 
     // Leer 6 bytes de datos del giroscopio
-    HAL_I2C_Mem_Read(&hi2c1, MPU6050_ADDRESS, GYRO_XOUT_H_REG, 1, Rec_Data, 6, 1000);
+    HAL_I2C_Mem_Read(MPU6050_hi2c, MPU6050_ADDRESS, GYRO_XOUT_H_REG, 1, Rec_Data, 6, 1000);
 
     // Convertir datos RAW a valores enteros de 16 bits
     Gyro_X_RAW = (int16_t)(Rec_Data[0] << 8 | Rec_Data[1]);

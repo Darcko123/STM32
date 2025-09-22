@@ -24,7 +24,6 @@
 #include "MPU6050.h"
 #include "stdio.h"
 #include "string.h"
-#include "stdlib.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -48,7 +47,10 @@ I2C_HandleTypeDef hi2c1;
 UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
+float AccelX, AccelY, AccelZ;
+float GyroX,  GyroY,  GyroZ;
 
+char buffer[40];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -71,6 +73,7 @@ static void MX_USART1_UART_Init(void);
   */
 int main(void)
 {
+
   /* USER CODE BEGIN 1 */
 
   /* USER CODE END 1 */
@@ -96,12 +99,7 @@ int main(void)
   MX_I2C1_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
-  MPU6050_Init();
-
-  float AccelX, AccelY, AccelZ;
-  float GyroX,  GyroY,  GyroZ;
-
-  char buffer[40];
+  MPU6050_Init(&hi2c1);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -110,16 +108,17 @@ int main(void)
   {
 	  MPU6050_Read_Accel(&AccelX, &AccelY, &AccelZ);
 	  MPU6050_Read_Gyro(&GyroX, &GyroY, &GyroZ);
-    /* USER CODE END WHILE */
 
-    /* USER CODE BEGIN 3 */
 	  sprintf(buffer, "Ax = %.2f\t\t Ay = %.2f\t\t Az = %.2f\n\r",AccelX, AccelY, AccelZ);
 	  HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 100);
 
-	  //sprintf(buffer, "Gx = %.2f\t\t Gy = %.2f\t\t Gz = %.2f\n\n\r",GyroX, GyroY, GyroZ);
-	  //HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 100);
+	  sprintf(buffer, "Gx = %.2f\t\t Gy = %.2f\t\t Gz = %.2f\n\n\r",GyroX, GyroY, GyroZ);
+	  HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 100);
 
 	  HAL_Delay(2000);
+    /* USER CODE END WHILE */
+
+    /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
 }
@@ -237,16 +236,18 @@ static void MX_USART1_UART_Init(void)
   */
 static void MX_GPIO_Init(void)
 {
-/* USER CODE BEGIN MX_GPIO_Init_1 */
-/* USER CODE END MX_GPIO_Init_1 */
+  /* USER CODE BEGIN MX_GPIO_Init_1 */
+
+  /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
-/* USER CODE BEGIN MX_GPIO_Init_2 */
-/* USER CODE END MX_GPIO_Init_2 */
+  /* USER CODE BEGIN MX_GPIO_Init_2 */
+
+  /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
@@ -267,8 +268,7 @@ void Error_Handler(void)
   }
   /* USER CODE END Error_Handler_Debug */
 }
-
-#ifdef  USE_FULL_ASSERT
+#ifdef USE_FULL_ASSERT
 /**
   * @brief  Reports the name of the source file and the source line number
   *         where the assert_param error has occurred.

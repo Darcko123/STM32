@@ -14,7 +14,7 @@
 #ifndef MPU6050_H_
 #define MPU6050_H_
 
-#include "stm32f4xx_hal.h"
+#include "stm32f1xx_hal.h"
 
 /*---------------- Definiciones del MPU6050 ----------------*/
 
@@ -54,10 +54,13 @@
 
 /**
  * @brief Inicializa el MPU6050.
+ *
+ * @param[in] hi2c Puntero al manejador I2C.
+ *
  * @details Configura los registros básicos del MPU6050 para activar el dispositivo
  *          y establecer parámetros predeterminados de muestreo.
  */
-void MPU6050_Init(void);
+void MPU6050_Init(I2C_HandleTypeDef* hi2c);
 
 /**
  * @brief Lee los valores de aceleración en los tres ejes.
@@ -83,4 +86,4 @@ void MPU6050_Read_Gyro(float *Gx, float *Gy, float *Gz);
 
 /*---------------------------------------------------------*/
 
-#endif /* ACELEROMETRO_H_ */
+#endif /* MPU6050_H_ */
