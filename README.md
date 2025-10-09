@@ -1,4 +1,5 @@
 # STM32 Embedded Libraries and Examples
+[![STM32](https://img.shields.io/badge/Platform-STM32-blue)](https://www.st.com/content/st_com/en.html)
 
 ¡Bienvenido al repositorio de **STM32 Embedded Libraries and Examples**! Aquí encontrarás una colección de librerías y ejemplos prácticos para facilitar el desarrollo de aplicaciones embebidas basadas en microcontroladores STM32.
 
@@ -18,22 +19,33 @@ Este repositorio está dividido en cuatro secciones principales:
 ```
 STM32/
 ├── Libraries/       # Librerías para periféricos y módulos externos
-│   ├── SI7021/      # Librería para sensor de temperatura y humedad
-│   ├── MPU950/      # Librería para acelerómetro
-│   ├── RTC/         # Librería para módulo RTC
+│   ├── DS3231/      # Librería para módulo de tiempo real
+│   ├── HC05/        # Librería para módulo bluetooth
 │   ├── MAX7219/     # Librería para el control de una matriz de leds
+│   ├── MPU950/      # Librería para acelerómetro
+│   ├── PCA9685/     # Librería para módulo PWM de 16 canales por I2C
+│   └── SI7021/      # Librería para sensor de temperatura y humedad
 │
 ├── LibrariesExamples/        # Ejemplos prácticos de uso de las librerías
-│   ├── SI7021_Example/
-│   ├── MPU6050_Example/
-│   ├── RTC_Example/
 │   ├── MAX7219_Example/
+│   ├── MPU6050_Example/
+│   ├── PCA9685_Example/
+│   ├── RTC_Example/
+│   └── SI7021_Example/
 │
 ├── Projects/        #Proyectos varios
 │   ├── ClockWithMenu/
+│   ├── KeypadWithAdvancedDisplay/
+│   └── UARTToMorseCode/
 │
 ├── PerifericosBasicos/        #Uso de périfericos básicos
+│   ├── ButtonToggleLed/
+│   ├── HelloWorld/
+│   ├── MatrixKeypad
+│   ├── ServomotorPotentiometer/
 │   ├── ServomotorWithPWM/
+│   ├── StepperWithTimer/
+│   └── UART/
 │
 ├── LICENSE          # Licencia del proyecto
 ├── README.md        # Este archivo
