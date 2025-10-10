@@ -36,9 +36,9 @@ El pin de **Chip Select (CS)** debe configurarse como una salida GPIO con las si
 
 ## Uso de la Librería
 ### **Inicialización**
-Antes de usar la matriz de LEDs, es necesario inicializar el MAX7219:
+Antes de usar la matriz de LEDs, es necesario inicializar el MAX7219 con el handler adecuado:
 ```c
-MAX7219_Init();
+MAX7219_Init(&hspi);
 ```
 
 ### **Escribir en la Matriz**
