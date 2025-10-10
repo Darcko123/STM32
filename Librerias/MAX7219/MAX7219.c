@@ -10,17 +10,22 @@
 
 #include "MAX7219.h"
 
-extern SPI_HandleTypeDef hspi1;
+static SPI_HandleTypeDef* MAX7219_hspi; /**< Manejador de la interfaz SPI utilizada para cominucarse con el módulo*/
 
-uint8_t bufferCol[NUM_DEV*8] = {0};  // Ahora solo se define aquí
+uint8_t bufferCol[NUM_DEV*8] = {0};
 
 /**
  * @brief Inicializa la matriz de LEDs.
  * 
+ * @param hspi Puntero al manejador de la interfaz SPI utilizada para comunicarse con el módulo.
+ * 
  * Configura los registros del MAX7219 para preparar la matriz de LEDs para su uso.
  */
-void MAX7219_Init(void)
+void MAX7219_Init(SPI_HandleTypeDef* hspi)
 {
+    // Asigna el handler de SPI proporcionado a la variable estática
+    MAX7219_hspi = hspi;
+
     max7219_cmd(0x09, 0);    // Sin decodificación (modo gráfico)
     max7219_cmd(0x0A, 0x01); // Intensidad de brillo en 3/32
     max7219_cmd(0x0B, 0x07); // Escaneo de las 8 columnas
@@ -46,12 +51,12 @@ void max7219_write(int row, uint8_t data)
         if (dev == devTarget)
         {
             writeData = ((row - offset) << 8) | data;  // Enviar número de fila y datos
-            HAL_SPI_Transmit(&hspi1, (uint8_t *)&writeData, 1, 1000);
+            HAL_SPI_Transmit(MAX7219_hspi, (uint8_t *)&writeData, 1, 1000);
         }
         else
         {
             writeData = 0;  // No operación en los otros dispositivos
-            HAL_SPI_Transmit(&hspi1, (uint8_t *)&writeData, 1, 1000);
+            HAL_SPI_Transmit(MAX7219_hspi, (uint8_t *)&writeData, 1, 1000);
         }
     }
     HAL_GPIO_WritePin(CS_GPIO_Port, CS_Pin, 1);  // Deshabilitar el esclavo
@@ -69,7 +74,7 @@ void max7219_cmd(uint8_t Addr, uint8_t data)
     HAL_GPIO_WritePin(CS_GPIO_Port, CS_Pin, 0);
     for (int i = 0; i < NUM_DEV; i++)
     {
-        HAL_SPI_Transmit(&hspi1, (uint8_t *)&writeData, 1, 100);
+        HAL_SPI_Transmit(MAX7219_hspi, (uint8_t *)&writeData, 1, 100);
     }
     HAL_GPIO_WritePin(CS_GPIO_Port, CS_Pin, 1);
 }

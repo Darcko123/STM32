@@ -28,9 +28,11 @@ extern uint8_t bufferCol[NUM_DEV*8];	// Número de columnas respecto al número 
 /**
  * @brief Inicializa la matriz de LEDs.
  * 
+ * @param hspi Puntero al manejador de la interfaz SPI utilizada para comunicarse con el módulo.
+ * 
  * Configura los registros del MAX7219 para preparar la matriz de LEDs para su uso.
  */
-void MAX7219_Init(void);
+void MAX7219_Init(SPI_HandleTypeDef* hspi);
 
 /**
  * @brief Escribe un byte de datos en una fila específica de la matriz de LEDs.
