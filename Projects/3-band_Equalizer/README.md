@@ -249,7 +249,7 @@ La sincronización precisa del sistema se logra mediante la configuración del `
 A continuación, se detalla el procedimiento para el cálculo de los parámetros `Prescaler` y `Counter Period`.
 
 1. La frecuencia de muestreo adecuada
-   >[!Warning]
+   > [!WARNING] 
    > La selección de la frecuencia de muestreo está dictada por el Teorema de Nyquist. Este establece que la frecuencia de muestreo debe ser, como mínimo, el doble del ancho de banda de la señal a procesar. Dado que el sistema está diseñado para audio con componentes de hasta 20 kHz, la frecuencia de muestreo mínima requerida es de 40 kHz.
 2. Reloj de Base de Tiempo (Clock Source)
    1. El Timer 8 está conectado al bus de alta velocidad APB2, el cual opera a una frecuencia de 180 MHz. Esta frecuencia $\(F_{clk})\$ sirve como la señal de reloj de entrada para el temporizador.
@@ -261,7 +261,8 @@ A continuación, se detalla el procedimiento para el cálculo de los parámetros
 3. Cálculo de los Parámetros del Timer
    1. La frecuencia de salida del timer (la frecuencia de actualización) se calcula mediante la siguiente fórmula:
    
-   `$F_{out} = \frac{F_{clk}}{(Prescaler + 1) \times (Counter Period + 1)}$`
+   $F_{out} = \frac{F_{clk}}{(Prescaler + 1) \times (Counter Period + 1)}$
+
       1. Donde:
          1. `$F_{out}$` Frecuencia de salida deseada (40 kHz).
          2. `$F_{clk}$` Frecuencia del reloj de entrada (180 MHz).
@@ -269,13 +270,14 @@ A continuación, se detalla el procedimiento para el cálculo de los parámetros
          4. `Counter Period` Valor del registro de auto-reload (ARR)
    
       2. Procedimiento de Cálculo: podemos despejar el valor del `Prescaler`
-         1. Se fija el valor de `$F_{out}$` en 40 kHz y `$F_{clk}$` en 180 MHz.
+         1. Se fija el valor de $F_{out}$ en 40 kHz y $F_{clk}$ en 180 MHz.
          2. Para simplificar el cálculo, se elige un valor arbitrario para `(Counter Period + 1) = 10`.
-         3. Se despeja la ecuación para encontrar (Prescaler + 1):
+         3. Se despeja la ecuación para encontrar `(Prescaler + 1)`:
             $(Prescaler + 1) = \frac{F_{clk}}{F_{out} \times (Counter Period + 1)}$
 
          4. Sustituyendo los valores:       
             $\(Prescaler + 1) = \frac{180 MHz}{(40 kHz)(10)}\$
+
             `Prescaler + 1` = 450
 
 4.  Configuración Final
@@ -555,9 +557,10 @@ La implementación del ecualizador de 3 bandas requiere el diseño de tres filtr
 2. En `Response Type`, seleccione **`Lowpass`**
 3. En `Design Method`, seleccione **`FIR`** y dentro de este, **`Window`**
 
-> **Recomendación**: Basado en pruebas experimentales, el método de ventana con ventana **Kaiser** ofrece un equilibrio óptimo entre complejidad computacional y rendimiento en la respuesta frecuencial.
+> [!TIP]
+> Basado en pruebas experimentales, el método de ventana con ventana **Kaiser** ofrece un equilibrio óptimo entre complejidad computacional y rendimiento en la respuesta frecuencial.
 
-4. Establezca los siguientes parámetros:
+1. Establezca los siguientes parámetros:
    - **Specify Order**: `32`
    - **FS**: `40000` (Frecuencia de muestreo del sistema)
    - **Fc**: `200` (Frecuencia de corte en Hz)
@@ -690,7 +693,7 @@ float32_t gain_db_to_linear(float32_t db) {
 ```
 La relación matemáticas es:
 
-`$\text{dB} = 20 \times \log_{10}(\text{gain}) \rightarrow \text{gain} = 10^{\frac{\text{dB}}{20}}$`
+$\text{dB} = 20 \times \log_{10}(\text{gain}) \rightarrow \text{gain} = 10^{\frac{\text{dB}}{20}}$
 
 #### Aplicación de Ganancias con Librería CMSIS-DSP
 
