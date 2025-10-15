@@ -249,8 +249,9 @@ La sincronización precisa del sistema se logra mediante la configuración del `
 A continuación, se detalla el procedimiento para el cálculo de los parámetros `Prescaler` y `Counter Period`.
 
 1. La frecuencia de muestreo adecuada
-   > [!WARNING] 
-   > La selección de la frecuencia de muestreo está dictada por el Teorema de Nyquist. Este establece que la frecuencia de muestreo debe ser, como mínimo, el doble del ancho de banda de la señal a procesar. Dado que el sistema está diseñado para audio con componentes de hasta 20 kHz, la frecuencia de muestreo mínima requerida es de 40 kHz.
+> [!WARNING] 
+> La selección de la frecuencia de muestreo está dictada por el Teorema de Nyquist. Este establece que la frecuencia de muestreo debe ser, como mínimo, el doble del ancho de banda de la señal a procesar. Dado que el sistema está diseñado para audio con componentes de hasta 20 kHz, la frecuencia de muestreo mínima requerida es de 40 kHz.
+
 2. Reloj de Base de Tiempo (Clock Source)
    1. El Timer 8 está conectado al bus de alta velocidad APB2, el cual opera a una frecuencia de 180 MHz. Esta frecuencia $\(F_{clk})\$ sirve como la señal de reloj de entrada para el temporizador.
 
@@ -264,8 +265,8 @@ A continuación, se detalla el procedimiento para el cálculo de los parámetros
    $F_{out} = \frac{F_{clk}}{(Prescaler + 1) \times (Counter Period + 1)}$
 
       1. Donde:
-         1. `$F_{out}$` Frecuencia de salida deseada (40 kHz).
-         2. `$F_{clk}$` Frecuencia del reloj de entrada (180 MHz).
+         1. $F_{out}$ : Frecuencia de salida deseada (40 kHz).
+         2. $F_{clk}$ : Frecuencia del reloj de entrada (180 MHz).
          3. `Prescaler` Valor del preescalador del timer (PSC).
          4. `Counter Period` Valor del registro de auto-reload (ARR)
    
