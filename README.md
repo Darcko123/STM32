@@ -34,6 +34,7 @@ STM32/
 │   └── SI7021_Example/
 │
 ├── Projects/        #Proyectos varios
+│   ├── 3-band_Equalizer/
 │   ├── ClockWithMenu/
 │   ├── KeypadWithAdvancedDisplay/
 │   └── UARTToMorseCode/

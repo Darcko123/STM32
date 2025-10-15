@@ -24,10 +24,6 @@ release
 *.map
 *.exp
 
-# Libraries
-*.la
-*.lo
-
 # Shared objects (inc. Windows DLLs)
 *.dll
 *.so
@@ -56,7 +52,6 @@ release
 
 #Ignorar archivos binarios
 *.o
-*.a
 *.exe
 *.dll
 
