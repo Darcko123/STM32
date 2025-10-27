@@ -4,7 +4,8 @@
 [![STM32](https://img.shields.io/badge/Platform-STM32F411-black)](https://www.st.com/en/microcontrollers-microprocessors/stm32f4-series.html)
 [![UART](https://img.shields.io/badge/Protocol-UART-yellow)](https://es.wikipedia.org/wiki/Universal_Asynchronous_Receiver-Transmitter)
 
-Este documento presenta una guía completa para la implementación de la comunicación **UART (Universal Asynchronous Receiver/Transmitter)** en microcontroladores **STM32**, utilizando **STM32CubeIDE**. Se proporciona una explicación detallada desde la configuración inicial hasta ejemplos prácticos de transmisión de datos.
+Este documento presenta una guía completa para la implementación de la comunicación **UART (Universal Asynchronous Receiver/Transmitter)** en microcontroladores **STM32**, utilizando **STM32CubeIDE**.  
+Incluye explicaciones detalladas de configuración, transmisión y recepción de datos, además de comparaciones entre los modos bloqueante e interrupt-driven.
 
 ---
 
@@ -24,7 +25,11 @@ Este documento presenta una guía completa para la implementación de la comunic
     - [Transmisión Básica](#transmisión-básica)
     - [Transmisión de Números](#transmisión-de-números)
     - [Transmisión con Colores en Terminal](#transmisión-con-colores-en-terminal)
-  - [Trasnsmisión de datos con casteo](#trasnsmisión-de-datos-con-casteo)
+    - [Transmisión de datos con casteo](#transmisión-de-datos-con-casteo)
+  - [Implementación de Recepción de datos](#implementación-de-recepción-de-datos)
+    - [Recepción Básica (Modo Bloqueante)](#recepción-básica-modo-bloqueante)
+    - [Recepción por interrupción](#recepción-por-interrupción)
+    - [Comparación entre ambos modos](#comparación-entre-ambos-modos)
   - [Próximas Implementaciones](#próximas-implementaciones)
   - [Licencia](#licencia)
 
@@ -32,16 +37,20 @@ Este documento presenta una guía completa para la implementación de la comunic
 
 ## Descripción General
 
-El objetivo de este tutorial es guiar paso a paso en la configuración del entorno de desarrollo, la generación del código base con **STM32CubeIDE** y la implementación de diversas formas de comunicación utilizando las funciones de la capa de abstracción de hardware (HAL).  
-Actualmente se cubre la **transmisión de datos**, y se prevé incluir próximamente la **recepción de datos**, incorporando el uso de **interrupciones** y **DMA**.
+El objetivo de este tutorial es guiar paso a paso en la configuración del entorno de desarrollo, la generación del código base con **STM32CubeIDE** y la implementación de diversas formas de comunicación UART utilizando las funciones de la capa de abstracción de hardware (HAL).  
+
+Actualmente se cubren los siguientes apartados:
+- Transmisión de datos (básica, numérica, con colores ANSI, y con casteo)
+- Recepción de datos (bloqueante y mediante interrupciones)
 
 ---
 
 ## Características Principales
 
 - ✅ Configuración completa del protocolo UART.  
-- ✅ Ejemplos visuales para su uso en una terminal serial.
-
+- ✅ Ejemplos funcionales de transmisión y recepción.  
+- ✅ Comparación entre modos bloqueantes e interrupt-driven.  
+- ✅ Compatible con cualquier microcontrolador STM32 que disponga de USART/UART.
 ---
 
 ## Componentes Requeridos
@@ -143,8 +152,8 @@ Parámetros de `HAL_UART_Transmit`:
 
 ```C
 HAL_UART_Transmit(
-    &huart,     //Handler del UART
-    pData,      //Puntero a los datos a enviar
+    *huart,     //Puntero al Handler del UART
+    *pData,     //Puntero a los datos a enviar
     Size,       //Tamaño de los datos a enviar
     Timeout     //Tiempo de espera
     );
@@ -260,7 +269,7 @@ int main()
 
 ![TerminalColor](/PerifericosBasicos/UART/images/TerminalCOlor.png)
 
-## Trasnsmisión de datos con casteo
+### Transmisión de datos con casteo
 
 Para enviar variables que no sean `uint8_t`, realice un casteo para evitar advertencias:
 
@@ -298,15 +307,140 @@ int main(void)
 }
 ```
 
+---
+
+## Implementación de Recepción de datos
+La recepción UART permite al microcontrolador recibir información enviada por otro dispositivo (por ejemplo, una PC, otro microcontrolador o un módulo Bluetooth).  
+Existen diferentes métodos para manejar la recepción, siendo los más comunes el **modo bloqueante (polling)** y el **modo por interrupción (interrupt-driven)**.
+
+---
+### Recepción Básica (Modo Bloqueante)
+
+En el modo bloqueante, el microcontrolador **espera activamente** hasta que todos los datos han sido recibidos o hasta que se cumpla el tiempo de espera especificado.  
+Durante esta espera, el CPU no puede ejecutar otras tareas.
+
+```C
+/* Private includes ----------------------------------------------------------*/
+/* USER CODE BEGIN Includes */
+#include "string.h"
+/* USER CODE END Includes */
+
+/* USER CODE BEGIN PV */
+uint8_t RxData[20];
+/* USER CODE END PV */
+
+
+/**
+  * @brief  The application entry point.
+  * @retval int
+  */
+int main(void)
+{
+  /* Infinite loop */
+  /* USER CODE BEGIN WHILE */
+  while (1)
+  {
+    HAL_UART_Receive(&huart1, RxData, 5, HAL_MAX_DELAY);
+    HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+    HAL_Delay(1000);
+    /* USER CODE END WHILE */
+
+    /* USER CODE BEGIN 3 */
+  }
+  /* USER CODE END 3 */
+}
+```
+
+Parámetros de `HAL_UART_Receive`:
+
+```C
+HAL_UART_Receive(
+    *huart,     //Puntero al Handler del UART
+    *pData,     //Puntero a los datos a recibir
+    Size,       //Tamaño de los datos a recibir
+    Timeout     //Tiempo de espera
+  );
+```
+
+>[!Warning]
+>Este método es bloqueante: el programa se detiene hasta que se recibe la cantidad de datos indicada.
+> No es recomendable para aplicaciones en tiempo real o con múltiples tareas concurrentes.
+
+### Recepción por interrupción
+En el modo interrupt-driven, el microcontrolador configura el UART para generar una interrupción cuando la recepción de datos se completa.
+Esto permite que el CPU continúe ejecutando otras tareas mientras los datos se reciben en segundo plano.
+```C
+/* Private includes ----------------------------------------------------------*/
+/* USER CODE BEGIN Includes */
+#include "string.h"
+/* USER CODE END Includes */
+
+/* USER CODE BEGIN PV */
+uint8_t RxData[20];
+/* USER CODE END PV */
+
+
+/**
+  * @brief  The application entry point.
+  * @retval int
+  */
+int main(void)
+{
+  /* USER CODE BEGIN 2 */
+  HAL_UART_Receive_IT(&huart1, RxData, 5); // Inicia recepción por interrupción
+  /* USER CODE END 2 */
+  
+  /* Infinite loop */
+  /* USER CODE BEGIN WHILE */
+  while (1)
+  {
+    HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+    HAL_Delay(1000);
+    /* USER CODE END WHILE */
+
+    /* USER CODE BEGIN 3 */
+  }
+  /* USER CODE END 3 */
+}
+
+/* USER CODE BEGIN 4 */
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+	HAL_UART_Receive_IT(&huart1, RxData, 5);  // Reinicia la recepción al completarse
+}
+
+/* USER CODE END 4 */
+```
+
+Parámetros de `HAL_UART_Receive_IT`:
+
+```C
+HAL_UART_Receive_IT(
+  *huart,     //Puntero al Handler del UART
+  *pData,     //Puntero a los datos a recibir
+  Size,       //Tamaño de los datos a recibir
+);
+```
+> **Ventaja**: el CPU no se bloquea y puede realizar otras tareas mientras se espera la recepción.
+> 
+> Ideal para sistemas multitarea, controladores de sensores o comunicación continua.
+
+### Comparación entre ambos modos
+| Característica | UART Bloqueante (`HAL_UART_Receive`) | UART por Interrupción (`HAL_UART_Receive_IT`) |
+|---|---|---|
+| Tipo de ejecución | Bloqueante | No bloqueante |
+| Uso de CPU | Alto (espera activa) | Bajo (Libera CPU durante la espera) |
+| Recomendado para | Prueba simples o entornos sin multitarea | Aplicaciones en tiempo real y multitarea |
+| Control del flujo de datos | Sencillo | Requiere manejo de callbacks |
+| Capacidad de procesamiento paralelo | No | Sí |
+
 ## Próximas Implementaciones
 
-Actualmente se cubre únicamente la **transmisión de datos**. Próximamente se añadirán:
-
-- Recepción de datos básica.
-- Recepción con DMA.
-- Transmisión y recepción mediante interrupciones.
-
-La estructura de carpetas prevista será:
+En próximas versiones se incluirán ejemplos de:
+- Recepción mediante DMA, optimizando el rendimiento en transferencia de datos continua.
+- Transmisión + Recepción con interrupciones, integrando ambas direcciones en un solo flujo.
+- La estructura esperada del repositorio será:
 
 ```
 UART/
