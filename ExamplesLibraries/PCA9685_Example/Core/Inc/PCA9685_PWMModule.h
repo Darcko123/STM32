@@ -3,7 +3,7 @@
  * @brief Definiciones y prototipos para el control del módulo PCA9685 mediante I2C en STM32.
  * @author Daniel Ruiz
  * @date Jul 3, 2025
- * @version 1.0.0
+ * @version 1.1.0
  */
 
 #ifndef PCA9685_PWMModule_H
@@ -16,6 +16,7 @@
  * - Para STM32F4xx: "stm32f4xx_hal.h"
  */
 #include "stm32f1xx_hal.h"
+#include <stdbool.h>
 
 /**
  * @brief Dirección I2C por defecto del PCA9685 (ajustar si se modifican pines A0-A5).
@@ -35,6 +36,19 @@
 #define PCA9685_MODE1_SLEEP_BIT     4    /**< Bit para entrar/salir del modo de bajo consumo */
 #define PCA9685_MODE1_AI_BIT        5    /**< Bit para habilitar auto-incremento de direcciones */
 #define PCA9685_MODE1_RESTART_BIT   7    /**< Bit para reinicio del dispositivo */
+
+/**
+ * @brief Estructura para manejar el movimiento suave de un servomotor
+ */
+typedef struct {
+    uint8_t channel;           /**< Canal del servomotor (0-15) */
+    float currentAngle;        /**< Ángulo actual del servomotor */
+    float targetAngle;         /**< Ángulo objetivo */
+    float stepSize;            /**< Tamaño del paso por intervalo */
+    uint32_t updateInterval;   /**< Intervalo entre actualizaciones en ms */
+    uint32_t lastUpdateTime;   /**< Último tiempo de actualización */
+    bool isMoving;             /**< Flag que indica si el servomotor está en movimiento */
+} Servo_Smooth_t;
 
 #ifdef __cplusplus
 extern "C" {
@@ -69,6 +83,40 @@ void PCA9685_SetPWM(uint8_t Channel, uint16_t OnTime, uint16_t OffTime);
  * @param Angle Ángulo deseado (0° a 180°).
  */
 void PCA9685_SetServoAngle(uint8_t Channel, float Angle);
+
+/**
+ * @brief Inicializa una estructura de movimiento suave para un servomotor
+ * @param servo Puntero a la estructura Servo_Smooth_t
+ * @param channel Canal del servomotor (0-15)
+ * @param initialAngle Ángulo inicial del servomotor
+ * @param updateInterval Intervalo entre actualizaciones en ms (ej. 20ms)
+ */
+void PCA9685_InitSmoothServo(Servo_Smooth_t* servo, uint8_t channel, float initialAngle, uint32_t updateInterval);
+
+/**
+ * @brief Configura un movimiento suave hacia un ángulo objetivo
+ * @param servo Puntero a la estructura Servo_Smooth_t
+ * @param targetAngle Ángulo objetivo (0° a 180°)
+ * @param durationMs Duración total del movimiento en milisegundos
+ */
+void PCA9685_SetSmoothAngle(Servo_Smooth_t* servo, float targetAngle, uint32_t durationMs);
+
+/**
+ * @brief Actualiza el movimiento suave del servomotor (debe llamarse periódicamente)
+ * @param servo Puntero a la estructura Servo_Smooth_t
+ * @return true si el servomotor alcanzó el ángulo objetivo, false si aún está en movimiento
+ */
+bool PCA9685_UpdateSmoothServo(Servo_Smooth_t* servo);
+
+/**
+ * @brief Mueve un servomotor suavemente de un ángulo a otro
+ * @param channel Canal del servomotor (0-15)
+ * @param startAngle Ángulo inicial
+ * @param endAngle Ángulo final
+ * @param durationMs Duración del movimiento en milisegundos
+ * @param updateIntervalMs Intervalo entre actualizaciones en milisegundos
+ */
+void PCA9685_SmoothMove(uint8_t channel, float startAngle, float endAngle, uint32_t durationMs, uint32_t updateIntervalMs);
 
 #ifdef __cplusplus
 }

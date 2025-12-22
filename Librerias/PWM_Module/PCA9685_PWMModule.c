@@ -3,10 +3,11 @@
  * @brief Implementación de la librería para el control del módulo PCA9685 mediante I2C en STM32.
  * @author Daniel Ruiz
  * @date Jul 3, 2025
- * @version 1.0.0
+ * @version 1.1.0
  */
 
 #include "PCA9685_PWMModule.h"
+#include <math.h>
 
 static I2C_HandleTypeDef* PCA9685_hi2c;  /**< Manejador de la interfaz I2C utilizado para comunicarse con el PCA9685 */
 
@@ -84,7 +85,146 @@ void PCA9685_SetPWM(uint8_t Channel, uint16_t OnTime, uint16_t OffTime)
 void PCA9685_SetServoAngle(uint8_t Channel, float Angle)
 {
     float Value;
+
+    // Asegurar que el ángulo esté dentro del rango
+    if (Angle < 0.0f) Angle = 0.0f;
+    if (Angle > 180.0f) Angle = 180.0f;
+
     // Conversión del ángulo al valor PWM correspondiente entre 0.5ms (102.4) y 2.5ms (511.9)
     Value = (Angle * (511.9f - 102.4f) / 180.0f) + 102.4f;
     PCA9685_SetPWM(Channel, 0, (uint16_t)Value);
+}
+
+/**
+ * @brief Inicializa una estructura de movimiento suave para un servomotor
+ * @param servo Puntero a la estructura Servo_Smooth_t
+ * @param channel Canal del servomotor (0-15)
+ * @param initialAngle Ángulo inicial del servomotor
+ * @param updateInterval Intervalo entre actualizaciones en ms (ej. 20ms)
+ */
+void PCA9685_InitSmoothServo(Servo_Smooth_t* servo, uint8_t channel, float initialAngle, uint32_t updateInterval)
+{
+    servo->channel = channel;
+    servo->currentAngle = initialAngle;
+    servo->targetAngle = initialAngle;
+    servo->stepSize = 0.0f;
+    servo->updateInterval = updateInterval;
+    servo->lastUpdateTime = HAL_GetTick();
+    servo->isMoving = false;
+    
+    // Establecer el ángulo inicial
+    PCA9685_SetServoAngle(channel, initialAngle);
+}
+
+/**
+ * @brief Configura un movimiento suave hacia un ángulo objetivo
+ * @param servo Puntero a la estructura Servo_Smooth_t
+ * @param targetAngle Ángulo objetivo (0° a 180°)
+ * @param durationMs Duración total del movimiento en milisegundos
+ */
+void PCA9685_SetSmoothAngle(Servo_Smooth_t* servo, float targetAngle, uint32_t durationMs)
+{
+    // Limitar el ángulo objetivo al rango permitido
+    if (targetAngle < 0.0f) targetAngle = 0.0f;
+    if (targetAngle > 180.0f) targetAngle = 180.0f;
+    
+    servo->targetAngle = targetAngle;
+    
+    // Calcular el número de pasos basado en la duración y el intervalo de actualización
+    uint32_t numSteps = durationMs / servo->updateInterval;
+    
+    if (numSteps > 0) {
+        // Calcular el tamaño del paso
+        servo->stepSize = (targetAngle - servo->currentAngle) / (float)numSteps;
+        servo->isMoving = true;
+        servo->lastUpdateTime = HAL_GetTick();
+    } else {
+        // Si la duración es 0, mover inmediatamente
+        servo->currentAngle = targetAngle;
+        PCA9685_SetServoAngle(servo->channel, targetAngle);
+        servo->isMoving = false;
+    }
+}
+
+/**
+ * @brief Actualiza el movimiento suave del servomotor (debe llamarse periódicamente)
+ * @param servo Puntero a la estructura Servo_Smooth_t
+ * @return true si el servomotor alcanzó el ángulo objetivo, false si aún está en movimiento
+ */
+bool PCA9685_UpdateSmoothServo(Servo_Smooth_t* servo)
+{
+    if (!servo->isMoving) {
+        return true; // El movimiento ya ha terminado
+    }
+    
+    uint32_t currentTime = HAL_GetTick();
+    
+    // Verificar si ha pasado el intervalo de actualización
+    if ((currentTime - servo->lastUpdateTime) >= servo->updateInterval) {
+        
+        // Calcular el nuevo ángulo
+        float newAngle = servo->currentAngle + servo->stepSize;
+        
+        // Verificar si hemos alcanzado o superado el objetivo
+        if ((servo->stepSize > 0 && newAngle >= servo->targetAngle) ||
+            (servo->stepSize < 0 && newAngle <= servo->targetAngle)) {
+            newAngle = servo->targetAngle;
+            servo->isMoving = false;
+        }
+        
+        // Actualizar el ángulo actual
+        servo->currentAngle = newAngle;
+        
+        // Enviar el nuevo ángulo al servomotor
+        PCA9685_SetServoAngle(servo->channel, newAngle);
+        
+        // Actualizar el tiempo de la última actualización
+        servo->lastUpdateTime = currentTime;
+        
+        return !servo->isMoving; // Devuelve true si el movimiento ha terminado
+    }
+    
+    return false; // Aún no es tiempo de actualizar
+}
+
+/**
+ * @brief Mueve un servomotor suavemente de un ángulo a otro
+ * @param channel Canal del servomotor (0-15)
+ * @param startAngle Ángulo inicial
+ * @param endAngle Ángulo final
+ * @param durationMs Duración del movimiento en milisegundos
+ * @param updateIntervalMs Intervalo entre actualizaciones en milisegundos
+ */
+void PCA9685_SmoothMove(uint8_t channel, float startAngle, float endAngle, uint32_t durationMs, uint32_t updateIntervalMs)
+{
+    // Validar parámetros
+    if (startAngle < 0.0f) startAngle = 0.0f;
+    if (startAngle > 180.0f) startAngle = 180.0f;
+    if (endAngle < 0.0f) endAngle = 0.0f;
+    if (endAngle > 180.0f) endAngle = 180.0f;
+    
+    // Establecer el ángulo inicial
+    PCA9685_SetServoAngle(channel, startAngle);
+    
+    // Calcular el número de pasos
+    uint32_t numSteps = durationMs / updateIntervalMs;
+    
+    if (numSteps == 0) {
+        // Movimiento inmediato
+        PCA9685_SetServoAngle(channel, endAngle);
+        return;
+    }
+    
+    // Calcular el incremento por paso
+    float stepIncrement = (endAngle - startAngle) / (float)numSteps;
+    
+    // Realizar el movimiento suave
+    for (uint32_t i = 0; i < numSteps; i++) {
+        float currentAngle = startAngle + (stepIncrement * (i + 1));
+        PCA9685_SetServoAngle(channel, currentAngle);
+        HAL_Delay(updateIntervalMs);
+    }
+    
+    // Asegurar el ángulo final exacto
+    PCA9685_SetServoAngle(channel, endAngle);
 }
