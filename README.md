@@ -51,6 +51,7 @@ STM32/
 │   ├── ServomotorPotentiometer/
 │   ├── ServomotorWithPWM/
 │   ├── StepperWithTimer/
+│   ├── TimerInterrupt/
 │   └── UART/
 │
 ├── LICENSE          # Licencia del proyecto
