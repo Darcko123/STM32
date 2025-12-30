@@ -1,11 +1,11 @@
 /* USER CODE BEGIN Header */
 /**
  ******************************************************************************
- * @file           : main.c
- * @brief          : Control de brazo robótico escala KUKA LBR IISY 4DOF con cinemática directa
+ * @file           	: main.c
+ * @brief          	: Control de brazo robótico escala KUKA LBR IISY 4DOF con cinemática directa
  * @author			: Daniel Ruiz
  * @date			: December, 2025
- * @version		: 1.0
+ * @version			: 2.0
  ******************************************************************************
  * @description
  * Este programa implementa el control completo de un brazo robótico de 4 grados
@@ -18,6 +18,7 @@
  * - Comunicación UART para monitoreo y debugging
  * - Secuencia de prueba automática
  * - Validación de límites de articulaciones
+ * - Interfaz de usuario con colores ANSI y limpieza de pantalla
  *
  * ARQUITECTURA DEL SISTEMA:
  * 1. STM32 (Nucleo/Discovery) como controlador principal
@@ -53,12 +54,21 @@
 #include "math.h"
 #include "string.h"
 #include "stdio.h"
+#include "ctype.h"
+#include "stdbool.h"
 #include "PCA9685_PWMModule.h"
+#include "ANSII_Codes.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
+// Estado del menú de usuario
+typedef enum {
+	MENU_PRINCIPAL,
+	MENU_ANGULOS,
+	EJECUTANDO_SECUENCIA
+} EstadoMenu_t;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -68,35 +78,53 @@
 // PARÁMETROS FÍSICOS DEL ROBOT (en milímetros)
 // ============================================================================
 
-#define H0      45.0f   /**< Altura de la base desde el suelo */
-#define L1      30.0f   /**< Offset vertical del joint1 al plano del joint2 */
-#define L2      87.0f   /**< Longitud del brazo proximal (hombro) */
-#define L3      70.0f   /**< Longitud del brazo distal (codo) */
-#define L4      44.0f   /**< Longitud del antebrazo (muñeca) */
-#define LGRIP   45.0f   /**< Longitud de la pinza (no implementada) */
+#define H0      45.0f	/**< Altura de la base desde el suelo */
+#define L1      30.0f	/**< Offset vertical del joint1 al plano del joint2 */
+#define L2      87.0f	/**< Longitud del brazo proximal (hombro) */
+#define L3      70.0f	/**< Longitud del brazo distal (codo) */
+#define L4      44.0f	/**< Longitud del antebrazo (muñeca) */
+#define LGRIP   45.0f	/**< Longitud de la pinza (no implementada) */
 
 // ============================================================================
 // LÍMITES DE ARTICULACIONES (en grados)
 // ============================================================================
 
-#define Q1_MIN   0.0f   /**< Límite mínimo de la base (joint 1) */
-#define Q1_MAX 180.0f   /**< Límite máximo de la base (joint 1) */
-#define Q2_MIN   0.0f   /**< Límite mínimo del hombro (joint 2) */
-#define Q2_MAX 180.0f   /**< Límite máximo del hombro (joint 2) */
-#define Q3_MIN   0.0f   /**< Límite mínimo del codo (joint 3) */
-#define Q3_MAX 180.0f   /**< Límite máximo del codo (joint 3) */
-#define Q4_MIN   0.0f   /**< Límite mínimo de la muñeca (joint 4) */
-#define Q4_MAX 180.0f   /**< Límite máximo de la muñeca (joint 4) */
+#define Q1_MIN   0.0f	/**< Límite mínimo de la base (joint 1) */
+#define Q1_MAX 180.0f	/**< Límite máximo de la base (joint 1) */
+#define Q2_MIN   0.0f	/**< Límite mínimo del hombro (joint 2) */
+#define Q2_MAX 180.0f	/**< Límite máximo del hombro (joint 2) */
+#define Q3_MIN   0.0f	/**< Límite mínimo del codo (joint 3) */
+#define Q3_MAX 180.0f	/**< Límite máximo del codo (joint 3) */
+#define Q4_MIN   0.0f	/**< Límite mínimo de la muñeca (joint 4) */
+#define Q4_MAX 180.0f	/**< Límite máximo de la muñeca (joint 4) */
 
 // ============================================================================
 // OFFSETS DE CALIBRACIÓN DE SERVOS
 // ============================================================================
 
-#define SERVO1_OFFSET  0.0f   /**< Offset de calibración para servo 1 (base) */
-#define SERVO2_OFFSET  0.0f   /**< Offset de calibración para servo 2 (hombro) */
-#define SERVO3_OFFSET  0.0f   /**< Offset de calibración para servo 3 (codo) */
-#define SERVO4_OFFSET  0.0f   /**< Offset de calibración para servo 4 (muñeca) */
+#define SERVO1_OFFSET  0.0f		/**< Offset de calibración para servo 1 (base) */
+#define SERVO2_OFFSET  0.0f		/**< Offset de calibración para servo 2 (hombro) */
+#define SERVO3_OFFSET  0.0f		/**< Offset de calibración para servo 3 (codo) */
+#define SERVO4_OFFSET  0.0f		/**< Offset de calibración para servo 4 (muñeca) */
 
+// ============================================================================
+// CONFIGURACIÓN UART
+// ============================================================================
+
+#define BUFFER_SIZE 50		/**< Tamaño del buffer de recepción UART */
+
+// Estilos para la interfaz
+#define HEADER_COLOR        COLOR_BRIGHT_CYAN
+#define MENU_COLOR          COLOR_BRIGHT_GREEN
+#define OPTION_COLOR        COLOR_CYAN
+#define WARNING_COLOR       COLOR_BRIGHT_YELLOW
+#define ERROR_COLOR         COLOR_BRIGHT_RED
+#define SUCCESS_COLOR       COLOR_BRIGHT_GREEN
+#define INFO_COLOR          COLOR_BRIGHT_BLUE
+#define INPUT_COLOR         COLOR_BRIGHT_WHITE
+#define VALUE_COLOR         COLOR_YELLOW
+#define SEPARATOR_COLOR     COLOR_BRIGHT_MAGENTA
+#define ROBOT_COLOR         COLOR_BRIGHT_CYAN
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -115,10 +143,10 @@ UART_HandleTypeDef huart1;
 // MAPEO DE SERVOMOTORES
 // ============================================================================
 
-Servo_Smooth_t SERVO_BASE;      /**< Servo canal 0 - Joint 1 (Yaw, rotación base) */
-Servo_Smooth_t SERVO_SHOULDER;  /**< Servo canal 1 - Joint 2 (Shoulder, hombro) */
-Servo_Smooth_t SERVO_ELBOW;     /**< Servo canal 2 - Joint 3 (Elbow, codo) */
-Servo_Smooth_t SERVO_WRIST;     /**< Servo canal 3 - Joint 4 (Wrist, muñeca) */
+Servo_Smooth_t SERVO_BASE;		/**< Servo canal 0 - Joint 1 (Yaw, rotación base) */
+Servo_Smooth_t SERVO_SHOULDER;	/**< Servo canal 1 - Joint 2 (Shoulder, hombro) */
+Servo_Smooth_t SERVO_ELBOW;		/**< Servo canal 2 - Joint 3 (Elbow, codo) */
+Servo_Smooth_t SERVO_WRIST;		/**< Servo canal 3 - Joint 4 (Wrist, muñeca) */
 
 // ============================================================================
 // PARÁMETROS DENAVIT-HARTENBERG (DH)
@@ -127,23 +155,23 @@ Servo_Smooth_t SERVO_WRIST;     /**< Servo canal 3 - Joint 4 (Wrist, muñeca) */
 
 // Joint 1: Base rotation (Yaw) - Rotación alrededor de Z0
 static const float a1 = 0.0f;
-static const float alpha1 = -M_PI/2.0f;  // -90° para pasar de Z a X
-static const float d1 = H0 + L1;         // Offset vertical total
+static const float alpha1 = -M_PI/2.0f; 	// -90° para pasar de Z a X
+static const float d1 = H0 + L1;			// Offset vertical total
 
 // Joint 2: Shoulder - Rotación en el nuevo Z (plano vertical)
-static const float a2 = L2;                  /**< Longitud del eslabón 2 (hombro) */
-static const float alpha2 = 0.0f;            /**< Torsión del eslabón 2 */
-static const float d2 = 0.0f;                /**< Offset del eslabón 2 */
+static const float a2 = L2;					/**< Longitud del eslabón 2 (hombro) */
+static const float alpha2 = 0.0f;			/**< Torsión del eslabón 2 */
+static const float d2 = 0.0f;				/**< Offset del eslabón 2 */
 
 // Joint 3: Elbow - Rotación en Z (plano vertical)
-static const float a3 = L3;                  /**< Longitud del eslabón 3 (codo) */
-static const float alpha3 = 0.0f;            /**< Torsión del eslabón 3 */
-static const float d3 = 0.0f;                /**< Offset del eslabón 3 */
+static const float a3 = L3;					/**< Longitud del eslabón 3 (codo) */
+static const float alpha3 = 0.0f;			/**< Torsión del eslabón 3 */
+static const float d3 = 0.0f;				/**< Offset del eslabón 3 */
 
 // Joint 4: Wrist Pitch - Rotación en Z (plano vertical)
-static const float a4 = L4;                  /**< Longitud del eslabón 4 (muñeca) */
-static const float alpha4 = 0.0f;            /**< Torsión del eslabón 4 */
-static const float d4 = 0.0f;                /**< Offset del eslabón 4 */
+static const float a4 = L4;					/**< Longitud del eslabón 4 (muñeca) */
+static const float alpha4 = 0.0f;			/**< Torsión del eslabón 4 */
+static const float d4 = 0.0f;				/**< Offset del eslabón 4 */
 
 // Ángulos theta de prueba para cada Joint
 float q1, q2, q3, q4;
@@ -152,17 +180,38 @@ float q1, q2, q3, q4;
 // CONFIGURACIÓN ACTUAL DEL ROBOT
 // ============================================================================
 
-float current_q1 = 0.0f; 	/**< Ángulo actual de la base (joint1) en grados */
-float current_q2 = 0.0f;  	/**< Ángulo actual del hombro (joint2) en grados */
-float current_q3 = 0.0f;  	/**< Ángulo actual del codo (joint3) en grados */
-float current_q4 = 0.0f;  	/**< Ángulo actual de la muñeca (joint4) en grados */
+float current_q1 = 0.0f;	/**< Ángulo actual de la base (joint1) en grados */
+float current_q2 = 0.0f;	/**< Ángulo actual del hombro (joint2) en grados */
+float current_q3 = 0.0f;	/**< Ángulo actual del codo (joint3) en grados */
+float current_q4 = 0.0f;	/**< Ángulo actual de la muñeca (joint4) en grados */
 
 /**
  * @brief Buffer para mensajes de debugging por UART
- * @details Capacidad: 200 caracteres para mensajes formateados
+ * @details Capacidad: 250 caracteres para mensajes formateados
  */
-char buffer[200];
+char buffer[250];
 
+// ============================================================================
+// RECEPCIÓN DE DATOS POR UART
+// ============================================================================
+uint8_t RxData[BUFFER_SIZE];	// Buffer de recepción
+uint8_t RxByte;					// Buffer para recibir 1 byte
+volatile uint8_t indx = 0;		// Manejador del índice de la cadena recibida
+volatile bool newMessageReady = false;	//Señal de listo
+
+EstadoMenu_t estadoMenu = MENU_PRINCIPAL;
+
+// ===========================================================================
+// Variables para la secuencia de prueba automática
+// ===========================================================================
+uint8_t secuenciaStep = 0;
+uint32_t secuenciaLastMove = 0;
+bool secuenciaActiva = false;
+
+// ===========================================================================
+// Timeout de inactividad
+// ===========================================================================
+uint32_t ultimaInteraccion = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -277,6 +326,99 @@ void HomePosition(void);
  */
 void TestSequence(void);
 
+/**
+ * @brief Inicia la secuencia automática del robot.
+ * 
+ */
+void IniciarSecuenciaAutomatica(void);
+void DetenerSecuencia(void);
+
+/**
+ * @brief Muestra el menú principal del robot.
+ * @details Envía el menú por UART.
+ * @retval None
+ */
+void MostrarMenuPrincipal(void);
+
+/**
+ * @brief Procesa la opción seleccionada en el menú.
+ * @details Lee la entrada del usuario y ejecuta la acción correspondiente.
+ * @retval None
+ */
+void ProcesarOpcionMenu(void);
+
+/**
+ * @brief Solicita al usuario los ángulos de los servos.
+ * @retval None
+ */
+void SolicitarAngulos(void);
+
+/**
+ * @brief Muestra la posición actual del robot.
+ * @details Envía la posición actual del robot por UART.
+ * @retval None
+ */
+void MostrarPosicionActual(void);
+
+/**
+ * @brief Convierte una cadena de caracteres a un número flotante.
+ * 
+ * @param str 
+ * @return float 
+ */
+float ConvertirStringAFloat(char* str);
+
+// ===========================================================================
+// FUNCIONES DE INTERFAZ DE USUARIO
+// ===========================================================================
+
+/**
+ * @brief Limpia la pantalla del terminal.
+ * @retval None
+ */
+void LimpiarPantalla(void);
+
+/**
+ * @brief Muestra el encabezado del sistema.
+ * @retval None
+ */
+void MostrarEncabezado(void);
+
+/**
+ * @brief Muestra una línea separadora con color.
+ * @param color Código de color ANSI
+ * @retval None
+ */
+void MostrarSeparador(const char* color);
+
+/**
+ * @brief Muestra un mensaje de éxito.
+ * @param mensaje Texto del mensaje
+ * @retval None
+ */
+void MostrarExito(const char* mensaje);
+
+/**
+ * @brief Muestra un mensaje de error.
+ * @param mensaje Texto del mensaje
+ * @retval None
+ */
+void MostrarError(const char* mensaje);
+
+/**
+ * @brief Muestra un mensaje de advertencia.
+ * @param mensaje Texto del mensaje
+ * @retval None
+ */
+void MostrarAdvertencia(const char* mensaje);
+
+/**
+ * @brief Muestra un mensaje informativo.
+ * @param mensaje Texto del mensaje
+ * @retval None
+ */
+void MostrarInfo(const char* mensaje);
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -317,6 +459,10 @@ int main(void)
 	MX_USART1_UART_Init();
 	/* USER CODE BEGIN 2 */
 
+	memset(RxData, 0, 20);
+
+	HAL_UART_Receive_IT(&huart1, &RxByte, 1);
+
 	HAL_Delay(100);	// Esperar inicialización del PCA9685
 
 	// Inicializar PCA9685 a 50Hz (servos estándar)
@@ -326,16 +472,19 @@ int main(void)
 	// Configurar servos con interpolación suave
 	PCA9685_InitSmoothServo(&SERVO_BASE, 0, 0, 20);  		// Canal 0, inicio en 0°, actualización cada 20ms
 	PCA9685_InitSmoothServo(&SERVO_SHOULDER, 1, 0, 20);  	// Canal 1, inicio en 0°, actualización cada 20ms
-	PCA9685_InitSmoothServo(&SERVO_ELBOW, 2, 0, 20);  	// Canal 2, inicio en 0°, actualización cada 20ms
+	PCA9685_InitSmoothServo(&SERVO_ELBOW, 2, 0, 20);  		// Canal 2, inicio en 0°, actualización cada 20ms
 	PCA9685_InitSmoothServo(&SERVO_WRIST, 3, 0, 20);		// Canal 3, inicio en 0°, actualización cada 20ms
 
-	// Mensaje de Inicio
-	HAL_UART_Transmit(&huart1, (uint8_t*)"==== KUKA LBR IISY 4 DOF ====\r\n\n",
-			strlen("==== KUKA LBR IISY 4 DOF ====\r\n\n"), 1000);
+	// Limpiar pantalla terminal y mostrar encabezado
+	LimpiarPantalla();
+	MostrarEncabezado();
 
 	// Ir a posición home
 	HomePosition();
 	HAL_Delay(2000);  // Esperar estabilización en posición home
+
+	// Mostrar menú inicial
+	MostrarMenuPrincipal();
 
 	/* USER CODE END 2 */
 
@@ -345,16 +494,31 @@ int main(void)
 	{
 		UpdateServos(); // Actualiza interpolación de ángulos
 
-		// Ejemplo: ejecutar secuencia de prueba cada 10 segundos
-		static uint32_t lastTest = 0;
-		if (HAL_GetTick() - lastTest > 10000)
+		if (secuenciaActiva)
 		{
 			TestSequence();
-			lastTest = HAL_GetTick();
 		}
 
-		HAL_Delay(10);
+		// Timeout si usuario no está ingresando ángulos
+		if (!secuenciaActiva && estadoMenu != MENU_ANGULOS &&
+				(HAL_GetTick() - ultimaInteraccion > 180000))		// 3 minutos
+		{
+			MostrarAdvertencia("\r\nTimeout de inactividad. Volviendo a HOME...");
+			HomePosition();
+			ultimaInteraccion = HAL_GetTick();
+		}
 
+		if (newMessageReady)
+		{
+			newMessageReady = false;
+			ProcesarOpcionMenu();
+
+			// Limpiar buffer
+			memset(RxData, 0, BUFFER_SIZE);
+			indx = 0;
+		}
+
+		HAL_Delay(10);	// Pequeño delay para evitar sobrecarga CPU
 		/* USER CODE END WHILE */
 
 		/* USER CODE BEGIN 3 */
@@ -876,269 +1040,903 @@ void HomePosition(void)
  */
 void TestSequence(void)
 {
-	static uint8_t step = 0;
-	static uint32_t lastMove = 0;
 	uint32_t now = HAL_GetTick();
+	float T[4][4];
+	float x, y, z, pitch;
+	int len;
 
-	switch(step) {
-		case 0: // MOVIMIENTO 1: Posición home
-			if (now - lastMove > 100)
-			{
+	switch(secuenciaStep) {
+	case 0: // MOVIMIENTO 1: Posición home
+		if (now - secuenciaLastMove > 100)
+		{
+			q1 = 0.0f;
+			q2 = 0.0f;
+			q3 = 0.0f;
+			q4 = 0.0f;
 
-				q1 = 0.0f;
-				q2 = 0.0f;
-				q3 = 0.0f;
-				q4 = 0.0f;
+			MoveRobot(q1, q2, q3, q4, 2000);
+			secuenciaLastMove = now;
+			secuenciaStep++;
 
-				MoveRobot(q1, q2, q3, q4, 2000);
-				lastMove = now;
-				step++;
+			ForwardKinematics(DEG2RAD(q1), DEG2RAD(q2),
+					DEG2RAD(q3), DEG2RAD(q4), T);
+			GetEndEffectorPose(T, &x, &y, &z, &pitch);
 
-				// Calcular y mostrar cinemática directa
-				float T[4][4];
-				float x, y, z, pitch;
+			// Mostrar movimiento con color
+			sprintf(buffer, "%s%s[Movimiento 1: Home]%s\r\n", 
+					SUCCESS_COLOR, COLOR_BOLD, COLOR_RESET);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
 
-				ForwardKinematics(DEG2RAD(q1), DEG2RAD(q2),
-						DEG2RAD(q3), DEG2RAD(q4), T);
-				GetEndEffectorPose(T, &x, &y, &z, &pitch);
+			len = sprintf(buffer,
+					"Angulos: [%s%.1f%s, %s%.1f%s, %s%.1f%s, %s%.1f%s] grados\r\n"
+					"Posicion End-Effector:\r\n"
+					"  %sX =%s %s%.2f%s mm\r\n"
+					"  %sY =%s %s%.2f%s mm\r\n"
+					"  %sZ =%s %s%.2f%s mm\r\n"
+					"  %sPitch =%s %s%.2f%s grados\r\n\r\n",
+					VALUE_COLOR, current_q1, COLOR_RESET,
+					VALUE_COLOR, current_q2, COLOR_RESET,
+					VALUE_COLOR, current_q3, COLOR_RESET,
+					VALUE_COLOR, current_q4, COLOR_RESET,
+					COLOR_GREEN, COLOR_RESET, VALUE_COLOR, x, COLOR_RESET,
+					COLOR_GREEN, COLOR_RESET, VALUE_COLOR, y, COLOR_RESET,
+					COLOR_GREEN, COLOR_RESET, VALUE_COLOR, z, COLOR_RESET,
+					COLOR_GREEN, COLOR_RESET, VALUE_COLOR, RAD2DEG(pitch), COLOR_RESET);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, len, 1000);
+		}
+		break;
 
-				int len = sprintf(buffer,
-						"Movimiento 1: Home\r\n"
-						"Angulos: [%.1f, %.1f, %.1f, %.1f] grados\r\n"
-						"Posicion End-Effector:\r\n"
-						"  X = %.2f mm\r\n"
-						"  Y = %.2f mm\r\n"
-						"  Z = %.2f mm\r\n"
-						"  Pitch = %.2f grados\r\n\r\n",
-						current_q1, current_q2, current_q3, current_q4,
-						x, y, z, RAD2DEG(pitch));
-				HAL_UART_Transmit(&huart1, (uint8_t*)buffer, len, 1000);
-			}
-			break;
+	case 1: // Esperar 3 segundos
+		if (now - secuenciaLastMove > 3000)
+		{
+			secuenciaLastMove = now;
+			secuenciaStep++;
+		}
+		break;
 
-		case 1: // Esperar 3 segundos
-			if (now - lastMove > 3000)
-			{
-				lastMove = now;
-				step++;
-			}
-			break;
+	case 2: // MOVIMIENTO 2: Rotar base
+		if (now - secuenciaLastMove > 100)
+		{
+			q1 = 135.0f;
+			q2 = 0.0f;
+			q3 = 0.0f;
+			q4 = 0.0f;
 
-		case 2: // MOVIMIENTO 2: Rotar base
-			if (now - lastMove > 100)
-			{
-				q1 = 135.0f;
-				q2 = 0.0f;
-				q3 = 0.0f;
-				q4 = 0.0f;
+			MoveRobot(q1, q2, q3, q4, 2000);
+			secuenciaLastMove = now;
+			secuenciaStep++;
 
-				MoveRobot(q1, q2, q3, q4, 2000);
-				lastMove = now;
-				step++;
+			ForwardKinematics(DEG2RAD(q1), DEG2RAD(q2),
+					DEG2RAD(q3), DEG2RAD(q4), T);
+			GetEndEffectorPose(T, &x, &y, &z, &pitch);
 
-				// Calcular y mostrar cinemática directa
-				float T[4][4];
-				float x, y, z, pitch;
+			sprintf(buffer, "%s%s[Movimiento 2: Rotar base]%s\r\n", 
+					SUCCESS_COLOR, COLOR_BOLD, COLOR_RESET);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
 
-				ForwardKinematics(DEG2RAD(q1), DEG2RAD(q2),
-						DEG2RAD(q3), DEG2RAD(q4), T);
-				GetEndEffectorPose(T, &x, &y, &z, &pitch);
+			len = sprintf(buffer,
+					"Angulos: [%s%.1f%s, %s%.1f%s, %s%.1f%s, %s%.1f%s] grados\r\n"
+					"Posicion End-Effector:\r\n"
+					"  %sX =%s %s%.2f%s mm\r\n"
+					"  %sY =%s %s%.2f%s mm\r\n"
+					"  %sZ =%s %s%.2f%s mm\r\n"
+					"  %sPitch =%s %s%.2f%s grados\r\n\r\n",
+					VALUE_COLOR, current_q1, COLOR_RESET,
+					VALUE_COLOR, current_q2, COLOR_RESET,
+					VALUE_COLOR, current_q3, COLOR_RESET,
+					VALUE_COLOR, current_q4, COLOR_RESET,
+					COLOR_GREEN, COLOR_RESET, VALUE_COLOR, x, COLOR_RESET,
+					COLOR_GREEN, COLOR_RESET, VALUE_COLOR, y, COLOR_RESET,
+					COLOR_GREEN, COLOR_RESET, VALUE_COLOR, z, COLOR_RESET,
+					COLOR_GREEN, COLOR_RESET, VALUE_COLOR, RAD2DEG(pitch), COLOR_RESET);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, len, 1000);
+		}
+		break;
 
-				int len = sprintf(buffer,
-						"Movimiento 2: Rotar base\r\n"
-						"Angulos: [%.1f, %.1f, %.1f, %.1f] grados\r\n"
-						"Posicion End-Effector:\r\n"
-						"  X = %.2f mm\r\n"
-						"  Y = %.2f mm\r\n"
-						"  Z = %.2f mm\r\n"
-						"  Pitch = %.2f grados\r\n\r\n",
-						current_q1, current_q2, current_q3, current_q4,
-						x, y, z, RAD2DEG(pitch));
-				HAL_UART_Transmit(&huart1, (uint8_t*)buffer, len, 1000);
-			}
-			break;
+	case 3: // Esperar 2 segundos
+		if (now - secuenciaLastMove > 2000)
+		{
+			secuenciaLastMove = now;
+			secuenciaStep++;
+		}
+		break;
 
-		case 3: // Esperar 2 segundos
-			if (now - lastMove > 2000)
-			{
-				lastMove = now;
-				step++;
-			}
-			break;
+	case 4: // MOVIMIENTO 3: Levantar brazo
+		if (now - secuenciaLastMove > 100)
+		{
 
-		case 4: // MOVIMIENTO 3: Levantar brazo
-			if (now - lastMove > 100)
-			{
+			q1 = 135.0f;
+			q2 = 45.0f;
+			q3 = 0.0f;
+			q4 = 0.0f;
 
-				q1 = 135.0f;
-				q2 = 45.0f;
-				q3 = 0.0f;
-				q4 = 0.0f;
+			MoveRobot(q1, q2, q3, q4, 2000);
+			secuenciaLastMove = now;
+			secuenciaStep++;
 
-				MoveRobot(q1, q2, q3, q4, 2000);
-				lastMove = now;
-				step++;
+			ForwardKinematics(DEG2RAD(q1), DEG2RAD(q2),
+					DEG2RAD(q3), DEG2RAD(q4), T);
+			GetEndEffectorPose(T, &x, &y, &z, &pitch);
 
-				// Calcular y mostrar cinemática directa
-				float T[4][4];
-				float x, y, z, pitch;
+			sprintf(buffer, "%s%s[Movimiento 3: Hombro a 45 grados]%s\r\n", 
+					SUCCESS_COLOR, COLOR_BOLD, COLOR_RESET);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
 
-				ForwardKinematics(DEG2RAD(q1), DEG2RAD(q2),
-						DEG2RAD(q3), DEG2RAD(q4), T);
-				GetEndEffectorPose(T, &x, &y, &z, &pitch);
+			len = sprintf(buffer,
+					"Angulos: [%s%.1f%s, %s%.1f%s, %s%.1f%s, %s%.1f%s] grados\r\n"
+					"Posicion End-Effector:\r\n"
+					"  %sX =%s %s%.2f%s mm\r\n"
+					"  %sY =%s %s%.2f%s mm\r\n"
+					"  %sZ =%s %s%.2f%s mm\r\n"
+					"  %sPitch =%s %s%.2f%s grados\r\n\r\n",
+					VALUE_COLOR, current_q1, COLOR_RESET,
+					VALUE_COLOR, current_q2, COLOR_RESET,
+					VALUE_COLOR, current_q3, COLOR_RESET,
+					VALUE_COLOR, current_q4, COLOR_RESET,
+					COLOR_GREEN, COLOR_RESET, VALUE_COLOR, x, COLOR_RESET,
+					COLOR_GREEN, COLOR_RESET, VALUE_COLOR, y, COLOR_RESET,
+					COLOR_GREEN, COLOR_RESET, VALUE_COLOR, z, COLOR_RESET,
+					COLOR_GREEN, COLOR_RESET, VALUE_COLOR, RAD2DEG(pitch), COLOR_RESET);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, len, 1000);
+		}
+		break;
 
-				int len = sprintf(buffer,
-						"Movimiento 3: Hombro a 45 grados\r\n"
-						"Angulos: [%.1f, %.1f, %.1f, %.1f] grados\r\n"
-						"Posicion End-Effector:\r\n"
-						"  X = %.2f mm\r\n"
-						"  Y = %.2f mm\r\n"
-						"  Z = %.2f mm\r\n"
-						"  Pitch = %.2f grados\r\n\r\n",
-						current_q1, current_q2, current_q3, current_q4,
-						x, y, z, RAD2DEG(pitch));
-				HAL_UART_Transmit(&huart1, (uint8_t*)buffer, len, 1000);
-			}
-			break;
+	case 5: // Esperar 2 segundos
+		if (now - secuenciaLastMove > 2000)
+		{
+			secuenciaLastMove = now;
+			secuenciaStep++;
+		}
+		break;
 
-		case 5: // Esperar 2 segundos
-			if (now - lastMove > 2000)
-			{
-				lastMove = now;
-				step++;
-			}
-			break;
+	case 6: // MOVIMIENTO 4: Flexionar codo
+		if (now - secuenciaLastMove > 100)
+		{
+			q1 = 135.0f;
+			q2 = 45.0f;
+			q3 = 60.0f;
+			q4 = 0.0f;
 
-		case 6: // MOVIMIENTO 4: Flexionar codo
-			if (now - lastMove > 100)
-			{
-				q1 = 135.0f;
-				q2 = 45.0f;
-				q3 = 60.0f;
-				q4 = 0.0f;
+			MoveRobot(q1, q2, q3, q4, 2000);
+			secuenciaLastMove = now;
+			secuenciaStep++;
 
-				MoveRobot(q1, q2, q3, q4, 2000);
-				lastMove = now;
-				step++;
+			ForwardKinematics(DEG2RAD(q1), DEG2RAD(q2),
+					DEG2RAD(q3), DEG2RAD(q4), T);
+			GetEndEffectorPose(T, &x, &y, &z, &pitch);
 
-				// Calcular y mostrar cinemática directa
-				float T[4][4];
-				float x, y, z, pitch;
+			sprintf(buffer, "%s%s[Movimiento 4: Codo 60 grados]%s\r\n", 
+					SUCCESS_COLOR, COLOR_BOLD, COLOR_RESET);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
 
-				ForwardKinematics(DEG2RAD(q1), DEG2RAD(q2),
-						DEG2RAD(q3), DEG2RAD(q4), T);
-				GetEndEffectorPose(T, &x, &y, &z, &pitch);
+			len = sprintf(buffer,
+					"Angulos: [%s%.1f%s, %s%.1f%s, %s%.1f%s, %s%.1f%s] grados\r\n"
+					"Posicion End-Effector:\r\n"
+					"  %sX =%s %s%.2f%s mm\r\n"
+					"  %sY =%s %s%.2f%s mm\r\n"
+					"  %sZ =%s %s%.2f%s mm\r\n"
+					"  %sPitch =%s %s%.2f%s grados\r\n\r\n",
+					VALUE_COLOR, current_q1, COLOR_RESET,
+					VALUE_COLOR, current_q2, COLOR_RESET,
+					VALUE_COLOR, current_q3, COLOR_RESET,
+					VALUE_COLOR, current_q4, COLOR_RESET,
+					COLOR_GREEN, COLOR_RESET, VALUE_COLOR, x, COLOR_RESET,
+					COLOR_GREEN, COLOR_RESET, VALUE_COLOR, y, COLOR_RESET,
+					COLOR_GREEN, COLOR_RESET, VALUE_COLOR, z, COLOR_RESET,
+					COLOR_GREEN, COLOR_RESET, VALUE_COLOR, RAD2DEG(pitch), COLOR_RESET);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, len, 1000);
+		}
+		break;
 
-				int len = sprintf(buffer,
-						"Movimiento 4: Codo 60 grados\r\n"
-						"Angulos: [%.1f, %.1f, %.1f, %.1f] grados\r\n"
-						"Posicion End-Effector:\r\n"
-						"  X = %.2f mm\r\n"
-						"  Y = %.2f mm\r\n"
-						"  Z = %.2f mm\r\n"
-						"  Pitch = %.2f grados\r\n\r\n",
-						current_q1, current_q2, current_q3, current_q4,
-						x, y, z, RAD2DEG(pitch));
-				HAL_UART_Transmit(&huart1, (uint8_t*)buffer, len, 1000);
-			}
-			break;
+	case 7: // Esperar 2 segundos
+		if (now - secuenciaLastMove > 2000)
+		{
+			secuenciaLastMove = now;
+			secuenciaStep++;
+		}
+		break;
 
-		case 7: // Esperar 2 segundos
-			if (now - lastMove > 2000)
-			{
-				lastMove = now;
-				step++;
-			}
-			break;
+	case 8: // MOVIMIENTO 5: Ajustar muñeca
+		if (now - secuenciaLastMove > 100)
+		{
 
-		case 8: // MOVIMIENTO 5: Ajustar muñeca
-			if (now - lastMove > 100)
-			{
+			q1 = 135.0f;
+			q2 = 45.0f;
+			q3 = 60.0f;
+			q4 = -30.0f;
 
-				q1 = 135.0f;
-				q2 = 45.0f;
-				q3 = 60.0f;
-				q4 = -30.0f;
+			MoveRobot(q1, q2, q3, q4, 2000);
+			secuenciaLastMove = now;
+			secuenciaStep++;
 
-				MoveRobot(q1, q2, q3, q4, 2000);
-				lastMove = now;
-				step++;
+			ForwardKinematics(DEG2RAD(q1), DEG2RAD(q2),
+					DEG2RAD(q3), DEG2RAD(q4), T);
+			GetEndEffectorPose(T, &x, &y, &z, &pitch);
 
-				// Calcular y mostrar cinemática directa
-				float T[4][4];
-				float x, y, z, pitch;
+			sprintf(buffer, "%s%s[Movimiento 5: Muñeca -30 grados]%s\r\n", 
+					SUCCESS_COLOR, COLOR_BOLD, COLOR_RESET);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
 
-				ForwardKinematics(DEG2RAD(q1), DEG2RAD(q2),
-						DEG2RAD(q3), DEG2RAD(q4), T);
-				GetEndEffectorPose(T, &x, &y, &z, &pitch);
+			len = sprintf(buffer,
+					"Angulos: [%s%.1f%s, %s%.1f%s, %s%.1f%s, %s%.1f%s] grados\r\n"
+					"Posicion End-Effector:\r\n"
+					"  %sX =%s %s%.2f%s mm\r\n"
+					"  %sY =%s %s%.2f%s mm\r\n"
+					"  %sZ =%s %s%.2f%s mm\r\n"
+					"  %sPitch =%s %s%.2f%s grados\r\n\r\n",
+					VALUE_COLOR, current_q1, COLOR_RESET,
+					VALUE_COLOR, current_q2, COLOR_RESET,
+					VALUE_COLOR, current_q3, COLOR_RESET,
+					VALUE_COLOR, current_q4, COLOR_RESET,
+					COLOR_GREEN, COLOR_RESET, VALUE_COLOR, x, COLOR_RESET,
+					COLOR_GREEN, COLOR_RESET, VALUE_COLOR, y, COLOR_RESET,
+					COLOR_GREEN, COLOR_RESET, VALUE_COLOR, z, COLOR_RESET,
+					COLOR_GREEN, COLOR_RESET, VALUE_COLOR, RAD2DEG(pitch), COLOR_RESET);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, len, 1000);
+		}
+		break;
 
-				int len = sprintf(buffer,
-						"Movimiento 5: Muneca -30 grados\r\n"
-						"Angulos: [%.1f, %.1f, %.1f, %.1f] grados\r\n"
-						"Posicion End-Effector:\r\n"
-						"  X = %.2f mm\r\n"
-						"  Y = %.2f mm\r\n"
-						"  Z = %.2f mm\r\n"
-						"  Pitch = %.2f grados\r\n\r\n",
-						current_q1, current_q2, current_q3, current_q4,
-						x, y, z, RAD2DEG(pitch));
-				HAL_UART_Transmit(&huart1, (uint8_t*)buffer, len, 1000);
-			}
-			break;
+	case 9: // Esperar 1.5 segundos
+		if (now - secuenciaLastMove > 1500)
+		{
+			secuenciaLastMove = now;
+			secuenciaStep++;
+		}
+		break;
 
-		case 9: // Esperar 1.5 segundos
-			if (now - lastMove > 1500)
-			{
-				lastMove = now;
-				step++;
-			}
-			break;
+	case 10: // MOVIMIENTO 6: Volver a home
+		if (now - secuenciaLastMove > 100)
+		{
+			q1 = 0.0f;
+			q2 = 0.0f;
+			q3 = 0.0f;
+			q4 = 0.0f;
 
-		case 10: // MOVIMIENTO 6: Volver a home
-			if (now - lastMove > 100)
-			{
-				q1 = 0.0f;
-				q2 = 0.0f;
-				q3 = 0.0f;
-				q4 = 0.0f;
+			MoveRobot(q1, q2, q3, q4, 2000);
+			secuenciaLastMove = now;
+			secuenciaStep++;
 
-				MoveRobot(q1, q2, q3, q4, 2000);
-				lastMove = now;
-				step++;
+			ForwardKinematics(DEG2RAD(q1), DEG2RAD(q2),
+					DEG2RAD(q3), DEG2RAD(q4), T);
+			GetEndEffectorPose(T, &x, &y, &z, &pitch);
 
-				// Calcular y mostrar cinemática directa
-				float T[4][4];
-				float x, y, z, pitch;
+			sprintf(buffer, "%s%s[Movimiento 6: Volver a Home]%s\r\n", 
+					SUCCESS_COLOR, COLOR_BOLD, COLOR_RESET);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
 
-				ForwardKinematics(DEG2RAD(q1), DEG2RAD(q2),
-						DEG2RAD(q3), DEG2RAD(q4), T);
-				GetEndEffectorPose(T, &x, &y, &z, &pitch);
+			len = sprintf(buffer,
+					"Angulos: [%s%.1f%s, %s%.1f%s, %s%.1f%s, %s%.1f%s] grados\r\n"
+					"Posicion End-Effector:\r\n"
+					"  %sX =%s %s%.2f%s mm\r\n"
+					"  %sY =%s %s%.2f%s mm\r\n"
+					"  %sZ =%s %s%.2f%s mm\r\n"
+					"  %sPitch =%s %s%.2f%s grados\r\n\r\n",
+					VALUE_COLOR, current_q1, COLOR_RESET,
+					VALUE_COLOR, current_q2, COLOR_RESET,
+					VALUE_COLOR, current_q3, COLOR_RESET,
+					VALUE_COLOR, current_q4, COLOR_RESET,
+					COLOR_GREEN, COLOR_RESET, VALUE_COLOR, x, COLOR_RESET,
+					COLOR_GREEN, COLOR_RESET, VALUE_COLOR, y, COLOR_RESET,
+					COLOR_GREEN, COLOR_RESET, VALUE_COLOR, z, COLOR_RESET,
+					COLOR_GREEN, COLOR_RESET, VALUE_COLOR, RAD2DEG(pitch), COLOR_RESET);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, len, 1000);
+		}
+		break;
 
-				int len = sprintf(buffer,
-						"Movimiento 1: Home\r\n"
-						"Angulos: [%.1f, %.1f, %.1f, %.1f] grados\r\n"
-						"Posicion End-Effector:\r\n"
-						"  X = %.2f mm\r\n"
-						"  Y = %.2f mm\r\n"
-						"  Z = %.2f mm\r\n"
-						"  Pitch = %.2f grados\r\n\r\n",
-						current_q1, current_q2, current_q3, current_q4,
-						x, y, z, RAD2DEG(pitch));
-				HAL_UART_Transmit(&huart1, (uint8_t*)buffer, len, 1000);
-			}
-			break;
+	case 11: // Esperar y mostrar información final
+		if (now - secuenciaLastMove > 2500)
+		{
+			// Secuencia completada
+			LimpiarPantalla();
+			MostrarEncabezado();
+			sprintf(buffer, "%s%s=== SECUENCIA COMPLETADA CON EXITO ===%s\r\n\r\n", 
+					SUCCESS_COLOR, COLOR_BOLD, COLOR_RESET);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
 
-		case 11: // Esperar y mostrar información final
-			if (now - lastMove > 2500)
-			{
-				// Reiniciar secuencia
-				step = 0;
-				lastMove = now;
-			}
-			break;
+			MostrarExito("Todos los movimientos se ejecutaron correctamente");
+			sprintf(buffer, "\r\n%sPresione ENTER para volver al menu...%s", 
+					COLOR_DIM, COLOR_RESET);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+			// Detener y volver al menú
+			DetenerSecuencia();
+			estadoMenu = MENU_PRINCIPAL;
+		}
+		break;
 	}
 }
 
+
+// ============================================================================
+// FUNCIONES DEL MENÚ UART
+// ============================================================================
+
+/**
+ * @brief Muestra el menú principal por UART
+ */
+void MostrarMenuPrincipal(void)
+{
+	LimpiarPantalla();
+	MostrarEncabezado();
+
+	sprintf(buffer, "%s%s========== MENU PRINCIPAL ==========%s\r\n", 
+			MENU_COLOR, COLOR_BOLD, COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+	sprintf(buffer, "\r\n");
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+	sprintf(buffer, "  %s1.%s %sEjecutar secuencia automatica%s\r\n", 
+			OPTION_COLOR, COLOR_RESET, COLOR_BRIGHT_GREEN, COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+	sprintf(buffer, "  %s2.%s %sIngresar angulos manualmente%s\r\n", 
+			OPTION_COLOR, COLOR_RESET, COLOR_BRIGHT_BLUE, COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+	sprintf(buffer, "  %s3.%s %sPosicion HOME%s\r\n", 
+			OPTION_COLOR, COLOR_RESET, COLOR_BRIGHT_CYAN, COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+	sprintf(buffer, "  %s4.%s %sVer posicion actual%s\r\n", 
+			OPTION_COLOR, COLOR_RESET, COLOR_BRIGHT_YELLOW, COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+	if (secuenciaActiva)
+	{
+		sprintf(buffer, "  %s5.%s %sDETENER secuencia%s\r\n", 
+				OPTION_COLOR, COLOR_RESET, COLOR_BRIGHT_RED, COLOR_RESET);
+		HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+	}
+
+	sprintf(buffer, "\r\n%s====================================%s\r\n", 
+			MENU_COLOR, COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+	sprintf(buffer, "\r\n%s[%sROBOT%s]%s Seleccione una opcion (1-%d): %s", 
+			COLOR_BRIGHT_MAGENTA, ROBOT_COLOR, COLOR_BRIGHT_MAGENTA, 
+			COLOR_RESET, secuenciaActiva ? 5 : 4, INPUT_COLOR);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+	ultimaInteraccion = HAL_GetTick();
+}
+
+/**
+ * @brief Muestra la posición actual del robot
+ */
+void MostrarPosicionActual(void)
+{
+	float T[4][4];
+	float x, y, z, pitch;
+
+	// Calcular cinemática directa
+	ForwardKinematics(DEG2RAD(current_q1), DEG2RAD(current_q2),
+			DEG2RAD(current_q3), DEG2RAD(current_q4), T);
+	GetEndEffectorPose(T, &x, &y, &z, &pitch);
+
+	LimpiarPantalla();
+	MostrarEncabezado();
+
+	sprintf(buffer, "%s%s--- POSICION ACTUAL DEL ROBOT ---%s\r\n\r\n", 
+			HEADER_COLOR, COLOR_BOLD, COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+	sprintf(buffer, "%sAngulos de las articulaciones:%s\r\n", 
+			INFO_COLOR, COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+	sprintf(buffer, "  %sBase (Q1):%s   %s%.1f%s grados\r\n", 
+			COLOR_CYAN, COLOR_RESET, VALUE_COLOR, current_q1, COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+	sprintf(buffer, "  %sHombro (Q2):%s %s%.1f%s grados\r\n", 
+			COLOR_CYAN, COLOR_RESET, VALUE_COLOR, current_q2, COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+	sprintf(buffer, "  %sCodo (Q3):%s   %s%.1f%s grados\r\n", 
+			COLOR_CYAN, COLOR_RESET, VALUE_COLOR, current_q3, COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+	sprintf(buffer, "  %sMuñeca (Q4):%s %s%.1f%s grados\r\n\r\n", 
+			COLOR_CYAN, COLOR_RESET, VALUE_COLOR, current_q4, COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+	sprintf(buffer, "%sPosicion End-Effector:%s\r\n", 
+			INFO_COLOR, COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+	sprintf(buffer, "  %sX =%s %s%.2f%s mm\r\n", 
+			COLOR_GREEN, COLOR_RESET, VALUE_COLOR, x, COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+	sprintf(buffer, "  %sY =%s %s%.2f%s mm\r\n", 
+			COLOR_GREEN, COLOR_RESET, VALUE_COLOR, y, COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+	sprintf(buffer, "  %sZ =%s %s%.2f%s mm\r\n", 
+			COLOR_GREEN, COLOR_RESET, VALUE_COLOR, z, COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+	sprintf(buffer, "  %sPitch =%s %s%.2f%s grados\r\n\r\n", 
+			COLOR_GREEN, COLOR_RESET, VALUE_COLOR, RAD2DEG(pitch), COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+	sprintf(buffer, "%sPresione ENTER para volver al menu...%s", 
+			COLOR_DIM, COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+}
+
+/**
+ * @brief Convierte un string a float (implementación simple)
+ */
+float ConvertirStringAFloat(char* str)
+{
+	float resultado = 0.0f;
+	float decimal = 0.0f;
+	int signo = 1;
+	int idx = 0;
+	bool despuesDelPunto = false;
+	int decimales = 0;
+
+	// Eliminar espacios al inicio
+	while(str[idx] == ' ') idx++;
+
+	// Verificar signo
+	if(str[idx] == '-')
+	{
+		signo = -1;
+		idx++;
+	}
+	else if(str[idx] == '+')
+	{
+		idx++;
+	}
+
+	// Convertir dígitos
+	while(str[idx] != '\0' && str[idx] != '\r' && str[idx] != '\n')
+	{
+		if(str[idx] >= '0' && str[idx] <= '9')
+		{
+			if(!despuesDelPunto)
+			{
+				resultado = resultado * 10.0f + (str[idx] - '0');
+			}
+			else
+			{
+				decimales++;
+				decimal = decimal * 10.0f + (str[idx] - '0');
+			}
+		}
+		else if(str[idx] == '.' || str[idx] == ',')
+		{
+			despuesDelPunto = true;
+		}
+		idx++;
+	}
+
+	// Agregar parte decimal
+	while(decimales > 0)
+	{
+		decimal /= 10.0f;
+		decimales--;
+	}
+
+	resultado += decimal;
+	return resultado * signo;
+}
+
+/**
+ * @brief Solicita ángulos al usuario y mueve el robot
+ */
+void SolicitarAngulos(void)
+{
+	static uint8_t paso = 0;
+	static float q1_temp = 0.0f, q2_temp = 0.0f, q3_temp = 0.0f, q4_temp = 0.0f;
+
+	switch(paso)
+	{
+	case 0:
+		LimpiarPantalla();
+		MostrarEncabezado();
+
+		sprintf(buffer, "%s%s--- INGRESO MANUAL DE ANGULOS ---%s\r\n\r\n", 
+				HEADER_COLOR, COLOR_BOLD, COLOR_RESET);
+		HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+		sprintf(buffer, "%sRango valido:%s %s%.0f a %.0f grados%s\r\n\r\n", 
+				INFO_COLOR, COLOR_RESET, VALUE_COLOR, Q1_MIN, Q1_MAX, COLOR_RESET);
+		HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+		sprintf(buffer, "%s[1/4]%s Angulo Base (Q1): %s", 
+				COLOR_BRIGHT_MAGENTA, COLOR_RESET, INPUT_COLOR);
+		HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+		paso = 1;
+		ultimaInteraccion = HAL_GetTick();
+		break;
+
+	case 1:
+		q1_temp = ConvertirStringAFloat((char*)RxData);
+		if (q1_temp < Q1_MIN || q1_temp > Q1_MAX)
+		{
+			MostrarError("Angulo fuera de rango!");
+			sprintf(buffer, "%sRango permitido: %.0f-%.0f grados%s\r\n", 
+					WARNING_COLOR, Q1_MIN, Q1_MAX, COLOR_RESET);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+			sprintf(buffer, "%s[1/4]%s Angulo Base (Q1): %s", 
+					COLOR_BRIGHT_MAGENTA, COLOR_RESET, INPUT_COLOR);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+		}
+		else
+		{
+			sprintf(buffer, "\r\n%s[2/4]%s Angulo Hombro (Q2): %s", 
+					COLOR_BRIGHT_MAGENTA, COLOR_RESET, INPUT_COLOR);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+			paso = 2;
+			ultimaInteraccion = HAL_GetTick();
+		}
+		break;
+
+	case 2:
+		q2_temp = ConvertirStringAFloat((char*)RxData);
+		if (q2_temp < Q2_MIN || q2_temp > Q2_MAX)
+		{
+			MostrarError("Angulo fuera de rango!");
+			sprintf(buffer, "%sRango permitido: %.0f-%.0f grados%s\r\n", 
+					WARNING_COLOR, Q2_MIN, Q2_MAX, COLOR_RESET);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+			sprintf(buffer, "%s[2/4]%s Angulo Hombro (Q2): %s", 
+					COLOR_BRIGHT_MAGENTA, COLOR_RESET, INPUT_COLOR);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+		}
+		else
+		{
+			sprintf(buffer, "\r\n%s[3/4]%s Angulo Codo (Q3): %s", 
+					COLOR_BRIGHT_MAGENTA, COLOR_RESET, INPUT_COLOR);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+			paso = 3;
+			ultimaInteraccion = HAL_GetTick();
+		}
+		break;
+
+	case 3:
+		q3_temp = ConvertirStringAFloat((char*)RxData);
+		if (q3_temp < Q3_MIN || q3_temp > Q3_MAX)
+		{
+			MostrarError("Angulo fuera de rango!");
+			sprintf(buffer, "%sRango permitido: %.0f-%.0f grados%s\r\n", 
+					WARNING_COLOR, Q3_MIN, Q3_MAX, COLOR_RESET);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+			sprintf(buffer, "%s[3/4]%s Angulo Codo (Q3): %s", 
+					COLOR_BRIGHT_MAGENTA, COLOR_RESET, INPUT_COLOR);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+		}
+		else
+		{
+			sprintf(buffer, "\r\n%s[4/4]%s Angulo Muñeca (Q4): %s", 
+					COLOR_BRIGHT_MAGENTA, COLOR_RESET, INPUT_COLOR);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+			paso = 4;
+			ultimaInteraccion = HAL_GetTick();
+		}
+		break;
+
+	case 4:
+		q4_temp = ConvertirStringAFloat((char*)RxData);
+		if (q4_temp < Q4_MIN || q4_temp > Q4_MAX)
+		{
+			MostrarError("Angulo fuera de rango!");
+			sprintf(buffer, "%sRango permitido: %.0f-%.0f grados%s\r\n", 
+					WARNING_COLOR, Q4_MIN, Q4_MAX, COLOR_RESET);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+			sprintf(buffer, "%s[4/4]%s Angulo Muñeca (Q4): %s", 
+					COLOR_BRIGHT_MAGENTA, COLOR_RESET, INPUT_COLOR);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+		}
+		else
+		{
+			// Mostrar resumen
+			LimpiarPantalla();
+			MostrarEncabezado();
+
+			sprintf(buffer, "%s%s--- RESUMEN DE ANGULOS ---%s\r\n\r\n", 
+					HEADER_COLOR, COLOR_BOLD, COLOR_RESET);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+			sprintf(buffer, "%sBase:%s   %s%.1f%s grados\r\n", 
+					COLOR_CYAN, COLOR_RESET, VALUE_COLOR, q1_temp, COLOR_RESET);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+			sprintf(buffer, "%sHombro:%s %s%.1f%s grados\r\n", 
+					COLOR_CYAN, COLOR_RESET, VALUE_COLOR, q2_temp, COLOR_RESET);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+			sprintf(buffer, "%sCodo:%s   %s%.1f%s grados\r\n", 
+					COLOR_CYAN, COLOR_RESET, VALUE_COLOR, q3_temp, COLOR_RESET);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+			sprintf(buffer, "%sMuñeca:%s %s%.1f%s grados\r\n\r\n", 
+					COLOR_CYAN, COLOR_RESET, VALUE_COLOR, q4_temp, COLOR_RESET);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+			// Mover robot
+			MostrarInfo("Moviendo robot...");
+			MoveRobotBlocking(q1_temp, q2_temp, q3_temp, q4_temp, 3000);
+			MostrarExito("Movimiento completado!");
+
+			// Mostrar posición alcanzada
+			MostrarPosicionActual();
+
+			// Reiniciar y volver al menú
+			paso = 0;
+			ultimaInteraccion = HAL_GetTick();
+			estadoMenu = MENU_PRINCIPAL;
+		}
+		break;
+	}
+}
+
+/**
+ * @brief Procesa la opción seleccionada del menú
+ */
+void ProcesarOpcionMenu(void)
+{
+	if(estadoMenu == MENU_PRINCIPAL)
+	{
+		// Convertir primer carácter a número
+		int opcion = RxData[0] - '0';
+
+		switch(opcion)
+		{
+		case 1: // Secuencia automática
+			if (!secuenciaActiva)
+			{
+				LimpiarPantalla();
+				MostrarEncabezado();
+				MostrarInfo("Iniciando secuencia automatica...");
+				sprintf(buffer, "%s(Presione 5 en el menu para detener)%s\r\n\r\n", 
+						WARNING_COLOR, COLOR_RESET);
+				HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+				IniciarSecuenciaAutomatica();
+				estadoMenu = EJECUTANDO_SECUENCIA;
+			}else
+			{
+				MostrarAdvertencia("Secuencia ya esta en ejecucion!");
+				MostrarMenuPrincipal();
+			}
+			break;
+
+		case 2: // Ingresar ángulos
+			if (secuenciaActiva)
+			{
+				MostrarError("Debe detener la secuencia primero (opcion 5)");
+				MostrarMenuPrincipal();
+			}else
+			{
+				estadoMenu = MENU_ANGULOS;
+				SolicitarAngulos();
+			}
+			break;
+
+		case 3: // HOME
+			if (secuenciaActiva)
+			{
+				MostrarError("Debe detener la secuencia primero (opcion 5)");
+				MostrarMenuPrincipal();
+			}else
+			{
+				LimpiarPantalla();
+				MostrarEncabezado();
+				MostrarInfo("Moviendo a posicion HOME...");
+				HomePosition();
+				MostrarExito("Robot en posicion HOME");
+				MostrarMenuPrincipal();
+			}
+			break;
+
+		case 4: // Ver posición actual
+			MostrarPosicionActual();
+			// No mostramos menú aquí, se espera ENTER en MostrarPosicionActual
+			break;
+
+		case 5: // Detener secuencia
+			if(secuenciaActiva)
+			{
+				DetenerSecuencia();
+				LimpiarPantalla();
+				MostrarEncabezado();
+				MostrarExito("Secuencia detenida!");
+				estadoMenu = MENU_PRINCIPAL;
+				MostrarMenuPrincipal();
+			}
+			else
+			{
+				MostrarAdvertencia("No hay secuencia en ejecucion.");
+				MostrarMenuPrincipal();
+			}
+			break;
+
+		default:
+			MostrarError("Opcion invalida. Intente de nuevo.");
+			MostrarMenuPrincipal();
+			break;
+		}
+	}
+	else if(estadoMenu == MENU_ANGULOS)
+	{
+		SolicitarAngulos();
+	}
+	else if (estadoMenu == EJECUTANDO_SECUENCIA)
+	{
+		// Durante la secuencia, solo permitir ver menú o detener
+		int opcion = RxData[0] - '0';
+		if(opcion == 5)
+		{
+			DetenerSecuencia();
+			LimpiarPantalla();
+			MostrarEncabezado();
+			MostrarExito("Secuencia detenida!");
+			estadoMenu = MENU_PRINCIPAL;
+			MostrarMenuPrincipal();
+		}
+		else
+		{
+			MostrarAdvertencia("Secuencia en ejecucion. Presione 5 para detener.");
+		}
+	}
+}
+
+/**
+ * @brief Inicia la secuencia automática
+ */
+void IniciarSecuenciaAutomatica(void)
+{
+	secuenciaActiva = true;
+	secuenciaStep = 0;
+	secuenciaLastMove = HAL_GetTick();
+}
+
+/**
+ * @brief Detiene la secuencia automática
+ */
+void DetenerSecuencia(void)
+{
+	secuenciaActiva = false;
+	secuenciaStep = 0;
+}
+
+// ============================================================================
+// FUNCIONES DE INTERFAZ DE USUARIO
+// ============================================================================
+
+/**
+ * @brief Limpia la pantalla del terminal
+ */
+void LimpiarPantalla(void)
+{
+	sprintf(buffer, "%s%s", CLEAR_SCREEN, CURSOR_HOME);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+}
+
+/**
+ * @brief Muestra el encabezado del sistema
+ */
+void MostrarEncabezado(void)
+{
+	MostrarSeparador(SEPARATOR_COLOR);
+
+	sprintf(buffer, "%s%s     KUKA LBR IISY 4 DOF ROBOT ARM%s\r\n", 
+			ROBOT_COLOR, COLOR_BOLD, COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+	sprintf(buffer, "%s     Control System v2.1%s\r\n", 
+			HEADER_COLOR, COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+	sprintf(buffer, "%s     Cinematica Directa DH%s\r\n", 
+			INFO_COLOR, COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+	MostrarSeparador(SEPARATOR_COLOR);
+	sprintf(buffer, "\r\n");
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+}
+
+/**
+ * @brief Muestra una línea separadora con color
+ */
+void MostrarSeparador(const char* color)
+{
+	sprintf(buffer, "%s==================================================%s\r\n", 
+			color, COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+}
+
+/**
+ * @brief Muestra un mensaje de éxito
+ */
+void MostrarExito(const char* mensaje)
+{
+	sprintf(buffer, "%s✓ %s%s\r\n", SUCCESS_COLOR, mensaje, COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+}
+
+/**
+ * @brief Muestra un mensaje de error
+ */
+void MostrarError(const char* mensaje)
+{
+	sprintf(buffer, "%s✗ %s%s\r\n", ERROR_COLOR, mensaje, COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+}
+
+/**
+ * @brief Muestra un mensaje de advertencia
+ */
+void MostrarAdvertencia(const char* mensaje)
+{
+	sprintf(buffer, "%s⚠ %s%s\r\n", WARNING_COLOR, mensaje, COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+}
+
+/**
+ * @brief Muestra un mensaje informativo
+ */
+void MostrarInfo(const char* mensaje)
+{
+	sprintf(buffer, "%sℹ %s%s\r\n", INFO_COLOR, mensaje, COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+}
+
+
+
+/**
+ * @brief  Callback de recepción UART
+ * @param  huart: Handle del UART
+ * @retval None
+ */
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+	// Verificar si es ENTER (carriage return o line feed)
+	if(RxByte == '\r' || RxByte == '\n')
+	{
+		// Marcar que hay un mensaje completo
+		if(indx > 0) // Solo si hay datos
+		{
+			RxData[indx] = '\0'; // Null terminator
+			newMessageReady = true;
+
+			// Echo del ENTER
+			sprintf(buffer, "\r\n");
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 10);
+		}
+		else if (estadoMenu == MENU_PRINCIPAL)
+		{
+			// Si se presiona ENTER sin datos, refrescar menú
+			MostrarMenuPrincipal();
+		}
+	}
+	else if(RxByte == 127 || RxByte == 8)	// Backspace o DEL
+	{
+		// Eliminar último carácter
+		if(indx > 0)
+		{
+			indx--;
+			RxData[indx] = 0;
+			// Echo del backspace
+			HAL_UART_Transmit(&huart1, (uint8_t*)"\b \b", 3, 10);
+		}
+	}
+	else if(indx < BUFFER_SIZE - 1)  // Protección contra desbordamiento
+	{
+		// Almacenar el byte recibido
+		RxData[indx] = RxByte;
+		indx++;
+
+		// Echo del carácter recibido (con color de input)
+		HAL_UART_Transmit(&huart1, &RxByte, 1, 10);
+	}
+	// Reiniciar recepción para el siguiente byte
+	HAL_UART_Receive_IT(&huart1, &RxByte, 1);
+}
 /* USER CODE END 4 */
 
 /**
