@@ -51,7 +51,7 @@
     - [Validación y Debugging](#validación-y-debugging)
     - [Changelog](#changelog)
       - [Versión 2.0.0 (Diciembre 2025)](#versión-200-diciembre-2025)
-    - [Versión FK 1.0.0 (Diciembre 2025)](#versión-fk-100-diciembre-2025)
+      - [Versión FK 1.0.0 (Diciembre 2025)](#versión-fk-100-diciembre-2025)
   - [Licencia](#licencia)
 
 ## Descripción
@@ -1118,7 +1118,7 @@ Nuevas variables v2.0:
 **Archivos Nuevos:**
 - `ANSII_Codes.h` - Definiciones de códigos ANSI para colores y control de terminal
 
-### Versión FK 1.0.0 (Diciembre 2025)
+#### Versión FK 1.0.0 (Diciembre 2025)
 
 **Características Iniciales:**
 - Implementación de cinemática directa con parámetros DH
