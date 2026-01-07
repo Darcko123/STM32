@@ -37,14 +37,18 @@ typedef enum {
 /**
  * @brief Inicializa el módulo HC-05
  * 
- * @param[in] huart Puntero al manejador de la interfaz UART
- * @param[in] en_pin Pin para controlar el modo AT (opcional, puede ser NULL)
- * 
+ * @param[in] huart Puntero al manejador UART
+ * @param[in] GPIOx Puerto GPIO del pin EN
+ * @param[in] GPIO_Pin Pin EN del HC-05
+ * @param[in] Power_GPIOx Puerto GPIO para control de alimentación (NULL si no disponible)
+ * @param[in] Power_Pin Pin para control de alimentación (0 si no disponible)
+ *
  * @return HC05_Status_t Estado de la inicialización
- * 
  * @note La función configura la UART para modo AT y verifica la comunicación
  */
-HC05_Status_t HC05_Init(UART_HandleTypeDef *huart, GPIO_TypeDef* GPIOx, uint16_t GPIO_Pin);
+HC05_Status_t HC05_Init(UART_HandleTypeDef *huart, 
+                        GPIO_TypeDef* GPIOx, uint16_t GPIO_Pin,
+                        GPIO_TypeDef* Power_GPIOx, uint16_t Power_Pin)
 
 /**
  * @brief Verifica si el módulo responde a comandos AT
