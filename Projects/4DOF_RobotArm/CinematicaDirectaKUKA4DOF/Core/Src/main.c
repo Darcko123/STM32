@@ -5,7 +5,7 @@
  * @brief          	: Control de brazo robótico escala KUKA LBR IISY 4DOF con cinemática directa
  * @author			: Daniel Ruiz
  * @date			: December, 2025
- * @version			: 2.0
+ * @version			: 2.1
  ******************************************************************************
  * @description
  * Este programa implementa el control completo de un brazo robótico de 4 grados
@@ -69,10 +69,26 @@ typedef enum {
 	MENU_ANGULOS,
 	EJECUTANDO_SECUENCIA
 } EstadoMenu_t;
+
+// Estados de error del sistema
+typedef enum {
+	ROBOT_OK,
+	ROBOT_ERROR_PCA9685_INIT,
+	ROBOT_ERROR_SERVO_INIT,
+	ROBOT_ERROR_SERVO_MOVE,
+	ROBOT_ERROR_I2C_COMM,
+	ROBOT_ERROR_UART
+} RobotError_t;
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+
+// ============================================================================
+// DELAY PARA SECUENCIA
+// ============================================================================
+#define DELAY_TEST_SEQUENCE 5000
 
 // ============================================================================
 // PARÁMETROS FÍSICOS DEL ROBOT (en milímetros)
@@ -125,6 +141,14 @@ typedef enum {
 #define VALUE_COLOR         COLOR_YELLOW
 #define SEPARATOR_COLOR     COLOR_BRIGHT_MAGENTA
 #define ROBOT_COLOR         COLOR_BRIGHT_CYAN
+
+#define ERROR_COLOR_PCA9685 COLOR_BRIGHT_RED
+#define ERROR_COLOR_SERVO   COLOR_BRIGHT_MAGENTA
+#define ERROR_COLOR_I2C     COLOR_BRIGHT_YELLOW
+#define ERROR_COLOR_SYSTEM  COLOR_BRIGHT_RED
+
+// Límite de reintentos para errores I2C
+#define I2C_MAX_RETRIES 3
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -200,6 +224,14 @@ volatile uint8_t indx = 0;		// Manejador del índice de la cadena recibida
 volatile bool newMessageReady = false;	//Señal de listo
 
 EstadoMenu_t estadoMenu = MENU_PRINCIPAL;
+
+// ============================================================================
+// VARIABLES DE ESTADO Y ERROR
+// ============================================================================
+
+RobotError_t robotErrorState = ROBOT_OK;  /**< Estado actual de error del robot */
+uint8_t i2cRetryCount = 0;                /**< Contador de reintentos I2C */
+bool systemInitialized = false;           /**< Flag de sistema inicializado */
 
 // ===========================================================================
 // Variables para la secuencia de prueba automática
@@ -294,7 +326,7 @@ float ConstrainAngle(float angle, float min, float max);
  * @param duration_ms Duración del movimiento en milisegundos
  * @retval None
  */
-void MoveRobot(float q1, float q2, float q3, float q4, uint32_t duration_ms);
+PCA9685_Status_t MoveRobot(float q1, float q2, float q3, float q4, uint32_t duration_ms);
 
 /**
  * @brief Mueve el robot y espera hasta completar el movimiento (bloqueante).
@@ -331,6 +363,11 @@ void TestSequence(void);
  * 
  */
 void IniciarSecuenciaAutomatica(void);
+
+/**
+ * @brief Detiene la secuencia automática del robot.
+ *
+ */
 void DetenerSecuencia(void);
 
 /**
@@ -361,6 +398,12 @@ void SolicitarAngulos(void);
 void MostrarPosicionActual(void);
 
 /**
+ * @brief Muestra el estado actual del sistema
+ *
+ */
+void MostrarEstadoSistema(void);
+
+/**
  * @brief Convierte una cadena de caracteres a un número flotante.
  * 
  * @param str 
@@ -368,6 +411,47 @@ void MostrarPosicionActual(void);
  */
 float ConvertirStringAFloat(char* str);
 
+/**
+ * @brief Maneja errores del PCA9685.
+ * @param error Código de error del PCA9685.
+ * @param operation Operación que falló.
+ * @retval None
+ */
+void HandlePCA9685Error(PCA9685_Status_t error, const char* operation);
+
+/**
+ * @brief Muestra un mensaje de error específico.
+ * @param errorType Tipo de error.
+ * @param operation Operación que falló.
+ * @param details Detalles adicionales (opcional).
+ * @retval None
+ */
+void MostrarErrorRobot(RobotError_t errorType, const char* operation, const char* details);
+
+/**
+ * @brief Reintenta la inicialización del sistema.
+ * @retval true si se reinició exitosamente, false en caso contrario.
+ */
+bool ReintentarInicializacion(void);
+
+/**
+ * @brief Verifica el estado del sistema.
+ * @retval true si el sistema está operativo, false si hay errores críticos.
+ */
+bool VerificarEstadoSistema(void);
+
+/**
+ * @brief Realiza una prueba de comunicación I2C.
+ * @retval true si la comunicación es exitosa, false en caso contrario.
+ */
+bool TestI2CComunicacion(void);
+
+/**
+ * @brief Inicializa los servos con validación de errores.
+ *
+ * @return PCA9685_Status_t
+ */
+PCA9685_Status_t InicializarServosConValidacion(void);
 // ===========================================================================
 // FUNCIONES DE INTERFAZ DE USUARIO
 // ===========================================================================
@@ -419,6 +503,8 @@ void MostrarAdvertencia(const char* mensaje);
  */
 void MostrarInfo(const char* mensaje);
 
+void MostrarSugerenciaError(RobotError_t errorType);
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -427,85 +513,146 @@ void MostrarInfo(const char* mensaje);
 /* USER CODE END 0 */
 
 /**
- * @brief  The application entry point.
- * @retval int
- */
+  * @brief  The application entry point.
+  * @retval int
+  */
 int main(void)
 {
 
-	/* USER CODE BEGIN 1 */
+  /* USER CODE BEGIN 1 */
+	PCA9685_Status_t pcaStatus;
+  /* USER CODE END 1 */
 
-	/* USER CODE END 1 */
+  /* MCU Configuration--------------------------------------------------------*/
 
-	/* MCU Configuration--------------------------------------------------------*/
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  HAL_Init();
 
-	/* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-	HAL_Init();
+  /* USER CODE BEGIN Init */
 
-	/* USER CODE BEGIN Init */
+  /* USER CODE END Init */
 
-	/* USER CODE END Init */
+  /* Configure the system clock */
+  SystemClock_Config();
 
-	/* Configure the system clock */
-	SystemClock_Config();
+  /* USER CODE BEGIN SysInit */
 
-	/* USER CODE BEGIN SysInit */
+  /* USER CODE END SysInit */
 
-	/* USER CODE END SysInit */
-
-	/* Initialize all configured peripherals */
-	MX_GPIO_Init();
-	MX_I2C1_Init();
-	MX_USART1_UART_Init();
-	/* USER CODE BEGIN 2 */
+  /* Initialize all configured peripherals */
+  MX_GPIO_Init();
+  MX_I2C1_Init();
+  MX_USART1_UART_Init();
+  /* USER CODE BEGIN 2 */
 
 	memset(RxData, 0, 20);
-
 	HAL_UART_Receive_IT(&huart1, &RxByte, 1);
-
 	HAL_Delay(100);	// Esperar inicialización del PCA9685
-
-	// Inicializar PCA9685 a 50Hz (servos estándar)
-	PCA9685_Init(&hi2c1, 50);
-	HAL_Delay(100);	// Pequeño delay para estabilización
-
-	// Configurar servos con interpolación suave
-	PCA9685_InitSmoothServo(&SERVO_BASE, 0, 0, 20);  		// Canal 0, inicio en 0°, actualización cada 20ms
-	PCA9685_InitSmoothServo(&SERVO_SHOULDER, 1, 0, 20);  	// Canal 1, inicio en 0°, actualización cada 20ms
-	PCA9685_InitSmoothServo(&SERVO_ELBOW, 2, 0, 20);  		// Canal 2, inicio en 0°, actualización cada 20ms
-	PCA9685_InitSmoothServo(&SERVO_WRIST, 3, 0, 20);		// Canal 3, inicio en 0°, actualización cada 20ms
 
 	// Limpiar pantalla terminal y mostrar encabezado
 	LimpiarPantalla();
 	MostrarEncabezado();
 
-	// Ir a posición home
-	HomePosition();
+	MostrarInfo("Inicializando sistema robótico...");
+
+
+	// Inicializar PCA9685 a 50Hz (servos estándar)
+	pcaStatus = PCA9685_Init(&hi2c1, 50);
+	if(pcaStatus != PCA9685_OK)
+	{
+		HandlePCA9685Error(pcaStatus, "Inicialización PCA9685");
+
+		if (!ReintentarInicializacion())
+		{
+			MostrarErrorRobot(ROBOT_ERROR_PCA9685_INIT, "Inicialización",
+					"No se pudo inicializar el controlador PWM");
+			while(1) { HAL_Delay(1000); }
+		}
+	}
+	else
+	{
+		MostrarExito("PCA9685 Inicializado correctamente");
+	}
+	HAL_Delay(100);	// Pequeño delay para estabilización
+
+
+
+	// Inicializar servos con validación
+	pcaStatus = InicializarServosConValidacion();
+	if (pcaStatus != PCA9685_OK)
+	{
+		HandlePCA9685Error(pcaStatus, "Inicialización de servos");
+
+		if (!ReintentarInicializacion())
+		{
+			MostrarErrorRobot(ROBOT_ERROR_SERVO_INIT, "Inicialización servos",
+					"No se pudo inicializar los servomotores");
+		}
+	}
+	else
+	{
+		MostrarExito("Servos inicializados correctamente");
+		systemInitialized = true;
+	}
+
+	// Ir a posición home con validación
+	MostrarInfo("Moviendo a posición HOME...");
+	if (systemInitialized)
+	{
+		HomePosition();
+	}
+
 	HAL_Delay(2000);  // Esperar estabilización en posición home
 
-	// Mostrar menú inicial
-	MostrarMenuPrincipal();
+	// Mostrar menú inicial si todo está bien
+	if (VerificarEstadoSistema())
+	{
+		MostrarMenuPrincipal();
+	}
+	else
+	{
+		MostrarAdvertencia("Sistema operando en modo limitado debido a errores");
+		MostrarMenuPrincipal();
+	}
 
-	/* USER CODE END 2 */
 
-	/* Infinite loop */
-	/* USER CODE BEGIN WHILE */
+  /* USER CODE END 2 */
+
+  /* Infinite loop */
+  /* USER CODE BEGIN WHILE */
 	while (1)
 	{
-		UpdateServos(); // Actualiza interpolación de ángulos
-
-		if (secuenciaActiva)
+		// Verificar estado del sistema periódicamente
+		static uint32_t lastSystemCheck = 0;
+		if (HAL_GetTick() - lastSystemCheck > 5000) // Cada 5 segundos
 		{
-			TestSequence();
+			if (!VerificarEstadoSistema())
+			{
+				MostrarAdvertencia("Advertencia: Sistema detectó errores previos");
+			}
+			lastSystemCheck = HAL_GetTick();
 		}
 
-		// Timeout si usuario no está ingresando ángulos
-		if (!secuenciaActiva && estadoMenu != MENU_ANGULOS &&
-				(HAL_GetTick() - ultimaInteraccion > 180000))		// 3 minutos
+		if (systemInitialized)
 		{
-			MostrarAdvertencia("\r\nTimeout de inactividad. Volviendo a HOME...");
-			HomePosition();
-			ultimaInteraccion = HAL_GetTick();
+			UpdateServos();
+
+			if (secuenciaActiva)
+			{
+				TestSequence();
+			}
+
+			// Timeout de inactividad
+			if (!secuenciaActiva && estadoMenu != MENU_ANGULOS &&
+					(HAL_GetTick() - ultimaInteraccion > 180000))	// Minutos
+			{
+				MostrarAdvertencia("Timeout de inactividad. Volviendo a HOME...");
+				if (systemInitialized)
+				{
+					HomePosition();
+				}
+				ultimaInteraccion = HAL_GetTick();
+			}
 		}
 
 		if (newMessageReady)
@@ -519,148 +666,413 @@ int main(void)
 		}
 
 		HAL_Delay(10);	// Pequeño delay para evitar sobrecarga CPU
-		/* USER CODE END WHILE */
+    /* USER CODE END WHILE */
 
-		/* USER CODE BEGIN 3 */
+    /* USER CODE BEGIN 3 */
 	}
-	/* USER CODE END 3 */
+  /* USER CODE END 3 */
 }
 
 /**
- * @brief System Clock Configuration
- * @retval None
- */
+  * @brief System Clock Configuration
+  * @retval None
+  */
 void SystemClock_Config(void)
 {
-	RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-	RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
-	/** Configure the main internal regulator output voltage
-	 */
-	__HAL_RCC_PWR_CLK_ENABLE();
-	__HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
+  /** Configure the main internal regulator output voltage
+  */
+  __HAL_RCC_PWR_CLK_ENABLE();
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
 
-	/** Initializes the RCC Oscillators according to the specified parameters
-	 * in the RCC_OscInitTypeDef structure.
-	 */
-	RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
-	RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-	RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-	RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-	RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-	RCC_OscInitStruct.PLL.PLLM = 8;
-	RCC_OscInitStruct.PLL.PLLN = 100;
-	RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-	RCC_OscInitStruct.PLL.PLLQ = 4;
-	if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-	{
-		Error_Handler();
-	}
+  /** Initializes the RCC Oscillators according to the specified parameters
+  * in the RCC_OscInitTypeDef structure.
+  */
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+  RCC_OscInitStruct.PLL.PLLM = 8;
+  RCC_OscInitStruct.PLL.PLLN = 100;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLQ = 4;
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
 
-	/** Initializes the CPU, AHB and APB buses clocks
-	 */
-	RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-			|RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
-	RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-	RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-	RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
-	RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+  /** Initializes the CPU, AHB and APB buses clocks
+  */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-	if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3) != HAL_OK)
-	{
-		Error_Handler();
-	}
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3) != HAL_OK)
+  {
+    Error_Handler();
+  }
 }
 
 /**
- * @brief I2C1 Initialization Function
- * @param None
- * @retval None
- */
+  * @brief I2C1 Initialization Function
+  * @param None
+  * @retval None
+  */
 static void MX_I2C1_Init(void)
 {
 
-	/* USER CODE BEGIN I2C1_Init 0 */
+  /* USER CODE BEGIN I2C1_Init 0 */
 
-	/* USER CODE END I2C1_Init 0 */
+  /* USER CODE END I2C1_Init 0 */
 
-	/* USER CODE BEGIN I2C1_Init 1 */
+  /* USER CODE BEGIN I2C1_Init 1 */
 
-	/* USER CODE END I2C1_Init 1 */
-	hi2c1.Instance = I2C1;
-	hi2c1.Init.ClockSpeed = 100000;
-	hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
-	hi2c1.Init.OwnAddress1 = 0;
-	hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
-	hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
-	hi2c1.Init.OwnAddress2 = 0;
-	hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
-	hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-	if (HAL_I2C_Init(&hi2c1) != HAL_OK)
-	{
-		Error_Handler();
-	}
-	/* USER CODE BEGIN I2C1_Init 2 */
+  /* USER CODE END I2C1_Init 1 */
+  hi2c1.Instance = I2C1;
+  hi2c1.Init.ClockSpeed = 100000;
+  hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
+  hi2c1.Init.OwnAddress1 = 0;
+  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c1.Init.OwnAddress2 = 0;
+  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C1_Init 2 */
 
-	/* USER CODE END I2C1_Init 2 */
+  /* USER CODE END I2C1_Init 2 */
 
 }
 
 /**
- * @brief USART1 Initialization Function
- * @param None
- * @retval None
- */
+  * @brief USART1 Initialization Function
+  * @param None
+  * @retval None
+  */
 static void MX_USART1_UART_Init(void)
 {
 
-	/* USER CODE BEGIN USART1_Init 0 */
+  /* USER CODE BEGIN USART1_Init 0 */
 
-	/* USER CODE END USART1_Init 0 */
+  /* USER CODE END USART1_Init 0 */
 
-	/* USER CODE BEGIN USART1_Init 1 */
+  /* USER CODE BEGIN USART1_Init 1 */
 
-	/* USER CODE END USART1_Init 1 */
-	huart1.Instance = USART1;
-	huart1.Init.BaudRate = 115200;
-	huart1.Init.WordLength = UART_WORDLENGTH_8B;
-	huart1.Init.StopBits = UART_STOPBITS_1;
-	huart1.Init.Parity = UART_PARITY_NONE;
-	huart1.Init.Mode = UART_MODE_TX_RX;
-	huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-	huart1.Init.OverSampling = UART_OVERSAMPLING_16;
-	if (HAL_UART_Init(&huart1) != HAL_OK)
-	{
-		Error_Handler();
-	}
-	/* USER CODE BEGIN USART1_Init 2 */
+  /* USER CODE END USART1_Init 1 */
+  huart1.Instance = USART1;
+  huart1.Init.BaudRate = 115200;
+  huart1.Init.WordLength = UART_WORDLENGTH_8B;
+  huart1.Init.StopBits = UART_STOPBITS_1;
+  huart1.Init.Parity = UART_PARITY_NONE;
+  huart1.Init.Mode = UART_MODE_TX_RX;
+  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART1_Init 2 */
 
-	/* USER CODE END USART1_Init 2 */
+  /* USER CODE END USART1_Init 2 */
 
 }
 
 /**
- * @brief GPIO Initialization Function
- * @param None
- * @retval None
- */
+  * @brief GPIO Initialization Function
+  * @param None
+  * @retval None
+  */
 static void MX_GPIO_Init(void)
 {
-	/* USER CODE BEGIN MX_GPIO_Init_1 */
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+  /* USER CODE BEGIN MX_GPIO_Init_1 */
 
-	/* USER CODE END MX_GPIO_Init_1 */
+  /* USER CODE END MX_GPIO_Init_1 */
 
-	/* GPIO Ports Clock Enable */
-	__HAL_RCC_GPIOH_CLK_ENABLE();
-	__HAL_RCC_GPIOA_CLK_ENABLE();
-	__HAL_RCC_GPIOB_CLK_ENABLE();
+  /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOC_CLK_ENABLE();
+  __HAL_RCC_GPIOH_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
 
-	/* USER CODE BEGIN MX_GPIO_Init_2 */
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
 
-	/* USER CODE END MX_GPIO_Init_2 */
+  /*Configure GPIO pin : PC13 */
+  GPIO_InitStruct.Pin = GPIO_PIN_13;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  /* USER CODE BEGIN MX_GPIO_Init_2 */
+
+  /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
+
+// ============================================================================
+// FUNCIONES DE MANEJO DE ERRORES
+// ============================================================================
+
+/**
+ * @brief Maneja errores del PCA9685.
+ */
+void HandlePCA9685Error(PCA9685_Status_t error, const char* operation)
+{
+	char errorMsg[100];
+	const char* errorType;
+	RobotError_t robotError;
+
+	// Validar que realmente sea un error
+	if (error == PCA9685_OK)
+	{
+		// No debería llamarse a esta función con PCA9685_OK
+		return;
+	}
+
+	// Determinar tipo de error y estado del robot
+	switch(error)
+	{
+	case PCA9685_TIMEOUT:
+		errorType = "Timeout I2C";
+		robotError = ROBOT_ERROR_I2C_COMM;
+		break;
+
+	case PCA9685_ERROR:
+	default:  // Manejar cualquier otro error no especificado
+		errorType = "Error general";
+		robotError = ROBOT_ERROR_PCA9685_INIT;
+		break;
+	}
+
+	// Actualizar estado global de error
+	robotErrorState = robotError;
+
+	// Crear mensaje de error
+	sprintf(errorMsg, "%s en %s (Código: %d)", errorType, operation, error);
+	MostrarErrorRobot(robotError, operation, errorMsg);
+
+	// Incrementar contador de reintentos solo para errores I2C
+	if (robotError == ROBOT_ERROR_I2C_COMM)
+	{
+		i2cRetryCount++;
+
+		if (i2cRetryCount >= I2C_MAX_RETRIES)
+		{
+			sprintf(buffer, "%s%sERROR CRÍTICO: Se excedió el límite de reintentos I2C%s\r\n",
+					COLOR_BRIGHT_RED, COLOR_BOLD, COLOR_RESET);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+			sprintf(buffer, "%sPor favor, revise la conexión I2C y reinicie el sistema.%s\r\n",
+					WARNING_COLOR, COLOR_RESET);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+			systemInitialized = false;
+		}
+	}
+}
+
+/**
+ * @brief Muestra un mensaje de error específico del robot.
+ */
+void MostrarErrorRobot(RobotError_t errorType, const char* operation, const char* details)
+{
+	const char* color;
+	const char* errorDesc;
+
+	// Determinar color y descripción según el tipo de error
+	switch(errorType)
+	{
+	case ROBOT_ERROR_PCA9685_INIT:
+		color = ERROR_COLOR_PCA9685;
+		errorDesc = "ERROR PCA9685";
+		break;
+
+	case ROBOT_ERROR_SERVO_INIT:
+		color = ERROR_COLOR_SERVO;
+		errorDesc = "ERROR SERVO";
+		break;
+
+	case ROBOT_ERROR_SERVO_MOVE:
+		color = ERROR_COLOR_SERVO;
+		errorDesc = "ERROR MOVIMIENTO";
+		break;
+
+	case ROBOT_ERROR_I2C_COMM:
+		color = ERROR_COLOR_I2C;
+		errorDesc = "ERROR I2C";
+		break;
+
+	case ROBOT_ERROR_UART:
+		color = ERROR_COLOR_SYSTEM;
+		errorDesc = "ERROR UART";
+		break;
+
+	default:
+		color = ERROR_COLOR_SYSTEM;
+		errorDesc = "ERROR SISTEMA";
+		break;
+	}
+
+	sprintf(buffer, "%s%s[%s] %s%s\r\n",
+			color, COLOR_BOLD, errorDesc, operation, COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+	if (details != NULL)
+	{
+		sprintf(buffer, "%sDetalles: %s%s\r\n",
+				color, details, COLOR_RESET);
+		HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+	}
+
+	// Mostrar sugerencia de solución según el error
+	MostrarSugerenciaError(errorType);
+}
+
+/**
+ * @brief Muestra sugerencias para resolver errores.
+ */
+void MostrarSugerenciaError(RobotError_t errorType)
+{
+	sprintf(buffer, "%sSugerencia: ", INFO_COLOR);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+	switch(errorType)
+	{
+	case ROBOT_ERROR_I2C_COMM:
+	case ROBOT_ERROR_PCA9685_INIT:
+		sprintf(buffer, "Verifique conexiones I2C, alimentación y direcciones.%s\r\n", COLOR_RESET);
+		break;
+
+	case ROBOT_ERROR_SERVO_INIT:
+	case ROBOT_ERROR_SERVO_MOVE:
+		sprintf(buffer, "Revise servomotores, voltaje y límites mecánicos.%s\r\n", COLOR_RESET);
+		break;
+
+	default:
+		sprintf(buffer, "Reinicie el sistema o verifique configuraciones.%s\r\n", COLOR_RESET);
+		break;
+	}
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+}
+
+/**
+ * @brief Reintenta la inicialización del sistema.
+ */
+bool ReintentarInicializacion(void)
+{
+    PCA9685_Status_t status;
+    
+    // Verificar si ya hemos excedido los reintentos
+    if (i2cRetryCount >= I2C_MAX_RETRIES)
+    {
+        MostrarError("Límite máximo de reintentos alcanzado");
+        return false;
+    }
+    
+    // Verificar si el sistema ya está inicializado
+    if (systemInitialized)
+    {
+        MostrarInfo("Sistema ya está inicializado");
+        return true;
+    }
+    
+    // Mostrar mensaje de reintento
+    sprintf(buffer, "%sReintentando inicialización (%d/%d)...%s\r\n",
+            WARNING_COLOR, i2cRetryCount + 1, I2C_MAX_RETRIES, COLOR_RESET);
+    HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+    
+    // Pequeño delay para estabilización
+    HAL_Delay(1000);
+    
+    // Reintentar inicialización PCA9685
+    status = PCA9685_Init(&hi2c1, 50);
+    if (status == PCA9685_OK)
+    {
+        // Reinicializar servos
+        status = InicializarServosConValidacion();
+        if (status == PCA9685_OK)
+        {
+            MostrarExito("Reinicialización exitosa!");
+            i2cRetryCount = 0;  // Reiniciar contador
+            robotErrorState = ROBOT_OK;
+            systemInitialized = true;
+            return true;
+        }
+        else
+        {
+            HandlePCA9685Error(status, "Reinicialización de servos");
+            return false;
+        }
+    }
+    else
+    {
+        HandlePCA9685Error(status, "Reintento de inicialización PCA9685");
+        return false;
+    }
+}
+
+/**
+ * @brief Verifica el estado del sistema.
+ */
+bool VerificarEstadoSistema(void)
+{
+	if (robotErrorState != ROBOT_OK && i2cRetryCount >= I2C_MAX_RETRIES)
+	{
+		return false;
+	}
+	return systemInitialized;
+}
+
+/**
+ * @brief Inicializa servos con validación de errores.
+ */
+PCA9685_Status_t InicializarServosConValidacion(void)
+{
+	PCA9685_Status_t status;
+
+	// Configurar servos con manejo de errores individual
+	status = PCA9685_InitSmoothServo(&SERVO_BASE, 0, 0, 20);
+	if (status != PCA9685_OK)
+	{
+		HandlePCA9685Error(status, "Inicializar servo BASE");
+		return status;
+	}
+
+	status = PCA9685_InitSmoothServo(&SERVO_SHOULDER, 1, 0, 20);
+	if (status != PCA9685_OK)
+	{
+		HandlePCA9685Error(status, "Inicializar servo HOMBRO");
+		return status;
+	}
+
+	status = PCA9685_InitSmoothServo(&SERVO_ELBOW, 2, 0, 20);
+	if (status != PCA9685_OK)
+	{
+		HandlePCA9685Error(status, "Inicializar servo CODO");
+		return status;
+	}
+
+	status = PCA9685_InitSmoothServo(&SERVO_WRIST, 3, 0, 20);
+	if (status != PCA9685_OK)
+	{
+		HandlePCA9685Error(status, "Inicializar servo MUÑECA");
+		return status;
+	}
+
+	return PCA9685_OK;
+}
 
 // ============================================================================
 // IMPLEMENTACIÓN DE CINEMÁTICA DIRECTA
@@ -897,7 +1309,7 @@ float ConstrainAngle(float angle, float min, float max)
  * 
  * @note Para movimiento síncrono, usar MoveRobotBlocking()
  */
-void MoveRobot(float q1, float q2, float q3, float q4, uint32_t duration_ms)
+PCA9685_Status_t MoveRobot(float q1, float q2, float q3, float q4, uint32_t duration_ms)
 {
 	// 1. LIMITAR ÁNGULOS A RANGOS PERMITIDOS
 	// Previene daños mecánicos y configuraciones peligrosas
@@ -913,12 +1325,41 @@ void MoveRobot(float q1, float q2, float q3, float q4, uint32_t duration_ms)
 	float servo3_angle = q3 + SERVO3_OFFSET;
 	float servo4_angle = q4 + SERVO4_OFFSET;
 
+	PCA9685_Status_t status;
+
 	// 3. CONFIGURAR MOVIMIENTOS SUAVES
 	// Interpolación lineal entre posición actual y objetivo
-	PCA9685_SetSmoothAngle(&SERVO_BASE, servo1_angle, duration_ms);
-	PCA9685_SetSmoothAngle(&SERVO_SHOULDER, servo2_angle, duration_ms);
-	PCA9685_SetSmoothAngle(&SERVO_ELBOW, servo3_angle, duration_ms);
-	PCA9685_SetSmoothAngle(&SERVO_WRIST, servo4_angle, duration_ms);
+	status = PCA9685_SetSmoothAngle(&SERVO_BASE, servo1_angle, duration_ms);
+	if (status != PCA9685_OK)
+	{
+		HandlePCA9685Error(status, "Mover servo BASE");
+		robotErrorState = ROBOT_ERROR_SERVO_MOVE;
+		return status;
+	}
+
+	status = PCA9685_SetSmoothAngle(&SERVO_SHOULDER, servo2_angle, duration_ms);
+	if (status != PCA9685_OK)
+	{
+		HandlePCA9685Error(status, "Mover servo HOMBRO");
+		robotErrorState = ROBOT_ERROR_SERVO_MOVE;
+		return status;
+	}
+
+	status = PCA9685_SetSmoothAngle(&SERVO_ELBOW, servo3_angle, duration_ms);
+	if (status != PCA9685_OK)
+	{
+		HandlePCA9685Error(status, "Mover servo CODO");
+		robotErrorState = ROBOT_ERROR_SERVO_MOVE;
+		return status;
+	}
+
+	status = PCA9685_SetSmoothAngle(&SERVO_WRIST, servo4_angle, duration_ms);
+	if (status != PCA9685_OK)
+	{
+		HandlePCA9685Error(status, "Mover servo MUÑECA");
+		robotErrorState = ROBOT_ERROR_SERVO_MOVE;
+		return status;
+	}
 
 	// 4. ACTUALIZAR ÁNGULOS ACTUALES
 	// Estos se actualizarán gradualmente durante el movimiento
@@ -926,6 +1367,8 @@ void MoveRobot(float q1, float q2, float q3, float q4, uint32_t duration_ms)
 	current_q2 = q2;
 	current_q3 = q3;
 	current_q4 = q4;
+
+	return PCA9685_OK;
 }
 
 /**
@@ -984,12 +1427,17 @@ void MoveRobotBlocking(float q1, float q2, float q3, float q4, uint32_t duration
  */
 void UpdateServos(void)
 {
-	PCA9685_UpdateSmoothServo(&SERVO_BASE);
-	PCA9685_UpdateSmoothServo(&SERVO_SHOULDER);
-	PCA9685_UpdateSmoothServo(&SERVO_ELBOW);
-	PCA9685_UpdateSmoothServo(&SERVO_WRIST);
-}
+	if (!systemInitialized) return;
 
+	bool allStopped = true;
+
+	allStopped &= PCA9685_UpdateSmoothServo(&SERVO_BASE);
+	allStopped &= PCA9685_UpdateSmoothServo(&SERVO_SHOULDER);
+	allStopped &= PCA9685_UpdateSmoothServo(&SERVO_ELBOW);
+	allStopped &= PCA9685_UpdateSmoothServo(&SERVO_WRIST);
+
+	// Si hubo un error durante la actualización, se maneja dentro de PCA9685_UpdateSmoothServo
+}
 // ============================================================================
 // POSICIONES Y SECUENCIAS
 // ============================================================================
@@ -1016,7 +1464,24 @@ void UpdateServos(void)
 void HomePosition(void)
 {
 	// Posición home: base centrada, brazo extendido horizontalmente
-	MoveRobotBlocking(0.0f, 0.0f, 0.0f, 0.0f, 2000);
+	if (!VerificarEstadoSistema())
+	{
+		MostrarErrorRobot(robotErrorState, "Home Position",
+				"Sistema no está completamente operativo");
+		return;
+	}
+
+	PCA9685_Status_t status = MoveRobot(0.0f, 0.0f, 0.0f, 0.0f, 2000);
+	if (status == PCA9685_OK)
+	{
+		// Esperar movimiento
+		uint32_t start = HAL_GetTick();
+		while ((HAL_GetTick() - start) < 2500)
+		{
+			UpdateServos();
+			HAL_Delay(20);
+		}
+	}
 }
 
 /**
@@ -1087,7 +1552,7 @@ void TestSequence(void)
 		break;
 
 	case 1: // Esperar 3 segundos
-		if (now - secuenciaLastMove > 3000)
+		if (now - secuenciaLastMove > DELAY_TEST_SEQUENCE)
 		{
 			secuenciaLastMove = now;
 			secuenciaStep++;
@@ -1134,7 +1599,7 @@ void TestSequence(void)
 		break;
 
 	case 3: // Esperar 2 segundos
-		if (now - secuenciaLastMove > 2000)
+		if (now - secuenciaLastMove > DELAY_TEST_SEQUENCE)
 		{
 			secuenciaLastMove = now;
 			secuenciaStep++;
@@ -1182,7 +1647,7 @@ void TestSequence(void)
 		break;
 
 	case 5: // Esperar 2 segundos
-		if (now - secuenciaLastMove > 2000)
+		if (now - secuenciaLastMove > DELAY_TEST_SEQUENCE)
 		{
 			secuenciaLastMove = now;
 			secuenciaStep++;
@@ -1229,7 +1694,7 @@ void TestSequence(void)
 		break;
 
 	case 7: // Esperar 2 segundos
-		if (now - secuenciaLastMove > 2000)
+		if (now - secuenciaLastMove > DELAY_TEST_SEQUENCE)
 		{
 			secuenciaLastMove = now;
 			secuenciaStep++;
@@ -1277,7 +1742,7 @@ void TestSequence(void)
 		break;
 
 	case 9: // Esperar 1.5 segundos
-		if (now - secuenciaLastMove > 1500)
+		if (now - secuenciaLastMove > DELAY_TEST_SEQUENCE)
 		{
 			secuenciaLastMove = now;
 			secuenciaStep++;
@@ -1324,7 +1789,7 @@ void TestSequence(void)
 		break;
 
 	case 11: // Esperar y mostrar información final
-		if (now - secuenciaLastMove > 2500)
+		if (now - secuenciaLastMove > DELAY_TEST_SEQUENCE)
 		{
 			// Secuencia completada
 			LimpiarPantalla();
@@ -1358,6 +1823,20 @@ void MostrarMenuPrincipal(void)
 {
 	LimpiarPantalla();
 	MostrarEncabezado();
+
+	// Mostrar estado del sistema si hay errores
+	if (robotErrorState != ROBOT_OK)
+	{
+		sprintf(buffer, "%s%s[ADVERTENCIA: SISTEMA CON ERRORES]%s\r\n",
+				WARNING_COLOR, COLOR_BOLD, COLOR_RESET);
+		HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+		sprintf(buffer, "%sEstado: %s%s%s\r\n\r\n",
+				INFO_COLOR, ERROR_COLOR,
+				(i2cRetryCount >= I2C_MAX_RETRIES) ? "CRÍTICO" : "LIMITADO",
+						COLOR_RESET);
+		HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+	}
 
 	sprintf(buffer, "%s%s========== MENU PRINCIPAL ==========%s\r\n", 
 			MENU_COLOR, COLOR_BOLD, COLOR_RESET);
@@ -1754,6 +2233,10 @@ void ProcesarOpcionMenu(void)
 			}
 			break;
 
+		case 6: // Mostrar estado del sistema
+			MostrarEstadoSistema();
+			break;
+
 		default:
 			MostrarError("Opcion invalida. Intente de nuevo.");
 			MostrarMenuPrincipal();
@@ -1841,6 +2324,59 @@ void MostrarEncabezado(void)
 }
 
 /**
+ * @brief Muestra el estado actual del sistema
+ *
+ */
+void MostrarEstadoSistema(void)
+{
+	LimpiarPantalla();
+	MostrarEncabezado();
+
+	sprintf(buffer, "%s%s--- ESTADO DEL SISTEMA ---%s\r\n\r\n",
+			HEADER_COLOR, COLOR_BOLD, COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+	sprintf(buffer, "%sInicialización:%s %s%s%s\r\n",
+			COLOR_CYAN, COLOR_RESET,
+			systemInitialized ? SUCCESS_COLOR : ERROR_COLOR,
+					systemInitialized ? "COMPLETA" : "FALLIDA",
+							COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+	sprintf(buffer, "%sEstado PCA9685:%s %s%s%s\r\n",
+			COLOR_CYAN, COLOR_RESET,
+			(robotErrorState == ROBOT_OK) ? SUCCESS_COLOR : ERROR_COLOR,
+					(robotErrorState == ROBOT_OK) ? "OK" : "ERROR",
+							COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+	sprintf(buffer, "%sReintentos I2C:%s %s%d/%d%s\r\n",
+			COLOR_CYAN, COLOR_RESET,
+			VALUE_COLOR, i2cRetryCount, I2C_MAX_RETRIES, COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+	sprintf(buffer, "%sEstado general:%s %s%s%s\r\n\r\n",
+			COLOR_CYAN, COLOR_RESET,
+			VerificarEstadoSistema() ? SUCCESS_COLOR : ERROR_COLOR,
+					VerificarEstadoSistema() ? "OPERATIVO" : "CON ERRORES",
+							COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+	if (robotErrorState != ROBOT_OK)
+	{
+		sprintf(buffer, "%sÚltimo error reportado:%s\r\n",
+				WARNING_COLOR, COLOR_RESET);
+		HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+		// Aquí podrías guardar el último mensaje de error para mostrarlo
+	}
+
+	sprintf(buffer, "%sPresione ENTER para volver al menú...%s",
+			COLOR_DIM, COLOR_RESET);
+	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+}
+
+/**
  * @brief Muestra una línea separadora con color
  */
 void MostrarSeparador(const char* color)
@@ -1873,7 +2409,7 @@ void MostrarError(const char* mensaje)
  */
 void MostrarAdvertencia(const char* mensaje)
 {
-	sprintf(buffer, "%s⚠ %s%s\r\n", WARNING_COLOR, mensaje, COLOR_RESET);
+	sprintf(buffer, "\r\n%s⚠ %s%s\r\n", WARNING_COLOR, mensaje, COLOR_RESET);
 	HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
 }
 
@@ -1940,32 +2476,32 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 /* USER CODE END 4 */
 
 /**
- * @brief  This function is executed in case of error occurrence.
- * @retval None
- */
+  * @brief  This function is executed in case of error occurrence.
+  * @retval None
+  */
 void Error_Handler(void)
 {
-	/* USER CODE BEGIN Error_Handler_Debug */
+  /* USER CODE BEGIN Error_Handler_Debug */
 	/* User can add his own implementation to report the HAL error return state */
 	__disable_irq();
 	while (1)
 	{
 	}
-	/* USER CODE END Error_Handler_Debug */
+  /* USER CODE END Error_Handler_Debug */
 }
 #ifdef USE_FULL_ASSERT
 /**
- * @brief  Reports the name of the source file and the source line number
- *         where the assert_param error has occurred.
- * @param  file: pointer to the source file name
- * @param  line: assert_param error line source number
- * @retval None
- */
+  * @brief  Reports the name of the source file and the source line number
+  *         where the assert_param error has occurred.
+  * @param  file: pointer to the source file name
+  * @param  line: assert_param error line source number
+  * @retval None
+  */
 void assert_failed(uint8_t *file, uint32_t line)
 {
-	/* USER CODE BEGIN 6 */
+  /* USER CODE BEGIN 6 */
 	/* User can add his own implementation to report the file name and line number,
      ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-	/* USER CODE END 6 */
+  /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
