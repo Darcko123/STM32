@@ -4,6 +4,7 @@
  *  @brief    Librería para la comunicación y lectura de datos de un acelerómetro MPU6050
  *  @author   Daniel Ruiz
  *  @date     23 de septiembre de 2024
+ *  @version  2.0.0
  *  
  *  @details  
  *  Esta librería proporciona funciones para inicializar y leer datos del acelerómetro 
@@ -14,9 +15,17 @@
 #ifndef MPU6050_H_
 #define MPU6050_H_
 
+/**
+ * @brief Incluir el encabezado adecuado según la familia STM32 utilizada.
+ * Por ejemplo:
+ * - Para STM32F1xx: "stm32f1xx_hal.h"
+ * - Para STM32F4xx: "stm32f4xx_hal.h"
+ */
 #include "stm32f1xx_hal.h"
 
-/*---------------- Definiciones del MPU6050 ----------------*/
+// ============================================================================
+// DEFINICIONES DE CONSTANTES
+// ============================================================================
 
 /**
  * @brief Dirección I2C del MPU6050.
@@ -48,9 +57,27 @@
 /** @brief Registro de identificación del dispositivo. */
 #define WHO_AM_I_REG 0x75
 
-/*---------------------------------------------------------*/
+// ============================================================================
+// ENUMERACIONES Y ESTRUCTURAS
+// ============================================================================
 
-/*---------------- Prototipos de Funciones ----------------*/
+/**
+ * @brief Enumeración para estados de retorno del MPU6050.
+ */
+typedef enum {
+    MPU6050_OK = 0,         /**< Operación exitosa */
+    MPU6050_ERROR = 1,      /**< Error en la operación */
+    MPU6050_TIMEOUT = 2,    /**< Timeout en la operación */
+    MPU6050_NOT_INITIALIZED = 3	/** Sensor no inicializado */
+}MPU6050_Status_t;
+
+// ============================================================================
+// PROTOTIPOS DE FUNCIONES PÚBLICAS
+// ============================================================================
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /**
  * @brief Inicializa el MPU6050.
@@ -59,8 +86,9 @@
  *
  * @details Configura los registros básicos del MPU6050 para activar el dispositivo
  *          y establecer parámetros predeterminados de muestreo.
+ * @return MPU6050_Status_t Estado de la operación
  */
-void MPU6050_Init(I2C_HandleTypeDef* hi2c);
+MPU6050_Status_t MPU6050_Init(I2C_HandleTypeDef* hi2c);
 
 /**
  * @brief Lee los valores de aceleración en los tres ejes.
@@ -69,9 +97,11 @@ void MPU6050_Init(I2C_HandleTypeDef* hi2c);
  * @param[out] Ay Puntero donde se almacenará el valor de aceleración en el eje Y.
  * @param[out] Az Puntero donde se almacenará el valor de aceleración en el eje Z.
  * 
+ * @return MPU6050_Status_t Estado de la operación
+ * 
  * @note Los valores se devuelven en unidades dependientes de la configuración del rango.
  */
-void MPU6050_Read_Accel(float *Ax, float *Ay, float *Az);
+MPU6050_Status_t MPU6050_Read_Accel(float *Ax, float *Ay, float *Az);
 
 /**
  * @brief Lee los valores del giroscopio en los tres ejes.
@@ -80,10 +110,16 @@ void MPU6050_Read_Accel(float *Ax, float *Ay, float *Az);
  * @param[out] Gy Puntero donde se almacenará el valor del giroscopio en el eje Y.
  * @param[out] Gz Puntero donde se almacenará el valor del giroscopio en el eje Z.
  * 
+ * @return MPU6050_Status_t Estado de la operación
+ * 
  * @note Los valores se devuelven en unidades dependientes de la configuración del rango.
  */
-void MPU6050_Read_Gyro(float *Gx, float *Gy, float *Gz);
+MPU6050_Status_t MPU6050_Read_Gyro(float *Gx, float *Gy, float *Gz);
 
 /*---------------------------------------------------------*/
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* MPU6050_H_ */
