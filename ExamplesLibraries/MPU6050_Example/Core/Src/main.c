@@ -99,23 +99,48 @@ int main(void)
   MX_I2C1_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
-  MPU6050_Init(&hi2c1);
+
+  /* Delay de estabilización*/
+  HAL_Delay(1000);
+
+  if(MPU6050_Init(&hi2c1) != MPU6050_OK)
+  {
+	  sprintf(buffer, "%sError Inicializando MPU6050 %s\r\n", COLOR_RED, COLOR_RESET);
+	  HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+	  //HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+	  while(1);
+  }
+
+  sprintf(buffer, "%sMPU6050 Inicializado correctamente %s\r\n", COLOR_BRIGHT_GREEN, COLOR_RESET);
+  HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+
+  HAL_Delay(1000);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  MPU6050_Read_Accel(&AccelX, &AccelY, &AccelZ);
-	  MPU6050_Read_Gyro(&GyroX, &GyroY, &GyroZ);
+	  if(MPU6050_Read_Accel(&AccelX, &AccelY, &AccelZ) == MPU6050_OK)
+	  {
+		  sprintf(buffer, "%sAx =%s %.2f\t%sAy = %s %.2f\t%sAz = %s %.2f%s\r\n",
+				  	  	  COLOR_YELLOW, COLOR_BRIGHT_WHITE, AccelX,
+						      COLOR_YELLOW, COLOR_BRIGHT_WHITE, AccelY,
+						      COLOR_YELLOW, COLOR_BRIGHT_WHITE, AccelZ,
+						      COLOR_RESET);
+		  HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+	  }
 
-	  sprintf(buffer, "Ax = %.2f\t\t Ay = %.2f\t\t Az = %.2f\n\r",AccelX, AccelY, AccelZ);
-	  HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 100);
-
-	  sprintf(buffer, "Gx = %.2f\t\t Gy = %.2f\t\t Gz = %.2f\n\n\r",GyroX, GyroY, GyroZ);
-	  HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 100);
-
-	  HAL_Delay(2000);
+	  if(MPU6050_Read_Gyro(&GyroX, &GyroY, &GyroZ) == MPU6050_OK)
+	  {
+		  sprintf(buffer, "%sGx =%s %.2f\t%sGy = %s %.2f\t%sGz = %s %.2f%s\r\n\n",
+				  	  	  COLOR_BRIGHT_CYAN, COLOR_BRIGHT_WHITE, GyroX,
+						      COLOR_BRIGHT_CYAN, COLOR_BRIGHT_WHITE, GyroY,
+						      COLOR_BRIGHT_CYAN, COLOR_BRIGHT_WHITE, GyroZ,
+						      COLOR_RESET);
+		  HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
+	  }
+	  HAL_Delay(1000);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
