@@ -22,6 +22,7 @@
   - [Conexión de hardware](#conexión-de-hardware)
   - [📄 Licencia](#-licencia)
   - [Changelog](#changelog)
+    - [Version 2.0.1](#version-201)
     - [Version 2.0.0](#version-200)
     - [Versión 1.2.0](#versión-120)
     - [Versión 1.1.0](#versión-110)
@@ -148,6 +149,8 @@ Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](/LICENSE
 ---
 
 ## Changelog
+### Version 2.0.1
+- Eliminación de warnings en la compilación por variables no usadas.
 
 ### Version 2.0.0
 - Se agregó gestión de errores mediante el tipo `MPU6050_Status_t`.

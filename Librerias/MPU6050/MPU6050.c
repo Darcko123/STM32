@@ -4,7 +4,7 @@
  *  @brief    Implementación de funciones para el manejo del acelerómetro MPU6050
  *  @author   Daniel Ruiz
  *  @date     23 de septiembre de 2024
- *  @version  2.0.0
+ *  @version  2.0.1
  *
  *  @details  
  *  Este archivo contiene las definiciones de las funciones para inicializar y leer datos 
@@ -25,12 +25,6 @@ static int16_t Accel_X_RAW = 0, Accel_Y_RAW = 0, Accel_Z_RAW = 0;
 
 /** @brief Almacenan valores RAW del giroscopio. */
 static int16_t Gyro_X_RAW = 0, Gyro_Y_RAW = 0, Gyro_Z_RAW = 0;
-
-/** @brief Almacenan valores convertidos de aceleración. */
-static float AxF = 0, AyF = 0, AzF = 0;
-
-/** @brief Almacenan valores convertidos de giroscopio. */
-static float GxF = 0, GyF = 0, GzF = 0;
 
 /*-----------------------------------------------------------*/
 

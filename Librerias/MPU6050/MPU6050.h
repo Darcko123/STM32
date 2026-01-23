@@ -4,7 +4,7 @@
  *  @brief    Librería para la comunicación y lectura de datos de un acelerómetro MPU6050
  *  @author   Daniel Ruiz
  *  @date     23 de septiembre de 2024
- *  @version  2.0.0
+ *  @version  2.0.1
  *  
  *  @details  
  *  Esta librería proporciona funciones para inicializar y leer datos del acelerómetro 
