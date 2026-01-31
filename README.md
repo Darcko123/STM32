@@ -35,6 +35,7 @@ STM32/
 │
 ├── Projects/        #Proyectos varios
 │   ├── 3-band_Equalizer/
+│   ├── 4DOF_RobotArm
 │   ├── ClockWithMenu/
 │   ├── KeypadWithAdvancedDisplay/
 │   └── UARTToMorseCode/
