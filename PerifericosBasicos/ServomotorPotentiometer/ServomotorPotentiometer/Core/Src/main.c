@@ -59,7 +59,7 @@ static void MX_TIM1_Init(void);
  * @brief Ajusta el ángulo del servomotor generando una señal PWM.
  * @param htim Puntero al manejador del Timer.
  * @param channel Canal del Timer donde está conectado el servomotor.
- * @param angle �?ngulo deseado (0 a 180 grados).
+ * @param angle Ángulo deseado (0 a 180 grados).
  *
  * La conversión de ángulo a pulso PWM se realiza mediante la ecuación:
  *    pulse = 5.56 * angle + 250;
@@ -130,7 +130,6 @@ int main(void)
   MX_ADC1_Init();
   MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
-  HAL_ADC_Start(&hadc1);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
   /* USER CODE END 2 */
 
@@ -138,16 +137,21 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    HAL_ADC_Start(&hadc1);
 
     // Lee el valor del potenciómetro conectado al ADC
-	  HAL_ADC_PollForConversion(&hadc1, 1000);
-	  readValue = HAL_ADC_GetValue(&hadc1);
+	  if(HAL_ADC_PollForConversion(&hadc1, 1000) == HAL_OK)
+    {
+      readValue = HAL_ADC_GetValue(&hadc1);
 
-    // Mapea el valor leído del ADC (0-4095) al rango de ángulos del servomotor (0-180)
-	  PWM = map(readValue, 0, 4095, 0, 180);
+      // Mapea el valor leído del ADC (0-4095) al rango de ángulos del servomotor (0-180)
+	    PWM = map(readValue, 0, 4095, 0, 180);
 
-    // Ajusta el ángulo del servomotor utilizando la función de PWM
-	  set_servo_angle(&htim1, TIM_CHANNEL_1, PWM);
+      // Ajusta el ángulo del servomotor utilizando la función de PWM
+	    set_servo_angle(&htim1, TIM_CHANNEL_1, PWM);
+    }
+	  
+    HAL_ADC_Stop(&hadc1);    
 
 	  HAL_Delay(50);
     /* USER CODE END WHILE */
