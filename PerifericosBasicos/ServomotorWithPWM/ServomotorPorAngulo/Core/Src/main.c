@@ -52,21 +52,21 @@ static void MX_GPIO_Init(void);
 static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 
-/* USER CODE END PFP */
-
-/* Private user code ---------------------------------------------------------*/
-/* USER CODE BEGIN 0 */
-
 /**
  * @brief Configura el ángulo de un servomotor mediante PWM.
  * @param htim Puntero al manejador del Timer utilizado.
  * @param channel Canal del Timer donde está conectado el servomotor.
- * @param angle �?ngulo deseado (0 a 180 grados).
+ * @param angle Ángulo deseado (0 a 180 grados).
  *
  * La función calcula la duración del pulso en función del ángulo deseado y
  * ajusta la señal PWM en el canal correspondiente.
  */
 void set_servo_angle(TIM_HandleTypeDef *htim, uint32_t channel, uint8_t angle);
+
+/* USER CODE END PFP */
+
+/* Private user code ---------------------------------------------------------*/
+/* USER CODE BEGIN 0 */
 
 /* USER CODE END 0 */
 
@@ -257,11 +257,12 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
 /**
  * @brief Ajusta el ángulo del servomotor generando una señal PWM.
  * @param htim Puntero al manejador del Timer.
  * @param channel Canal del Timer donde está conectado el servomotor.
- * @param angle �?ngulo deseado (0 a 180 grados).
+ * @param angle Ángulo deseado (0 a 180 grados).
  *
  * La conversión de ángulo a pulso PWM se realiza mediante la ecuación:
  *    pulse = 5.56 * angle + 250;
@@ -276,6 +277,7 @@ void set_servo_angle(TIM_HandleTypeDef *htim, uint32_t channel, uint8_t angle)
     // 2. Establecer la comparación del Timer en el canal especificado
     __HAL_TIM_SET_COMPARE(htim, channel, pulse);
 }
+
 /* USER CODE END 4 */
 
 /**
