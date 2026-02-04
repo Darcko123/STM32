@@ -5,88 +5,68 @@
  * Esta librería permite inicializar y controlar una matriz de LEDs utilizando el controlador MAX7219.
  * 
  * @author Daniel Ruiz
- * @date Feb 5, 2025
- * @version 1.0
+ * @date Jan 22, 2026
+ * @version 2.0
  */
 
 #ifndef MAX7219_H_
 #define MAX7219_H_
 
-//Ajustar dependiendo del microcontrolador
-#include "stm32f1xx_hal.h"
-
+/**
+ * @brief Incluir el encabezado adecuado según la familia STM32 utilizada.
+ * Por ejemplo:
+ * - Para STM32F1xx: "stm32f1xx_hal.h"
+ * - Para STM32F4xx: "stm32f4xx_hal.h"
+ */
+#include "stm32f4xx_hal.h"
 #include <stdint.h>
 
-#define NUM_DEV 4 /**< Número de dispositivos MAX7219 en cascada */
-#define FONT_WIDTH 8 /**< Ancho de cada carácter en el conjunto de fuentes */
+// ============================================================================
+// DEFINICIONES DE CONSTANTES
+// ============================================================================
 
-extern uint8_t bufferCol[NUM_DEV*8];	// Número de columnas respecto al número de dispositivos conectados en cascada
+#define NUM_DEV 4       /**< Número de dispositivos MAX7219 en cascada */
+#define FONT_WIDTH 8    /**< Ancho de cada carácter en el conjunto de fuentes */
 
-#define CS_GPIO_Port GPIOA	 // Cambia GPIOB por el puerto correcto
-#define CS_Pin GPIO_PIN_4   // Cambia el número de pin según la conexión en tu PCB
+extern uint8_t bufferCol[NUM_DEV*8];	/**< Número de columnas respecto al número de dispositivos conectados en cascada */
+
+// ============================================================================
+// ENUMERACIONES Y ESTRUCTURAS
+// ============================================================================
+/**
+ * @brief Enumeración para estados de retorno del MAX7219.
+ */
+typedef enum {
+	MAX7219_OK = 0,				/** Operación exitosa */
+	MAX7219_ERROR = 1,			/** Error en la operación */
+	MAX7219_TIMEOUT = 2,		/** Timeout en la operación */
+	MAX7219_NOT_INITIALIZED = 3	/** Sensor no inicializado */
+}MAX7219_Status_t;
+
+// ============================================================================
+// PROTOTIPOS DE FUNCIONES PÚBLICAS
+// ============================================================================
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /**
  * @brief Inicializa la matriz de LEDs.
  * 
  * @param hspi Puntero al manejador de la interfaz SPI utilizada para comunicarse con el módulo.
  * 
- * Configura los registros del MAX7219 para preparar la matriz de LEDs para su uso.
- */
-void MAX7219_Init(SPI_HandleTypeDef* hspi);
-
-/**
- * @brief Escribe un byte de datos en una fila específica de la matriz de LEDs.
+ * @param GPIOx Puerto GPIO del pin de datos del DHT11.
+ * @param GPIO_PIN Pin GPIO del pin de datos del DHT11.
  * 
- * @param row La fila en la que se escribirá el dato (1-8).
- * @param data El byte de datos que se escribirá en la fila.
- */
-void max7219_write(int row, uint8_t data);
-
-/**
- * @brief Envía un comando al MAX7219.
  * 
- * @param Addr La dirección del registro del MAX7219.
- * @param data El dato que se escribirá en el registro.
  */
-void max7219_cmd(uint8_t Addr, uint8_t data);
-
-/**
- * @brief Muestra un número en la matriz de LEDs.
- * 
- * @param num Número a mostrar (0-9).
- */
-void MatrixData(int num);
-
-/**
- * @brief Limpia el buffer de la matriz de LEDs y actualiza la pantalla.
- */
-void flushBuffer(void);
+MAX7219_Status_t MAX7219_Init(SPI_HandleTypeDef* hspi, GPIO_TypeDef* GPIOx, uint16_t GPIO_PIN);
 
 /**
  * @brief Apaga todos los LEDs de la matriz.
  */
-void MAX7219_clearDisplay(void);
-
-/**
- * @brief Desplaza el contenido de la matriz hacia la izquierda.
- */
-void shiftLeft(void);
-
-/**
- * @brief Desplaza el contenido de la matriz hacia la derecha.
- */
-void shiftRight(void);
-
-/**
- * @brief Desplaza un carácter a través de la matriz de LEDs con un retardo específico.
- * 
- * Convierte un carácter en su representación de bits y lo desplaza a través de la matriz
- * de LEDs, mostrando el efecto de desplazamiento con un retardo configurable.
- * 
- * @param ch Carácter que se desplazará.
- * @param delay Retardo entre cada desplazamiento en milisegundos.
- */
-void shiftchar(uint8_t ch, int delay);
+MAX7219_Status_t MAX7219_ClearDisplay(void);
 
 /**
  * @brief Muestra una cadena de caracteres en la matriz de LEDs con desplazamiento.
@@ -94,7 +74,7 @@ void shiftchar(uint8_t ch, int delay);
  * @param str Cadena de caracteres a mostrar.
  * @param delay Tiempo de retardo entre cada desplazamiento.
  */
-void MAX7219_scrollString (char *str, int delay);
+MAX7219_Status_t MAX7219_ScrollString (char *str, int delay);
 
 /**
  * @brief Muestra una cadena de caracteres en la matriz de LEDs.
@@ -105,7 +85,7 @@ void MAX7219_scrollString (char *str, int delay);
  * 
  * @param str Puntero a la cadena de caracteres que se mostrará.
  */
-void MAX7219_printString(const char *str);
+MAX7219_Status_t MAX7219_PrintString(const char *str);
 
 /**
  * @brief Conjunto de fuentes para la pantalla de matriz de puntos MAX7219.
@@ -115,5 +95,9 @@ void MAX7219_printString(const char *str);
  * una fila del carácter.
  */
 extern const uint8_t MAX7219_Dot_Matrix_font[256][8];
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* MAX7219_H_ */

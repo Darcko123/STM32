@@ -4,33 +4,59 @@
  * @brief Implementación de la librería para el control de una matriz de LEDs usando MAX7219 en STM32 mediante SPI.
  *
  * @author Daniel Ruiz
- * @date Jan 4, 2025
- * @version 1.0
+ * @date Jan 22, 2026
+ * @version 2.0
  */
 
 #include "MAX7219.h"
 
-static SPI_HandleTypeDef* MAX7219_hspi; /**< Manejador de la interfaz SPI utilizada para cominucarse con el módulo*/
+// ============================================================================
+// VARIABLES PRIVADAS
+// ============================================================================
 
-uint8_t bufferCol[NUM_DEV*8] = {0};
+static SPI_HandleTypeDef*   MAX7219_hspi = NULL;     /**< Manejador de la interfaz SPI utilizada para cominucarse con el módulo*/
+static GPIO_TypeDef*        CS_GPIO_Port = NULL;     /**< Puerto GPIO del pin de datos del MAX7219 */
+static uint16_t             CS_Pin       = 0;        /**< Pin GPIO del pin de datos del MAX7219 */   
+static uint8_t              MAX7219_Initialized = 0; /**< Bandera para verificar si el módulo está inicializado */
+
+uint8_t              bufferCol[NUM_DEV*8] = {0}; /**< Buffer de columnas para la matriz de LEDs */
+// ============================================================================
+// FUNCIONES PRIVADAS
+// ============================================================================
 
 /**
- * @brief Inicializa la matriz de LEDs.
+ * @brief Envía un comando al MAX7219.
  * 
- * @param hspi Puntero al manejador de la interfaz SPI utilizada para comunicarse con el módulo.
+ * @param Addr Dirección del registro del MAX7219.
+ * @param data Dato que se escribirá en el registro.
  * 
- * Configura los registros del MAX7219 para preparar la matriz de LEDs para su uso.
+ * @return MAX7219_Status_t Estado de la operación.
  */
-void MAX7219_Init(SPI_HandleTypeDef* hspi)
+static MAX7219_Status_t max7219_cmd(uint8_t Addr, uint8_t data)
 {
-    // Asigna el handler de SPI proporcionado a la variable estática
-    MAX7219_hspi = hspi;
+    HAL_StatusTypeDef hal_status;
 
-    max7219_cmd(0x09, 0);    // Sin decodificación (modo gráfico)
-    max7219_cmd(0x0A, 0x01); // Intensidad de brillo en 3/32
-    max7219_cmd(0x0B, 0x07); // Escaneo de las 8 columnas
-    max7219_cmd(0x0C, 0x01); // Modo operación normal
-    max7219_cmd(0x0F, 0);    // Deshabilitar test de display
+    uint16_t writeData = (Addr << 8) | data;
+    HAL_GPIO_WritePin(CS_GPIO_Port, CS_Pin, 0);
+    
+    for (int i = 0; i < NUM_DEV; i++)
+    {
+        hal_status = HAL_SPI_Transmit(MAX7219_hspi, (uint8_t *)&writeData, 1, 100);
+        if(hal_status == HAL_TIMEOUT)
+        {
+            HAL_GPIO_WritePin(CS_GPIO_Port, CS_Pin, GPIO_PIN_SET);
+            return MAX7219_TIMEOUT;
+        }
+        else if(hal_status != HAL_OK)
+        {
+            HAL_GPIO_WritePin(CS_GPIO_Port, CS_Pin, GPIO_PIN_SET);
+            return MAX7219_ERROR;
+        }
+    }
+
+    HAL_GPIO_WritePin(CS_GPIO_Port, CS_Pin, 1);
+
+    return MAX7219_OK;
 }
 
 /**
@@ -38,9 +64,13 @@ void MAX7219_Init(SPI_HandleTypeDef* hspi)
  * 
  * @param row La fila en la que se escribirá el dato (1-8).
  * @param data El byte de datos que se escribirá en la fila.
+ * 
+ * @return MAX7219_Status_t Estado de la operación.
  */
-void max7219_write(int row, uint8_t data)
+static MAX7219_Status_t max7219_write(int row, uint8_t data)
 {
+    HAL_StatusTypeDef hal_status;
+
     int devTarget = (row - 1) / 8;  // Determina en qué MAX7219 se escribirá el dato
     int offset = devTarget * 8;     // Calcula el offset de la fila en el buffer
     uint16_t writeData = 0;
@@ -51,39 +81,51 @@ void max7219_write(int row, uint8_t data)
         if (dev == devTarget)
         {
             writeData = ((row - offset) << 8) | data;  // Enviar número de fila y datos
-            HAL_SPI_Transmit(MAX7219_hspi, (uint8_t *)&writeData, 1, 1000);
+            hal_status = HAL_SPI_Transmit(MAX7219_hspi, (uint8_t *)&writeData, 1, 1000);
+            
+            if(hal_status == HAL_TIMEOUT)
+            {
+                HAL_GPIO_WritePin(CS_GPIO_Port, CS_Pin, GPIO_PIN_SET);
+                return MAX7219_TIMEOUT;
+            }
+            else if (hal_status != HAL_OK)
+            {
+                HAL_GPIO_WritePin(CS_GPIO_Port, CS_Pin, GPIO_PIN_SET);
+                return MAX7219_ERROR;
+            }
         }
         else
         {
             writeData = 0;  // No operación en los otros dispositivos
-            HAL_SPI_Transmit(MAX7219_hspi, (uint8_t *)&writeData, 1, 1000);
+            hal_status = HAL_SPI_Transmit(MAX7219_hspi, (uint8_t *)&writeData, 1, 1000);
+
+            if(hal_status == HAL_TIMEOUT)
+            {
+                HAL_GPIO_WritePin(CS_GPIO_Port, CS_Pin, GPIO_PIN_SET);
+                return MAX7219_TIMEOUT;
+            }
+            else if (hal_status != HAL_OK)
+            {
+                HAL_GPIO_WritePin(CS_GPIO_Port, CS_Pin, GPIO_PIN_SET);
+                return MAX7219_ERROR;
+            }
         }
     }
-    HAL_GPIO_WritePin(CS_GPIO_Port, CS_Pin, 1);  // Deshabilitar el esclavo
-}
 
-/**
- * @brief Envía un comando al MAX7219.
- * 
- * @param Addr Dirección del registro del MAX7219.
- * @param data Dato que se escribirá en el registro.
- */
-void max7219_cmd(uint8_t Addr, uint8_t data)
-{
-    uint16_t writeData = (Addr << 8) | data;
-    HAL_GPIO_WritePin(CS_GPIO_Port, CS_Pin, 0);
-    for (int i = 0; i < NUM_DEV; i++)
-    {
-        HAL_SPI_Transmit(MAX7219_hspi, (uint8_t *)&writeData, 1, 100);
-    }
-    HAL_GPIO_WritePin(CS_GPIO_Port, CS_Pin, 1);
+    HAL_GPIO_WritePin(CS_GPIO_Port, CS_Pin, 1);  // Deshabilitar el esclavo
+    
+    return MAX7219_OK;
 }
 
 /**
  * @brief Limpia el buffer de la matriz de LEDs y actualiza la pantalla.
+ * 
+ * @return MAX7219_Status_t Estado de la operación
  */
-void flushBuffer(void)
+static MAX7219_Status_t flushBuffer(void)
 {
+    MAX7219_Status_t status;
+
     uint8_t bufferRow[NUM_DEV * 8] = {0};
 
     // Convertir columnas en filas
@@ -99,48 +141,54 @@ void flushBuffer(void)
         }
     }
 
+    // Escribir cada fila
     for (int row = 1; row <= (NUM_DEV * 8); row++)
     {
-        max7219_write(row, bufferRow[row - 1]);
-    }
-}
+        status = max7219_write(row, bufferRow[row - 1]);
 
-/**
- * @brief Apaga todos los LEDs de la matriz.
- */
-void MAX7219_clearDisplay(void)
-{
-    for (int i = 0; i < NUM_DEV * 8; i++)
-    {
-        bufferCol[i] = 0;
+        if(status == MAX7219_TIMEOUT)
+        {
+            return MAX7219_TIMEOUT;
+        }
+        else if (status != MAX7219_OK)
+        {
+            return MAX7219_ERROR;
+        }
     }
-    flushBuffer();
+
+    return MAX7219_OK;
 }
 
 /**
  * @brief Desplaza el contenido de la matriz hacia la izquierda.
+ * 
+ * @return MAX7219_Status_t Estado de la operación
  */
-void shiftLeft(void)
+static MAX7219_Status_t ShiftLeft(void)
 {
     for (int cnt = NUM_DEV * 8 - 2; cnt >= 0; cnt--)
     {
         bufferCol[cnt + 1] = bufferCol[cnt];
     }
     bufferCol[0] = 0;
-    flushBuffer();
+
+    return flushBuffer();
 }
 
 /**
  * @brief Desplaza el contenido de la matriz hacia la derecha.
+ * 
+ * @return MAX7219_Status_t Estado de la operación.
  */
-void shiftRight(void)
+static MAX7219_Status_t ShiftRight(void)
 {
     for (int cnt = 0; cnt < NUM_DEV * 8 - 1; cnt++)
     {
         bufferCol[cnt] = bufferCol[cnt + 1];
     }
     bufferCol[NUM_DEV * 8 - 1] = 0;
-    flushBuffer();
+    
+    return flushBuffer();
 }
 
 /**
@@ -151,10 +199,14 @@ void shiftRight(void)
  * 
  * @param ch Carácter que se desplazará.
  * @param delay Retardo entre cada desplazamiento en milisegundos.
+ * 
+ * @return MAX7219_Status_t Estado de la operación.
  */
-void shiftchar(uint8_t ch, int delay)
+static MAX7219_Status_t shiftchar(uint8_t ch, int delay)
 {
+    MAX7219_Status_t status;
     int indx = 0;
+    
     for (int i = 0; i < FONT_WIDTH - 1; i++)  // Iterar sobre los bytes de la fuente de caracteres
     {
         uint8_t data = 0;
@@ -169,11 +221,126 @@ void shiftchar(uint8_t ch, int delay)
         }
         
         bufferCol[0] = data;  // Almacenar el byte modificado en la primera posición del buffer
-        flushBuffer();  // Actualizar la pantalla con el nuevo dato
-        shiftLeft();  // Desplazar la imagen a la izquierda
+        
+        // Actualizar la pantalla con el nuevo dato
+        status = flushBuffer();
+        if(status != MAX7219_OK)
+        {
+            return status;
+        }
+
+        // Desplazar la imagen a la izquierda
+        status = ShiftLeft();
+        if(status != MAX7219_OK)
+        {
+            return status;
+        }
+
         indx++;
         HAL_Delay(delay);  // Esperar el tiempo especificado antes del siguiente desplazamiento
     }
+
+    return MAX7219_OK;
+}
+
+// ============================================================================
+// FUNCIONES PÚBLICAS
+// ============================================================================
+
+/**
+ * @brief Inicializa la matriz de LEDs.
+ * 
+ * @param hspi Puntero al manejador de la interfaz SPI utilizada para comunicarse con el módulo.
+ * @param GPIOx Puerto GPIO del pin CS del MAX7219.
+ * @param GPIO_PIN Pin GPIO del pin CS del MAX7219.
+ * 
+ * @return MAX7219_Status_t Estado de la operación
+ */
+MAX7219_Status_t MAX7219_Init(SPI_HandleTypeDef* hspi, GPIO_TypeDef* GPIOx, uint16_t GPIO_PIN)
+{
+    MAX7219_Status_t status;
+    
+    // Validar parámetros de entrada
+    if(hspi == NULL || GPIOx == NULL || GPIO_PIN == 0)
+    {
+        return MAX7219_ERROR;
+    }
+    
+    // Almacenar configuración para uso en funciones posteriores
+    MAX7219_hspi = hspi;
+    CS_GPIO_Port = GPIOx;
+    CS_Pin       = GPIO_PIN;
+    MAX7219_Initialized = 0;    // Marcar como no inicializada hasta que se termine el proceso
+
+    // Sin decodificación (modo gráfico)
+    status = max7219_cmd(0x09, 0);
+    if(status != MAX7219_OK)
+    {
+        return MAX7219_ERROR;
+    }
+
+    // Intensidad de brillo en 3/32
+    status = max7219_cmd(0x0A, 0x01);
+    if(status != MAX7219_OK)
+    {
+        return MAX7219_ERROR;
+    }
+
+    // Escaneo de las 8 columnas
+    status = max7219_cmd(0x0B, 0x07);
+    if(status != MAX7219_OK)
+    {
+        return MAX7219_ERROR;
+    }
+
+    // Modo operación normal
+    status = max7219_cmd(0x0C, 0x01);
+    if(status != MAX7219_OK)
+    {
+        return MAX7219_ERROR;
+    }
+
+    // Deshabilitar test de display
+    max7219_cmd(0x0F, 0);
+    if(status != MAX7219_OK)
+    {
+        return MAX7219_ERROR;
+    }
+
+    // Limpiar la pantalla
+    status = MAX7219_ClearDisplay();
+    if(status != MAX7219_OK)
+    {
+        return status;
+    }
+
+    // Marcar como inicializada
+    MAX7219_Initialized = 1;
+
+    return MAX7219_OK;
+}
+
+/**
+ * @brief Apaga todos los LEDs de la matriz.
+ * 
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_ClearDisplay(void)
+{
+    // Verificar si ya se inicializó la librería
+    if(!MAX7219_Initialized)
+    {
+        return MAX7219_NOT_INITIALIZED;
+    }
+    
+    // Limpiar el buffer
+    for (int i = 0; i < NUM_DEV * 8; i++)
+    {
+        bufferCol[i] = 0;
+    }
+
+    // Actualizar la pantalla
+    return flushBuffer();
 }
 
 /**
@@ -181,14 +348,36 @@ void shiftchar(uint8_t ch, int delay)
  * 
  * @param str Cadena de caracteres a mostrar.
  * @param delay Tiempo de retardo entre cada desplazamiento.
+ * 
+ * @return MAX7219_Status_t Estado de la operación.
  */
-void MAX7219_scrollString(char *str, int delay)
+MAX7219_Status_t MAX7219_ScrollString(char *str, int delay)
 {
+    MAX7219_Status_t status;
+
+    // Verificar que el módulo esté inicializado
+    if(!MAX7219_Initialized)
+    {
+        return MAX7219_NOT_INITIALIZED;
+    }
+
+    // Validar parámetro
+    if(str == NULL)
+    {
+        return MAX7219_ERROR;
+    }
+
     while (*str)
     {
-        shiftchar(*str, delay);
+        status = shiftchar(*str, delay);
+        if(status != MAX7219_OK)
+        {
+            return status;
+        }
         str++;
     }
+
+    return MAX7219_OK; 
 }
 
 /**
@@ -199,13 +388,29 @@ void MAX7219_scrollString(char *str, int delay)
  * columnas y se muestra en la pantalla.
  * 
  * @param str Puntero a la cadena de caracteres que se mostrará.
+ * 
+ * @return MAX7219_Status_t Estado de la operación.
  */
-void MAX7219_printString(const char *str)
+MAX7219_Status_t MAX7219_PrintString(const char *str)
 {
+    // Verificar que el módulo esté inicializado
+    if(!MAX7219_Initialized)
+    {
+        return MAX7219_NOT_INITIALIZED;
+    }
+
+    // Validar parámetro
+    if(str == NULL)
+    {
+        return MAX7219_ERROR;
+    }
+
     int strindx = 0; // Índice de caracteres de la cadena de entrada
+    
     for (int k = NUM_DEV * 8 - 1; k >= 0; )
     {
         int indx = 0; // Índice dentro de la fuente de caracteres
+        
         for (int i = 0; i < FONT_WIDTH - 1; i++)  // Iterar sobre los bytes de la fuente
         {
             uint8_t data = 0;
@@ -213,7 +418,7 @@ void MAX7219_printString(const char *str)
             // Invertir el orden de los bits
             for (int j = 7; j >= 0; j--)  // Extraer bits de cada byte
             {
-                if ((MAX7219_Dot_Matrix_font[str[strindx]][indx]) & (1 << j))  // Si el bit es 1
+                if ((MAX7219_Dot_Matrix_font[(uint8_t)str[strindx]][indx]) & (1 << j))  // Si el bit es 1
                 {
                     data |= (1 << (7 - j));  // Escribirlo desde el bit 0 de 'data'
                 }
@@ -222,10 +427,14 @@ void MAX7219_printString(const char *str)
             bufferCol[k--] = data;  // Almacenar el byte modificado en el buffer de columnas
             indx++;
         }
+
         strindx++;  // Moverse al siguiente carácter en la cadena
-        if (str[strindx] == '\0') break; // Importante: detenerse al final de la cadena
+        
+        if (str[strindx] == '\0')
+            break; // Importante: detenerse al final de la cadena
     }
-    flushBuffer(); // Actualizar la pantalla con el nuevo contenido
+
+    return flushBuffer(); // Actualizar la pantalla con el nuevo contenido
 }
 
 /**
@@ -493,4 +702,3 @@ const uint8_t MAX7219_Dot_Matrix_font [256] [8] = {
   { 0x00, 0x00, 0x3C, 0x3C, 0x3C, 0x3C, 0x00, 0x00 }, // 0xFE
   { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }, // 0xFF
 };  //  end of MAX7219_Dot_Matrix_font
-
