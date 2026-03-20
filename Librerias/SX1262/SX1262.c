@@ -176,8 +176,6 @@ SX1262_Status_t SX1262_Init(
     uint16_t           RST_Pin
 )
 {
-    SX1262_Status_t status;
-    
     // Validar parámetros de entrada
     if(hspi == NULL || NSS_Port  == NULL || NSS_Pin == 0
                     || BUSY_Port == NULL || BUSY_Pin == 0
@@ -251,6 +249,7 @@ SX1262_Status_t SX1262_Init(
         return SX1262_ERROR;
     }
     
+    SX1262_Initialized = 1;
     return SX1262_OK;
 }
 
