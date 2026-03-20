@@ -47,7 +47,10 @@ static SX1262_Status_t SX1262_WriteCommand(uint8_t cmd, uint8_t* buffer, uint16_
     if (SX1262_WaitBusy() != SX1262_OK) return SX1262_TIMEOUT;
 
     HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_RESET);
-    HAL_SPI_Transmit(SX1262_hspi, &cmd, 1, HAL_MAX_DELAY);
+    if(HAL_SPI_Transmit(SX1262_hspi, &cmd, 1, HAL_MAX_DELAY) != HAL_OK)
+    {
+        return SX1262_ERROR;
+    }
     if (size > 0 && buffer != NULL)
     {
         if(HAL_SPI_Transmit(SX1262_hspi, buffer, size, HAL_MAX_DELAY) != HAL_OK)
@@ -66,8 +69,14 @@ static SX1262_Status_t SX1262_ReadCommand(uint8_t cmd, uint8_t* buffer, uint16_t
 
     uint8_t nop = 0x00;
     HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_RESET);
-    HAL_SPI_Transmit(SX1262_hspi, &cmd, 1, HAL_MAX_DELAY);
-    HAL_SPI_Transmit(SX1262_hspi, &nop, 1, HAL_MAX_DELAY); // El SX1262 retorna un STATUS primero
+    if(HAL_SPI_Transmit(SX1262_hspi, &cmd, 1, HAL_MAX_DELAY) != HAL_OK)
+    {
+        return SX1262_ERROR;
+    }
+    if(HAL_SPI_Transmit(SX1262_hspi, &nop, 1, HAL_MAX_DELAY) != HAL_OK) // El SX1262 retorna un STATUS primero
+    {
+        return SX1262_ERROR;
+    } 
     if (size > 0 && buffer != NULL)
     {
         if(HAL_SPI_Receive(SX1262_hspi, buffer, size, HAL_MAX_DELAY) != HAL_OK)
@@ -92,7 +101,7 @@ static SX1262_Status_t SX1262_WriteBuffer(uint8_t offset, uint8_t* data, uint8_t
     }
     if(HAL_SPI_Transmit(SX1262_hspi, data, length, HAL_MAX_DELAY) != HAL_OK)
     {
-        return SX1262_OK;
+        return SX1262_ERROR;
     }
     HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_SET);
     
@@ -178,8 +187,292 @@ SX1262_Status_t SX1262_Init(
     SX1262_Reset();
     uint8_t buf[8];
 
+    // 1. Standby RC mode
+    buf[0] = RADIOLIB_SX126X_STANDBY_RC;
+    if(SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // 2. Set Packet Type (LORA)
+    buf[0] = RADIOLIB_SX126X_PACKET_TYPE_LORA;
+    if(SX1262_WriteCommand(SX126X_CMD_SET_PACKET_TYPE, buf, 1) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // 3. Set RF Frequency (Ej. 915 MHz ->  915,000,000 / (32 MHz / 2^25)) = 959447040 = 0x3932C000
+    // Frf = 915Mhz
+    uint32_t frf = 0x3932C000;
+    buf[0] = (frf >> 24) & 0xFF;
+    buf[1] = (frf >> 16) & 0xFF;
+    buf[2] = (frf >> 8) & 0xFF;
+    buf[3] = (frf & 0xFF);
+    if(SX1262_WriteCommand(SX126X_CMD_SET_RF_FREQUENCY, buf, 4) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // 4. Set Modulation Params (SF=7, BW=125, CR=4/5, LowDataRateOpt=Off)
+    buf[0] = 0x07; // SF7
+    buf[1] = 0x04; // BW125
+    buf[2] = 0x01; // CR4/5
+    buf[3] = 0x00; // LDRO off
+    if(SX1262_WriteCommand(SX126X_CMD_SET_MODULATION_PARAMS, buf, 4) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // 5. Set Packet Params (Preamble=8, HeaderType=Explicit, PayloadLen=255, CRC=On, InvertIQ=Off)
+    buf[0] = 0x00; // Preamble MSB
+    buf[1] = 0x08; // Preamble LSB
+    buf[2] = 0x00; // Explicit Header
+    buf[3] = 0xFF; // PayloadLength (255)
+    buf[4] = 0x01; // CRC On
+    buf[5] = 0x00; // IQ Off
+    if(SX1262_WriteCommand(hw, SX126X_CMD_SET_PACKET_PARAMS, buf, 6) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // 6. Set PA Config / TX Params respectivo a SX1262 (22 dBm max power)
+    // Esto es un ejemplo general (paDutyCycle=4, hpMax=7, deviceSel=0, paLut=1)
+    buf[0] = 0x04;
+    buf[1] = 0x07;
+    buf[2] = 0x00;
+    buf[3] = 0x01;
+    if(SX1262_WriteCommand(0x95 /* SET_PA_CONFIG */, buf, 4) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    buf[0] = 22; // power (22 dBm)
+    buf[1] = 0x02; // rampTime 40us
+    if(SX1262_WriteCommand(SX126X_CMD_SET_TX_PARAMS, buf, 2) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // Configurar DIO2 como RF Switch (si el layout usa el sw de semtech)
+    buf[0] = 0x01; // enable
+    if(SX1262_WriteCommand(SX126X_CMD_SET_DIO2_AS_RF_SWITCH_CTRL, buf, 1) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+    
     // Marcar como inicializada
     SX1262_Initialized = 1;
+
+    return SX1262_OK;
+}
+
+/**
+ * @brief Transmite datos a través del módulo SX1262
+ * 
+ * @param data 
+ * @param length 
+ * @return SX1262_Status_t 
+ */
+SX1262_Status_t SX1262_Transmit(uint8_t* data, uint8_t length)
+{
+    if(SX1262_Initialized != 1)
+    {
+        return SX1262_ERROR;
+    }
+
+    uint8_t buf[8];
+
+    // Set Standby
+    buf[0] = RADIOLIB_SX126X_STANDBY_RC;
+    if(SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // Buffer base address 
+    buf[0] = 0x00; // TX Base
+    buf[1] = 0x00; // RX Base
+    if(SX1262_WriteCommand(SX126X_CMD_SET_BUFFER_BASE_ADDRESS, buf, 2) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // Escribir datos
+    if(SX1262_WriteBuffer(0x00, data, length) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // Actualizar longitud de payload (Requerido antes de Tx)
+    // Usamos los mismos parámetros previos pero actualizamos `length`
+    buf[0] = 0x00; buf[1] = 0x08; buf[2] = 0x00;
+    buf[3] = length; buf[4] = 0x01; buf[5] = 0x00;
+    if(SX1262_WriteCommand(SX126X_CMD_SET_PACKET_PARAMS, buf, 6) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // Limpiar alertas (Clear IRQ)
+    buf[0] = 0x03; buf[1] = 0xFF; // Limpiar todo (0x03FF)
+    if(SX1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // Habilitar DIO1 para TxDone y TxTimeout
+    uint16_t irqMask = SX126X_IRQ_TX_DONE | SX126X_IRQ_TIMEOUT;
+    buf[0] = (irqMask >> 8) & 0xFF;   buf[1] = irqMask & 0xFF; 
+    buf[2] = (irqMask >> 8) & 0xFF;   buf[3] = irqMask & 0xFF; // DIO1 mask
+    buf[4] = 0x00; buf[5] = 0x00; // DIO2
+    buf[6] = 0x00; buf[7] = 0x00; // DIO3
+    if(SX1262_WriteCommand(SX126X_CMD_SET_DIO_IRQ_PARAMS, buf, 8) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // Iniciar Transmisión
+    buf[0] = 0x00; buf[1] = 0x00; buf[2] = 0x00; // 0=Timeout desactivado
+    if(SX1262_WriteCommand(SX126X_CMD_SET_TX, buf, 3) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // Esperar IRQ (DIO1 en alto => TxDone) o un timeout artificial
+    uint32_t start = HAL_GetTick();
+    while (HAL_GPIO_ReadPin(DIO1_GPIO_Port, DIO1_GPIO_Pin) == GPIO_PIN_RESET)
+    {
+        if ((HAL_GetTick() - start) > 5000)  // Timeout software de 5 seg
+        {
+            buf[0] = RADIOLIB_SX126X_STANDBY_RC;
+            if(SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1) != SX1262_OK)
+            {
+                return SX1262_ERROR;
+            }
+            return SX1262_TIMEOUT;
+        }
+    }
+
+    // Comprobar IRQ Status Real
+    uint8_t irqStatus[2];
+    if(SX1262_ReadCommand(0x12 /* GET_IRQ_STATUS */, irqStatus, 2) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+    
+    // Clear IRQ
+    buf[0] = 0x03; buf[1] = 0xFF;
+    if(SX1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    return SX1262_OK;
+}
+
+/**
+ * @brief Recibe datos a través del módulo SX1262
+ * 
+ * @param data 
+ * @param length 
+ * @param timeout_ms 
+ * @return SX1262_Status_t 
+ */
+SX1262_Status_t SX1262_Receive(uint8_t* data, uint8_t* length, uint32_t timeout_ms)
+{
+    if(SX1262_Initialized != 1)
+    {
+        return SX1262_ERROR;
+    }
+
+    uint8_t buf[8];
+
+    // Set Standby
+    buf[0] = RADIOLIB_SX126X_STANDBY_RC;
+    if(SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // Clear IRQ
+    buf[0] = 0x03; buf[1] = 0xFF;
+    if(SX1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // Habilitar DIO1 para RxDone y RxTimeout (y CRC Err)
+    uint16_t irqMask = SX126X_IRQ_RX_DONE | SX126X_IRQ_TIMEOUT | SX126X_IRQ_CRC_ERR;
+    buf[0] = (irqMask >> 8) & 0xFF;   buf[1] = irqMask & 0xFF; 
+    buf[2] = (irqMask >> 8) & 0xFF;   buf[3] = irqMask & 0xFF; // DIO1 mask
+    buf[4] = 0x00; buf[5] = 0x00; buf[6] = 0x00; buf[7] = 0x00;
+    if(SX1262_WriteCommand(SX126X_CMD_SET_DIO_IRQ_PARAMS, buf, 8) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // Iniciar Recepción
+    // Pasamos de MS a Ticks (Timeout interno de chip) tick = 15.625 us
+    uint32_t timeoutBytes = (timeout_ms == 0) ? 0xFFFFFF : (timeout_ms * 1000) / 15.625;
+    buf[0] = (timeoutBytes >> 16) & 0xFF;
+    buf[1] = (timeoutBytes >> 8) & 0xFF;
+    buf[2] = (timeoutBytes & 0xFF);
+    if(SX1262_WriteCommand(SX126X_CMD_SET_RX, buf, 3) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // Bloquear hasta interrupción
+    uint32_t start = HAL_GetTick();
+    while (HAL_GPIO_ReadPin(DIO1_GPIO_Port, DIO1_GPIO_Pin) == GPIO_PIN_RESET)
+    {
+        if (timeout_ms != 0 && (HAL_GetTick() - start) > (timeout_ms + 100))
+        {
+            buf[0] = RADIOLIB_SX126X_STANDBY_RC;
+            if(SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1) != SX1262_OK)
+            {
+                return SX1262_ERROR;
+            }
+            return SX1262_TIMEOUT; // Timeout de soft-check
+        }
+    }
+
+    // Leemos status de la interrupción 
+    uint8_t irqStatus[2];
+    if(SX1262_ReadCommand(0x12 /* GET_IRQ_STATUS */, irqStatus, 2) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+    uint16_t irqReg = (irqStatus[0] << 8) | irqStatus[1];
+
+    if ((irqReg & SX126X_IRQ_RX_DONE) == 0 || (irqReg & SX126X_IRQ_TIMEOUT) || (irqReg & SX126X_IRQ_CRC_ERR))
+    {
+        buf[0] = 0x03; buf[1] = 0xFF;
+        SX1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2);
+        return SX1262_ERROR;
+    }
+
+    // Obtener información del buffer (offset base de recepción y tamaño)
+    uint8_t rxBufferStatus[2];
+    if(SX1262_ReadCommand(SX126X_CMD_GET_RX_BUFFER_STATUS, rxBufferStatus, 2) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+    
+    *length = rxBufferStatus[0];       // Tamaño del paquete
+    uint8_t offset = rxBufferStatus[1]; // Offset en memoria interna
+
+    // Leer payload del buffer
+    if(SX1262_ReadBuffer(offset, data, *length) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // Clear IRQ Status final
+    buf[0] = 0x03; buf[1] = 0xFF;
+    if(SX1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
 
     return SX1262_OK;
 }
