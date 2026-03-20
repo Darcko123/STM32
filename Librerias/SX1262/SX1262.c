@@ -24,7 +24,8 @@ static GPIO_TypeDef*        DIO1_GPIO_Port      = NULL;
 static uint16_t             DIO1_GPIO_Pin       = 0;
 static GPIO_TypeDef*        RST_GPIO_Port       = NULL;
 static uint16_t             RST_GPIO_Pin        = 0;
-static uint8_t              SX1262_Initialized  = 0;     /**< Bandera para verificar si el módulo está inicializado */
+static uint8_t              SX1262_Initialized  = 0;            /**< Bandera para verificar si el módulo está inicializado */
+static lora_config_t        SX1262_CurrentConfig;               /**< Configuración actual aplicada al módulo */
 
 // ============================================================================
 // FUNCIONES PRIVADAS - ABSTRACCIÓN SPI
@@ -127,12 +128,27 @@ static SX1262_Status_t SX1262_ReadBuffer(uint8_t offset, uint8_t* data, uint8_t 
     return SX1262_OK;
 }
 
-static void SX1262_Reset()
+static void SX1262_Reset(void)
 {
     HAL_GPIO_WritePin(RST_GPIO_Port, RST_GPIO_Pin, GPIO_PIN_RESET);
     HAL_Delay(5);
     HAL_GPIO_WritePin(RST_GPIO_Port, RST_GPIO_Pin, GPIO_PIN_SET);
     HAL_Delay(10); // Permitir inicialización
+}
+
+/**
+ * @brief Despierta el chip desde el modo Sleep, según el comportamiento de RadioLib 
+ *        (Falling edge en NSS activa el chip seguido de WaitBusy).
+ */
+static SX1262_Status_t SX1262_Wakeup(void)
+{
+    // Generar flanco de bajada y subida en NSS para despertar al chip
+    HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_RESET);
+    HAL_Delay(1); // Pequeño retardo
+    HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_SET);
+    
+    // Esperar a que el chip esté listo
+    return SX1262_WaitBusy();
 }
 
 // ============================================================================
@@ -187,6 +203,10 @@ SX1262_Status_t SX1262_Init(
     SX1262_Reset();
     uint8_t buf[8];
 
+    // 0. Si se usara Sleep, idealmente usaríamos Wakeup. 
+    // Llamamos Wakeup explícitamente para emular la robustez de RadioLib
+    SX1262_Wakeup();
+
     // 1. Standby RC mode
     buf[0] = RADIOLIB_SX126X_STANDBY_RC;
     if(SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1) != SX1262_OK)
@@ -201,55 +221,25 @@ SX1262_Status_t SX1262_Init(
         return SX1262_ERROR;
     }
 
-    // 3. Set RF Frequency (Ej. 915 MHz ->  915,000,000 / (32 MHz / 2^25)) = 959447040 = 0x3932C000
-    // Frf = 915Mhz
-    uint32_t frf = 0x3932C000;
-    buf[0] = (frf >> 24) & 0xFF;
-    buf[1] = (frf >> 16) & 0xFF;
-    buf[2] = (frf >> 8) & 0xFF;
-    buf[3] = (frf & 0xFF);
-    if(SX1262_WriteCommand(SX126X_CMD_SET_RF_FREQUENCY, buf, 4) != SX1262_OK)
-    {
-        return SX1262_ERROR;
-    }
+    // Configuración base por defecto
+    lora_config_t default_config = {
+        .frequency = 915000000,
+        .spreading_factor = 7,
+        .bandwidth = BW_125_KHZ,
+        .coding_rate = CR_4_5,
+        .tx_power = 22,
+        .preamble_len = 12,
+        .iq_inverted = false,
+        .public_network = false,
+        .lora_sync_word = 0,
+        .config_pending = false
+    };
 
-    // 4. Set Modulation Params (SF=7, BW=125, CR=4/5, LowDataRateOpt=Off)
-    buf[0] = 0x07; // SF7
-    buf[1] = 0x04; // BW125
-    buf[2] = 0x01; // CR4/5
-    buf[3] = 0x00; // LDRO off
-    if(SX1262_WriteCommand(SX126X_CMD_SET_MODULATION_PARAMS, buf, 4) != SX1262_OK)
+    // Habilitar marca para permitir comandos internos
+    SX1262_Initialized = 1;
+    if(SX1262_ApplyConfig(&default_config) != SX1262_OK)
     {
-        return SX1262_ERROR;
-    }
-
-    // 5. Set Packet Params (Preamble=8, HeaderType=Explicit, PayloadLen=255, CRC=On, InvertIQ=Off)
-    buf[0] = 0x00; // Preamble MSB
-    buf[1] = 0x08; // Preamble LSB
-    buf[2] = 0x00; // Explicit Header
-    buf[3] = 0xFF; // PayloadLength (255)
-    buf[4] = 0x01; // CRC On
-    buf[5] = 0x00; // IQ Off
-    if(SX1262_WriteCommand(hw, SX126X_CMD_SET_PACKET_PARAMS, buf, 6) != SX1262_OK)
-    {
-        return SX1262_ERROR;
-    }
-
-    // 6. Set PA Config / TX Params respectivo a SX1262 (22 dBm max power)
-    // Esto es un ejemplo general (paDutyCycle=4, hpMax=7, deviceSel=0, paLut=1)
-    buf[0] = 0x04;
-    buf[1] = 0x07;
-    buf[2] = 0x00;
-    buf[3] = 0x01;
-    if(SX1262_WriteCommand(0x95 /* SET_PA_CONFIG */, buf, 4) != SX1262_OK)
-    {
-        return SX1262_ERROR;
-    }
-
-    buf[0] = 22; // power (22 dBm)
-    buf[1] = 0x02; // rampTime 40us
-    if(SX1262_WriteCommand(SX126X_CMD_SET_TX_PARAMS, buf, 2) != SX1262_OK)
-    {
+        SX1262_Initialized = 0;
         return SX1262_ERROR;
     }
 
@@ -257,12 +247,10 @@ SX1262_Status_t SX1262_Init(
     buf[0] = 0x01; // enable
     if(SX1262_WriteCommand(SX126X_CMD_SET_DIO2_AS_RF_SWITCH_CTRL, buf, 1) != SX1262_OK)
     {
+        SX1262_Initialized = 0;
         return SX1262_ERROR;
     }
     
-    // Marcar como inicializada
-    SX1262_Initialized = 1;
-
     return SX1262_OK;
 }
 
@@ -304,9 +292,13 @@ SX1262_Status_t SX1262_Transmit(uint8_t* data, uint8_t length)
     }
 
     // Actualizar longitud de payload (Requerido antes de Tx)
-    // Usamos los mismos parámetros previos pero actualizamos `length`
-    buf[0] = 0x00; buf[1] = 0x08; buf[2] = 0x00;
-    buf[3] = length; buf[4] = 0x01; buf[5] = 0x00;
+    // Usamos los mismos parámetros configurados, pero actualizamos `length`
+    buf[0] = (SX1262_CurrentConfig.preamble_len >> 8) & 0xFF;
+    buf[1] = (SX1262_CurrentConfig.preamble_len) & 0xFF;
+    buf[2] = 0x00; // Explicit Header
+    buf[3] = length;
+    buf[4] = 0x01; // CRC On
+    buf[5] = SX1262_CurrentConfig.iq_inverted ? 0x01 : 0x00;
     if(SX1262_WriteCommand(SX126X_CMD_SET_PACKET_PARAMS, buf, 6) != SX1262_OK)
     {
         return SX1262_ERROR;
@@ -411,8 +403,9 @@ SX1262_Status_t SX1262_Receive(uint8_t* data, uint8_t* length, uint32_t timeout_
     }
 
     // Iniciar Recepción
-    // Pasamos de MS a Ticks (Timeout interno de chip) tick = 15.625 us
-    uint32_t timeoutBytes = (timeout_ms == 0) ? 0xFFFFFF : (timeout_ms * 1000) / 15.625;
+    // Pasamos de MS a Ticks (Timeout interno de chip). 1 tick = 15.625 us
+    // 1 ms = 64 ticks (1000 / 15.625 = 64). Evitamos cálculo en punto flotante usando * 64.
+    uint32_t timeoutBytes = (timeout_ms == 0) ? 0xFFFFFF : (timeout_ms * 64);
     buf[0] = (timeoutBytes >> 16) & 0xFF;
     buf[1] = (timeoutBytes >> 8) & 0xFF;
     buf[2] = (timeoutBytes & 0xFF);
@@ -473,6 +466,112 @@ SX1262_Status_t SX1262_Receive(uint8_t* data, uint8_t* length, uint32_t timeout_
     {
         return SX1262_ERROR;
     }
+
+    return SX1262_OK;
+}
+
+/**
+ * @brief Aplica la configuración de red y modulación LoRa al chip
+ * 
+ * @param config Puntero a la estructura de configuración (lora_config_t)
+ * @return SX1262_Status_t
+ */
+SX1262_Status_t SX1262_ApplyConfig(lora_config_t *config)
+{
+    if(SX1262_Initialized != 1)
+    {
+        return SX1262_NOT_INITIALIZED;
+    }
+    if(!config) return SX1262_ERROR;
+
+    uint8_t buf[8];
+
+    // Modo Standby RC necesario para configurar
+    buf[0] = RADIOLIB_SX126X_STANDBY_RC;
+    if(SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1) != SX1262_OK) return SX1262_ERROR;
+
+    // --- 1. FRECUENCIA ---
+    uint32_t frf = (uint32_t)(((uint64_t)config->frequency * 16384ULL) / 15625ULL);
+    buf[0] = (frf >> 24) & 0xFF; 
+    buf[1] = (frf >> 16) & 0xFF; 
+    buf[2] = (frf >> 8) & 0xFF; 
+    buf[3] = (frf & 0xFF);
+
+    if(SX1262_WriteCommand(SX126X_CMD_SET_RF_FREQUENCY, buf, 4) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // --- 2. POTENCIA TX ---
+    // Configuración PA por defecto para transceptores SX1262 (+22dBm Max)
+    buf[0] = 0x04; 
+    buf[1] = 0x07; 
+    buf[2] = 0x00; 
+    buf[3] = 0x01;
+
+    if(SX1262_WriteCommand(0x95 /* SET_PA_CONFIG */, buf, 4) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    buf[0] = config->tx_power; // power
+    buf[1] = 0x02; // rampTime 40us
+    
+    if(SX1262_WriteCommand(SX126X_CMD_SET_TX_PARAMS, buf, 2) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // --- 3. MODULACIÓN ---
+    buf[0] = config->spreading_factor;
+    buf[1] = config->bandwidth;
+    buf[2] = config->coding_rate;
+    buf[3] = 0x00; // LowDataRateOptimize off
+    if(SX1262_WriteCommand(SX126X_CMD_SET_MODULATION_PARAMS, buf, 4) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // --- 4. SYNC WORD ---
+    uint8_t sync_msb, sync_lsb;
+    if (config->lora_sync_word != 0)
+    {
+        sync_msb = config->lora_sync_word;
+        sync_lsb = 0x44;
+    } else if (config->public_network)
+    {
+        sync_msb = 0x34;
+        sync_lsb = 0x44; // Red Pública
+    } else
+    {
+        sync_msb = 0x14;
+        sync_lsb = 0x24; // Red Privada
+    }
+    buf[0] = 0x07; // Dirección de registro MSB
+    buf[1] = 0x40; // Dirección de registro MSB
+    buf[2] = sync_msb;
+    buf[3] = sync_lsb;
+
+    if(SX1262_WriteCommand(SX126X_CMD_WRITE_REGISTER, buf, 4) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // --- 5. PARÁMETROS DEL PAQUETE ---
+    buf[0] = (config->preamble_len >> 8) & 0xFF; // Preamble MSB
+    buf[1] = config->preamble_len & 0xFF;        // Preamble LSB
+    buf[2] = 0x00;                               // Explicit Header
+    buf[3] = 0xFF;                               // PayloadLength (Dummy)
+    buf[4] = 0x01;                               // CRC On
+    buf[5] = config->iq_inverted ? 0x01 : 0x00;  // Invert IQ
+    if(SX1262_WriteCommand(SX126X_CMD_SET_PACKET_PARAMS, buf, 6) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // Guardar estado actual
+    SX1262_CurrentConfig = *config;
+    SX1262_CurrentConfig.config_pending = false;
 
     return SX1262_OK;
 }

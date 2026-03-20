@@ -65,6 +65,41 @@
 #define SX1262_MAX_BUSY_TIMEOUT 500     /**< milisegundos*/
 
 // ============================================================================
+// CONFIGURACIÓN LORA (ESTRUCTURAS)
+// ============================================================================
+typedef enum {
+	BW_7_8_KHZ    = 0x00,
+	BW_10_4_KHZ   = 0x08,
+	BW_15_6_KHZ   = 0x01,
+	BW_20_8_KHZ   = 0x09,
+	BW_31_25_KHZ  = 0x02,
+	BW_41_7_KHZ   = 0x0A,
+	BW_62_5_KHZ   = 0x03,
+	BW_125_KHZ    = 0x04,
+	BW_250_KHZ    = 0x05,
+	BW_500_KHZ    = 0x06
+} lora_signal_bandwidth_t;
+
+// Valores de Coding Rate (Tasa de codificación)
+#define CR_4_5          0x01
+#define CR_4_6          0x02
+#define CR_4_7          0x03
+#define CR_4_8          0x04
+
+typedef struct {
+	uint32_t frequency;		            // Hz (default: 915000000)
+	uint8_t spreading_factor;	        // 5 to 12 (default: 7)
+	lora_signal_bandwidth_t bandwidth;  // BW_125_KHZ, BW_250_KHZ, BW_500_KHZ...
+	uint8_t coding_rate;                // CR_4_5, CR_4_6, CR_4_7, CR_4_8 (default: CR_4_5)
+	int8_t tx_power;                    // -9 to 22 dBm (default: 20)
+	uint16_t preamble_len;	            // Default: 12
+	bool iq_inverted;	                // IQ inversion (default: false/normal)
+	bool public_network;	            // Sync word: false=private (0x12), true=public (0x34)
+	uint8_t lora_sync_word;             // Custom sync word spec value. 0 = derive from public_network
+	bool config_pending;	            // true if changes not yet applied
+} lora_config_t;
+
+// ============================================================================
 // ENUMERACIONES Y ESTRUCTURAS
 // ============================================================================
 /**
@@ -123,6 +158,14 @@ SX1262_Status_t SX1262_Transmit(uint8_t* data, uint8_t length);
  * @return SX1262_Status_t 
  */
 SX1262_Status_t SX1262_Receive(uint8_t* data, uint8_t* length, uint32_t timeout_ms);
+
+/**
+ * @brief Aplica la configuración de red y modulación LoRa al chip
+ * 
+ * @param config Puntero a la estructura de configuración (lora_config_t)
+ * @return SX1262_Status_t
+ */
+SX1262_Status_t SX1262_ApplyConfig(lora_config_t *config);
 
 #ifdef __cplusplus
 }
