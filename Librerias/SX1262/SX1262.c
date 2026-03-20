@@ -277,7 +277,7 @@ SX1262_Status_t SX1262_Transmit(uint8_t* data, uint8_t length)
 {
     if(SX1262_Initialized != 1)
     {
-        return SX1262_ERROR;
+        return SX1262_NOT_INITIALIZED;
     }
 
     uint8_t buf[8];
@@ -381,7 +381,7 @@ SX1262_Status_t SX1262_Receive(uint8_t* data, uint8_t* length, uint32_t timeout_
 {
     if(SX1262_Initialized != 1)
     {
-        return SX1262_ERROR;
+        return SX1262_NOT_INITIALIZED;
     }
 
     uint8_t buf[8];

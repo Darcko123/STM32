@@ -106,13 +106,21 @@ SX1262_Status_t SX1262_Init(
 );
 
 /**
- * @brief Transmite un paquete simple y bloquea hasta terminar o dar timeout
+ * @brief Transmite datos a través del módulo SX1262
+ * 
+ * @param data 
+ * @param length 
+ * @return SX1262_Status_t 
  */
-SX1262_Status_t SX1262_Transmit(, uint8_t* data, uint8_t length);
+SX1262_Status_t SX1262_Transmit(uint8_t* data, uint8_t length);
 
 /**
- * @brief Pone el radio en recepción y bloquea hasta recibir algo o timeout. 
- * Guarda la longitud recibida en "length".
+ * @brief Recibe datos a través del módulo SX1262
+ * 
+ * @param data 
+ * @param length 
+ * @param timeout_ms 
+ * @return SX1262_Status_t 
  */
 SX1262_Status_t SX1262_Receive(uint8_t* data, uint8_t* length, uint32_t timeout_ms);
 
