@@ -18,7 +18,7 @@
 static SPI_HandleTypeDef*   SX1262_hspi         = NULL;         /**< Manejador de la interfaz SPI utilizada para cominucarse con el módulo*/
 static GPIO_TypeDef*        NSS_GPIO_Port       = NULL;         /**< Puerto GPIO del pin de datos del SX1262 */
 static uint16_t             NSS_GPIO_Pin        = 0;            /**< Pin GPIO del pin de datos del SX1262 */
-static GPIO_TypeDef*        BUSY_GPIO_Port      = NULL;
+static GPIO_TypeDef*        BUSY_GPIO_Port      = NULL;         /**<  */
 static uint16_t             BUSY_GPIO_Pin       = 0;
 static GPIO_TypeDef*        DIO1_GPIO_Port      = NULL;
 static uint16_t             DIO1_GPIO_Pin       = 0;
@@ -50,12 +50,14 @@ static SX1262_Status_t SX1262_WriteCommand(uint8_t cmd, uint8_t* buffer, uint16_
     HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_RESET);
     if(HAL_SPI_Transmit(SX1262_hspi, &cmd, 1, HAL_MAX_DELAY) != HAL_OK)
     {
+        HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_SET);
         return SX1262_ERROR;
     }
     if (size > 0 && buffer != NULL)
     {
         if(HAL_SPI_Transmit(SX1262_hspi, buffer, size, HAL_MAX_DELAY) != HAL_OK)
         {
+            HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_SET);
             return SX1262_ERROR;
         }
     }
@@ -72,16 +74,19 @@ static SX1262_Status_t SX1262_ReadCommand(uint8_t cmd, uint8_t* buffer, uint16_t
     HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_RESET);
     if(HAL_SPI_Transmit(SX1262_hspi, &cmd, 1, HAL_MAX_DELAY) != HAL_OK)
     {
+        HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_SET);
         return SX1262_ERROR;
     }
     if(HAL_SPI_Transmit(SX1262_hspi, &nop, 1, HAL_MAX_DELAY) != HAL_OK) // El SX1262 retorna un STATUS primero
     {
+        HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_SET);
         return SX1262_ERROR;
     } 
     if (size > 0 && buffer != NULL)
     {
         if(HAL_SPI_Receive(SX1262_hspi, buffer, size, HAL_MAX_DELAY) != HAL_OK)
         {
+            HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_SET);
             return SX1262_ERROR;
         }
     }
@@ -98,10 +103,12 @@ static SX1262_Status_t SX1262_WriteBuffer(uint8_t offset, uint8_t* data, uint8_t
     HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_RESET);
     if(HAL_SPI_Transmit(SX1262_hspi, cmd, 2, HAL_MAX_DELAY) != HAL_OK)
     {
+        HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_SET);
         return SX1262_ERROR;
     }
     if(HAL_SPI_Transmit(SX1262_hspi, data, length, HAL_MAX_DELAY) != HAL_OK)
     {
+        HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_SET);
         return SX1262_ERROR;
     }
     HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_SET);
@@ -117,10 +124,12 @@ static SX1262_Status_t SX1262_ReadBuffer(uint8_t offset, uint8_t* data, uint8_t 
     HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_RESET);
     if(HAL_SPI_Transmit(SX1262_hspi, cmd, 3, HAL_MAX_DELAY) != HAL_OK)
     {
+        HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_SET);
         return SX1262_ERROR;
     }
     if(HAL_SPI_Receive(SX1262_hspi, data, length, HAL_MAX_DELAY) != HAL_OK)
     {
+        HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_SET);
         return SX1262_ERROR;
     }
     HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_SET);
@@ -177,10 +186,10 @@ SX1262_Status_t SX1262_Init(
 )
 {
     // Validar parámetros de entrada
-    if(hspi == NULL || NSS_Port  == NULL || NSS_Pin == 0
-                    || BUSY_Port == NULL || BUSY_Pin == 0
-                    || DIO1_Port == NULL || DIO1_Pin == 0
-                    || RST_Port  == NULL || RST_Pin == 0 
+    if(hspi == NULL || NSS_Port  == NULL
+                    || BUSY_Port == NULL
+                    || DIO1_Port == NULL
+                    || RST_Port  == NULL
     )
     {
         return SX1262_ERROR;

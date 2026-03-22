@@ -2,6 +2,8 @@
 
 ## Pinout Configuration
 
+### SPI
+
 | Parametro | Valor Recomendado | Notas |
 |-----------|-------------------|-------|
 | **Mode** | Full-Duplex Master | El STM32 es el que controla el bus |
@@ -12,6 +14,15 @@
 | **CPOL** | Low | Modo 0 |
 | **CPHA** | 1 Edge | Modo 0 |
 | **NSS** | Software | Para manejar el pin CS manualmente |
+
+### GPIOS
+
+| PIN | Tipo | Configuración | Nivel por defecto |
+|-----|------|---------------|-------------------|
+| NSS | GPIO_OUTPUT | Push-Pull, No Pull-up/Pull-down, Velocidad: High o Very High | High |
+| RST | GPIO_OUTPUT | Push-Pull, No Pull-up/Pull-down, Velocidad: Low/Medium | High |
+| BUSY | GPIO_INPUT | No Pull-up/Pull-down | --- |
+| DIO | GPIO_INPUT  | No Pull-up / Pull-down | --- |
 
 ```C
 void sx1262_write_command(uint8_t op_code, uint8_t* data, uint16 len)
