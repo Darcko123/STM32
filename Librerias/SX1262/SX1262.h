@@ -130,14 +130,14 @@ extern "C" {
  */
 SX1262_Status_t SX1262_Init(
 	SPI_HandleTypeDef* hspi,
-    GPIO_TypeDef*      NSS_Port,
-    uint16_t           NSS_Pin,
-    GPIO_TypeDef*      BUSY_Port,
-    uint16_t           BUSY_Pin,
-    GPIO_TypeDef*      DIO1_Port,
-    uint16_t           DIO1_Pin,
-    GPIO_TypeDef*      RST_Port,
-    uint16_t           RST_Pin
+    GPIO_TypeDef*      nss_port,
+    uint16_t           nss_pin,
+    GPIO_TypeDef*      busy_port,
+    uint16_t           busy_pin,
+    GPIO_TypeDef*      dio_port,
+    uint16_t           dio_pin,
+    GPIO_TypeDef*      rst_port,
+    uint16_t           rst_pin
 );
 
 /**

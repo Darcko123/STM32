@@ -18,10 +18,10 @@
 static SPI_HandleTypeDef*   SX1262_hspi         = NULL;         /**< Manejador de la interfaz SPI utilizada para cominucarse con el módulo*/
 static GPIO_TypeDef*        NSS_GPIO_Port       = NULL;         /**< Puerto GPIO del pin de datos del SX1262 */
 static uint16_t             NSS_GPIO_Pin        = 0;            /**< Pin GPIO del pin de datos del SX1262 */
-static GPIO_TypeDef*        BUSY_GPIO_Port      = NULL;         /**<  */
+static GPIO_TypeDef*        BUSY_GPIO_Port      = NULL;
 static uint16_t             BUSY_GPIO_Pin       = 0;
-static GPIO_TypeDef*        DIO1_GPIO_Port      = NULL;
-static uint16_t             DIO1_GPIO_Pin       = 0;
+static GPIO_TypeDef*        DIO_GPIO_Port      = NULL;
+static uint16_t             DIO_GPIO_Pin       = 0;
 static GPIO_TypeDef*        RST_GPIO_Port       = NULL;
 static uint16_t             RST_GPIO_Pin        = 0;
 static uint8_t              SX1262_Initialized  = 0;            /**< Bandera para verificar si el módulo está inicializado */
@@ -175,21 +175,21 @@ static SX1262_Status_t SX1262_Wakeup(void)
  */
 SX1262_Status_t SX1262_Init(
 	SPI_HandleTypeDef* hspi,
-    GPIO_TypeDef*      NSS_Port,
-    uint16_t           NSS_Pin,
-    GPIO_TypeDef*      BUSY_Port,
-    uint16_t           BUSY_Pin,
-    GPIO_TypeDef*      DIO1_Port,
-    uint16_t           DIO1_Pin,
-    GPIO_TypeDef*      RST_Port,
-    uint16_t           RST_Pin
+    GPIO_TypeDef*      nss_port,
+    uint16_t           nss_pin,
+    GPIO_TypeDef*      busy_port,
+    uint16_t           busy_pin,
+    GPIO_TypeDef*      dio_port,
+    uint16_t           dio_pin,
+    GPIO_TypeDef*      rst_port,
+    uint16_t           rst_pin
 )
 {
     // Validar parámetros de entrada
-    if(hspi == NULL || NSS_Port  == NULL
-                    || BUSY_Port == NULL
-                    || DIO1_Port == NULL
-                    || RST_Port  == NULL
+    if(hspi == NULL || nss_port  == NULL
+                    || busy_port == NULL
+                    || dio_port == NULL
+                    || rst_port  == NULL
     )
     {
         return SX1262_ERROR;
@@ -197,14 +197,14 @@ SX1262_Status_t SX1262_Init(
     
     // Almacenar configuración para uso en funciones posteriores
     SX1262_hspi = hspi;
-    NSS_GPIO_Port = NSS_Port;
-    NSS_GPIO_Pin = NSS_Pin;
-    BUSY_GPIO_Port = BUSY_Port;
-    BUSY_GPIO_Pin = BUSY_Pin;
-    DIO1_GPIO_Port = DIO1_Port;
-    DIO1_GPIO_Pin = DIO1_Pin;
-    RST_GPIO_Port = RST_Port;
-    RST_GPIO_Pin = RST_Pin;
+    NSS_GPIO_Port = nss_port;
+    NSS_GPIO_Pin = nss_pin;
+    BUSY_GPIO_Port = busy_port;
+    BUSY_GPIO_Pin = busy_pin;
+    DIO_GPIO_Port = dio_port;
+    DIO_GPIO_Pin = dio_pin;
+    RST_GPIO_Port = rst_port;
+    RST_GPIO_Pin = rst_pin;
     SX1262_Initialized = 0;    // Marcar como no inicializada hasta que se termine el proceso
 
     SX1262_Reset();
@@ -339,7 +339,7 @@ SX1262_Status_t SX1262_Transmit(uint8_t* data, uint8_t length)
 
     // Esperar IRQ (DIO1 en alto => TxDone) o un timeout artificial
     uint32_t start = HAL_GetTick();
-    while (HAL_GPIO_ReadPin(DIO1_GPIO_Port, DIO1_GPIO_Pin) == GPIO_PIN_RESET)
+    while (HAL_GPIO_ReadPin(DIO_GPIO_Port, DIO_GPIO_Pin) == GPIO_PIN_RESET)
     {
         if ((HAL_GetTick() - start) > 5000)  // Timeout software de 5 seg
         {
@@ -424,7 +424,7 @@ SX1262_Status_t SX1262_Receive(uint8_t* data, uint8_t* length, uint32_t timeout_
 
     // Bloquear hasta interrupción
     uint32_t start = HAL_GetTick();
-    while (HAL_GPIO_ReadPin(DIO1_GPIO_Port, DIO1_GPIO_Pin) == GPIO_PIN_RESET)
+    while (HAL_GPIO_ReadPin(DIO_GPIO_Port, DIO_GPIO_Pin) == GPIO_PIN_RESET)
     {
         if (timeout_ms != 0 && (HAL_GetTick() - start) > (timeout_ms + 100))
         {
