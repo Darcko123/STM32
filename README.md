@@ -24,7 +24,8 @@ STM32/
 │   ├── MAX7219/     # Librería para el control de una matriz de leds
 │   ├── MPU950/      # Librería para acelerómetro
 │   ├── PCA9685/     # Librería para módulo PWM de 16 canales por I2C
-│   └── SI7021/      # Librería para sensor de temperatura y humedad
+│   ├── SI7021/      # Librería para sensor de temperatura y humedad
+│   └── SX1262/      # Librería para módulo de radiofrecuencia LoRa
 │
 ├── LibrariesExamples/        # Ejemplos prácticos de uso de las librerías
 │   ├── MAX7219_Example/
