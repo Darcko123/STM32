@@ -71,19 +71,25 @@ static SX1262_Status_t SX1262_ReadCommand(uint8_t cmd, uint8_t* buffer, uint16_t
     if (SX1262_WaitBusy() != SX1262_OK) return SX1262_TIMEOUT;
 
     uint8_t nop = 0x00;
+    uint8_t dump; // Variable "basurero" para volcar el RX FIFO y prevenir el flag OVR
+
     HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_RESET);
-    if(HAL_SPI_Transmit(SX1262_hspi, &cmd, 1, HAL_MAX_DELAY) != HAL_OK)
+
+    // TransmitReceive sincroniza el bus limpiando datos entrantes
+    if(HAL_SPI_TransmitReceive(SX1262_hspi, &cmd, &dump, 1, HAL_MAX_DELAY) != HAL_OK)
     {
         HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_SET);
         return SX1262_ERROR;
     }
-    if(HAL_SPI_Transmit(SX1262_hspi, &nop, 1, HAL_MAX_DELAY) != HAL_OK) // El SX1262 retorna un STATUS primero
+    if(HAL_SPI_TransmitReceive(SX1262_hspi, &nop, &dump, 1, HAL_MAX_DELAY) != HAL_OK) // El SX1262 retorna un STATUS primero
     {
         HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_SET);
         return SX1262_ERROR;
     } 
+
     if (size > 0 && buffer != NULL)
     {
+        // En este paso, el buffer del STM32 está limpio. El RX de datos útiles es seguro.
         if(HAL_SPI_Receive(SX1262_hspi, buffer, size, HAL_MAX_DELAY) != HAL_OK)
         {
             HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_SET);
@@ -121,12 +127,18 @@ static SX1262_Status_t SX1262_ReadBuffer(uint8_t offset, uint8_t* data, uint8_t 
     if (SX1262_WaitBusy() != SX1262_OK) return SX1262_TIMEOUT;
 
     uint8_t cmd[3] = {SX126X_CMD_READ_BUFFER, offset, 0x00}; // NOP byte automatically handled here
+    uint8_t dump[3]; // Buffer basura para capturar las respuestas ignoradas al transmitir
+
     HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_RESET);
-    if(HAL_SPI_Transmit(SX1262_hspi, cmd, 3, HAL_MAX_DELAY) != HAL_OK)
+
+    // Usamos TransmitReceive para evadir la condición de error Overrun
+    if(HAL_SPI_TransmitReceive(SX1262_hspi, cmd, dump, 3, HAL_MAX_DELAY) != HAL_OK)
     {
         HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_SET);
         return SX1262_ERROR;
     }
+
+    // El buffer RX está ahora limpio internamente, procedemos con lectura segura
     if(HAL_SPI_Receive(SX1262_hspi, data, length, HAL_MAX_DELAY) != HAL_OK)
     {
         HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_SET);
