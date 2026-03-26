@@ -491,6 +491,51 @@ SX1262_Status_t SX1262_Receive(uint8_t* data, uint8_t* length, uint32_t timeout_
 }
 
 /**
+ * @brief Convierte el enum lora_signal_bandwidth_t a su valor en Hz.
+ *        Retorna 0 si el valor no es reconocido.
+ */
+static uint32_t SX1262_BandwidthToHz(lora_signal_bandwidth_t bw)
+{
+    switch (bw)
+    {
+        case BW_7_8_KHZ:   return 7800UL;
+        case BW_10_4_KHZ:  return 10400UL;
+        case BW_15_6_KHZ:  return 15600UL;
+        case BW_20_8_KHZ:  return 20800UL;
+        case BW_31_25_KHZ: return 31250UL;
+        case BW_41_7_KHZ:  return 41700UL;
+        case BW_62_5_KHZ:  return 62500UL;
+        case BW_125_KHZ:   return 125000UL;
+        case BW_250_KHZ:   return 250000UL;
+        case BW_500_KHZ:   return 500000UL;
+        default:           return 0UL;
+    }
+}
+
+/**
+ * @brief Calcula si se debe activar LowDataRateOptimize (LDRO).
+ *        El datasheet exige LDRO cuando el tiempo de símbolo >= 16.38 ms
+ *        (datasheet SX1262, sección 6.1.1.4).
+ *        Fórmula: T_sym_us = (2^SF * 1000000) / BW_Hz
+ *        Se usa aritmética de 64 bits para evitar desbordamiento con SF12/BW bajo.
+ *
+ * @param sf   Spreading Factor (5–12)
+ * @param bw   Bandwidth enum
+ * @return     1 si LDRO debe activarse, 0 en caso contrario
+ */
+static uint8_t SX1262_ComputeLDRO(uint8_t sf, lora_signal_bandwidth_t bw)
+{
+    uint32_t bw_hz = SX1262_BandwidthToHz(bw);
+    if (bw_hz == 0) return 0; // BW desconocido, no activar LDRO
+
+    // T_sym_us = (1 << SF) * 1_000_000 / BW_Hz
+    // Umbral: 16380 us  (≈ 16.38 ms, según datasheet)
+    uint64_t t_sym_us = ((uint64_t)1 << sf) * 1000000ULL / (uint64_t)bw_hz;
+
+    return (t_sym_us >= 16380) ? 1U : 0U;
+}
+
+/**
  * @brief Aplica la configuración de red y modulación LoRa al chip
  * 
  * @param config Puntero a la estructura de configuración (lora_config_t)
@@ -543,10 +588,14 @@ SX1262_Status_t SX1262_ApplyConfig(lora_config_t *config)
     }
 
     // --- 3. MODULACIÓN ---
+    // Calcular LDRO dinámicamente: obligatorio cuando T_símbolo >= 16.38 ms
+    // Combinaciones que lo activan: SF11/BW62.5, SF12/BW62.5, SF12/BW125, y anchos menores con SF altos.
+    uint8_t ldro = SX1262_ComputeLDRO(config->spreading_factor, config->bandwidth);
+
     buf[0] = config->spreading_factor;
     buf[1] = config->bandwidth;
     buf[2] = config->coding_rate;
-    buf[3] = 0x00; // LowDataRateOptimize off
+    buf[3] = ldro; // LowDataRateOptimize: calculado automáticamente
     if(SX1262_WriteCommand(SX126X_CMD_SET_MODULATION_PARAMS, buf, 4) != SX1262_OK)
     {
         return SX1262_ERROR;
