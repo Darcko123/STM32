@@ -80,6 +80,31 @@ typedef enum {
 	BW_500_KHZ    = 0x06
 } lora_signal_bandwidth_t;
 
+// ============================================================================
+// MODO DE RED LORA (SYNC WORD)
+// ============================================================================
+/**
+ * @brief Selecciona el modo de red LoRa, que determina el Sync Word enviado al chip.
+ *
+ * | Modo                  | Registro 0x0740 | Registro 0x0741 | Sync Word lógico |
+ * |-----------------------|-----------------|-----------------|------------------|
+ * | LORA_NETWORK_PRIVATE  |      0x14       |      0x24       |      0x12        |
+ * | LORA_NETWORK_PUBLIC   |      0x34       |      0x44       |      0x34        |
+ * | LORA_NETWORK_MESHTASTIC|     0x2B       |      0x34       |      0x2B        |
+ *
+ * Meshtastic usa el sync word 0x2B (definido en su firmware como LORA_PREAMBLE_LENGTH
+ * con sync 0x2B). Permite interoperar directamente con nodos Meshtastic sin
+ * modificar ningún otro parámetro de modulación.
+ *
+ * Si se necesita un sync word completamente personalizado, usar el campo
+ * `lora_sync_word` de lora_config_t (distinto de 0 tiene prioridad sobre network_mode).
+ */
+typedef enum {
+    LORA_NETWORK_PRIVATE    = 0,  /**< Sync Word 0x12 — red privada (por defecto LoRa) */
+    LORA_NETWORK_PUBLIC     = 1,  /**< Sync Word 0x34 — red pública (LoRaWAN)          */
+    LORA_NETWORK_MESHTASTIC = 2,  /**< Sync Word 0x2B — compatible con Meshtastic       */
+} lora_network_mode_t;
+
 // Valores de Coding Rate (Tasa de codificación)
 #define CR_4_5          0x01
 #define CR_4_6          0x02
@@ -94,8 +119,8 @@ typedef struct {
 	int8_t tx_power;                    // -9 to 22 dBm (default: 20)
 	uint16_t preamble_len;	            // Default: 12
 	bool iq_inverted;	                // IQ inversion (default: false/normal)
-	bool public_network;	            // Sync word: false=private (0x12), true=public (0x34)
-	uint8_t lora_sync_word;             // Custom sync word spec value. 0 = derive from public_network
+	lora_network_mode_t network_mode;   // Sync word: LORA_NETWORK_PRIVATE / PUBLIC / MESHTASTIC
+	uint8_t lora_sync_word;             // Custom sync word (distinto de 0 tiene prioridad sobre network_mode)
 	bool config_pending;	            // true if changes not yet applied
 } lora_config_t;
 

@@ -249,7 +249,7 @@ SX1262_Status_t SX1262_Init(
         .tx_power = 22,
         .preamble_len = 12,
         .iq_inverted = false,
-        .public_network = false,
+        .network_mode = LORA_NETWORK_PRIVATE,
         .lora_sync_word = 0,
         .config_pending = false
     };
@@ -602,19 +602,33 @@ SX1262_Status_t SX1262_ApplyConfig(lora_config_t *config)
     }
 
     // --- 4. SYNC WORD ---
+    // El campo lora_sync_word (distinto de 0) tiene prioridad absoluta sobre network_mode.
+    // En caso contrario, se selecciona según el modo de red configurado.
+    // Los registros 0x0740–0x0741 almacenan dos nibbles del sync word según la
+    // nota de aplicación de Semtech: reg[0x0740] = (SW & 0xF0) | 0x04,
+    //                                reg[0x0741] = (SW << 4)   | 0x04
     uint8_t sync_msb, sync_lsb;
     if (config->lora_sync_word != 0)
     {
-        sync_msb = config->lora_sync_word;
-        sync_lsb = 0x44;
-    } else if (config->public_network)
+        // Sync word personalizado: aplicar fórmula de nibbles de Semtech
+        sync_msb = (config->lora_sync_word & 0xF0) | 0x04;
+        sync_lsb = (config->lora_sync_word << 4)   | 0x04;
+    }
+    else
     {
-        sync_msb = 0x34;
-        sync_lsb = 0x44; // Red Pública
-    } else
-    {
-        sync_msb = 0x14;
-        sync_lsb = 0x24; // Red Privada
+        switch (config->network_mode)
+        {
+            case LORA_NETWORK_PUBLIC:
+                sync_msb = 0x34; sync_lsb = 0x44; // SW lógico 0x34 (LoRaWAN)
+                break;
+            case LORA_NETWORK_MESHTASTIC:
+                sync_msb = 0x2B; sync_lsb = 0xB4; // SW lógico 0x2B (Meshtastic)
+                break;
+            case LORA_NETWORK_PRIVATE:
+            default:
+                sync_msb = 0x14; sync_lsb = 0x24; // SW lógico 0x12 (LoRa privado)
+                break;
+        }
     }
     buf[0] = 0x07; // Dirección de registro MSB
     buf[1] = 0x40; // Dirección de registro MSB
