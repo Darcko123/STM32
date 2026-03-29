@@ -5,8 +5,8 @@
  * Esta librería permite inicializar y controlar
  * 
  * @author Daniel Ruiz
- * @date March 16, 2026
- * @version 1.0
+ * @date March 28, 2026
+ * @version 1.0.0
  */
 
 #ifndef SX1262_H
@@ -67,6 +67,10 @@
 // ============================================================================
 // CONFIGURACIÓN LORA (ESTRUCTURAS)
 // ============================================================================
+
+/**
+ * @brief Enumeración para valores de ancho de banda (BW) en modulación LoRa.
+ */
 typedef enum {
 	BW_7_8_KHZ    = 0x00,
 	BW_10_4_KHZ   = 0x08,
@@ -105,17 +109,28 @@ typedef enum {
     LORA_NETWORK_MESHTASTIC = 2,  /**< Sync Word 0x2B — compatible con Meshtastic       */
 } lora_network_mode_t;
 
-// Valores de Coding Rate (Tasa de codificación)
-#define CR_4_5          0x01
-#define CR_4_6          0x02
-#define CR_4_7          0x03
-#define CR_4_8          0x04
+/**
+ * @brief Enumeración para valores de coding rate (CR) en modulación LoRa.
+ */
+typedef enum {
+	CR_4_5 = 0x01,
+	CR_4_6 = 0x02,
+	CR_4_7 = 0x03,
+	CR_4_8 = 0x04
+}lora_coding_rate_t;
 
+/**
+ * @brief Estructura para almacenar la configuración de modulación y red LoRa.
+ *        El campo `config_pending` se establece en true si se han realizado cambios
+ *        en la configuración que aún no se han aplicado al chip. Esto permite a las
+ *        funciones de transmisión/recepción verificar si es necesario aplicar la configuración
+ *        antes de operar.
+ */
 typedef struct {
 	uint32_t frequency;		            // Hz (default: 915000000)
 	uint8_t spreading_factor;	        // 5 to 12 (default: 7)
 	lora_signal_bandwidth_t bandwidth;  // BW_125_KHZ, BW_250_KHZ, BW_500_KHZ...
-	uint8_t coding_rate;                // CR_4_5, CR_4_6, CR_4_7, CR_4_8 (default: CR_4_5)
+	lora_coding_rate_t coding_rate;		// CR_4_5, CR_4_6, CR_4_7, CR_4_8 (default: CR_4_5)
 	int8_t tx_power;                    // -9 to 22 dBm (default: 20)
 	uint16_t preamble_len;	            // Default: 12
 	bool iq_inverted;	                // IQ inversion (default: false/normal)
@@ -134,7 +149,7 @@ typedef enum {
 	SX1262_OK = 0,				/** Operación exitosa */
 	SX1262_ERROR = 1,			/** Error en la operación */
 	SX1262_TIMEOUT = 2,			/** Timeout en la operación */
-	SX1262_NOT_INITIALIZED = 3	/** Sensor no inicializado */
+	SX1262_NOT_INITIALIZED = 3	/** Módulo no inicializado */
 }SX1262_Status_t;
 
 // ============================================================================
@@ -146,12 +161,18 @@ extern "C" {
 #endif
 
 /**
- * @brief Inicializa la el módulo SX1262.
+ * @brief Inicializa el módulo SX1262 con la configuración de pines y parámetros por defecto.
  * 
- * @param hspi Puntero al manejador de la interfaz SPI utilizada para comunicarse con el módulo.
- * 
- * @param GPIOx Puerto GPIO del pin de datos del SX1262.
- * @param GPIO_PIN Pin GPIO del pin de datos del SX1262.
+ * @param hspi Puntero al handle del SPI utilizado para comunicarse con el SX1262.
+ * @param nss_port Puerto GPIO del pin NSS (Chip Select).
+ * @param nss_pin Número de pin GPIO para NSS.
+ * @param busy_port Puerto GPIO del pin BUSY.
+ * @param busy_pin Número de pin GPIO para BUSY.
+ * @param dio_port Puerto GPIO del pin DIO1 (interrupción).
+ * @param dio_pin Número de pin GPIO para DIO1.
+ * @param rst_port Puerto GPIO del pin RST (Reset).
+ * @param rst_pin Número de pin GPIO para RST.
+ * @return SX1262_Status_t Estado de la inicialización (OK, ERROR, etc.)
  */
 SX1262_Status_t SX1262_Init(
 	SPI_HandleTypeDef* hspi,
@@ -168,8 +189,8 @@ SX1262_Status_t SX1262_Init(
 /**
  * @brief Transmite datos a través del módulo SX1262
  * 
- * @param data 
- * @param length 
+ * @param data Puntero al buffer de datos a transmitir
+ * @param length Longitud de los datos a transmitir (máximo 255 bytes)
  * @return SX1262_Status_t 
  */
 SX1262_Status_t SX1262_Transmit(uint8_t* data, uint8_t length);
@@ -177,9 +198,9 @@ SX1262_Status_t SX1262_Transmit(uint8_t* data, uint8_t length);
 /**
  * @brief Recibe datos a través del módulo SX1262
  * 
- * @param data 
- * @param length 
- * @param timeout_ms 
+ * @param data Puntero al buffer donde se almacenarán los datos recibidos
+ * @param length Puntero a una variable donde se almacenará la longitud de los datos recibidos
+ * @param timeout_ms Tiempo máximo de espera para recibir datos (en milisegundos). Si es 0, espera indefinidamente.
  * @return SX1262_Status_t 
  */
 SX1262_Status_t SX1262_Receive(uint8_t* data, uint8_t* length, uint32_t timeout_ms);

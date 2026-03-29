@@ -1,46 +1,436 @@
-# SX1262
+# SX1262 LoRa Library for STM32
 
-## Pinout Configuration
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![STM32](https://img.shields.io/badge/Platform-STM32F411-black)](https://www.st.com/en/microcontrollers-microprocessors/stm32f4-series.html)
+[![Version](https://img.shields.io/badge/Version-1.0.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/SX1262)
+[![Protocol](https://img.shields.io/badge/Protocol-LoRa-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/SX1262)
 
-### SPI
+---
 
-| Parametro | Valor Recomendado | Notas |
-|-----------|-------------------|-------|
-| **Mode** | Full-Duplex Master | El STM32 es el que controla el bus |
-| **Hardarware** | Disable | Para controlar el CS por software con un GPIO |
-| **Data Size** | 8 Bit | Comunicación por bytes con el SX1262 |
-| **First Byte** | MSB First | Estándar |
-| **Prescaler** | 16 o 32 | Empieza lentro para grantizar la comunicación | 
-| **CPOL** | Low | Modo 0 |
-| **CPHA** | 1 Edge | Modo 0 |
-| **NSS** | Software | Para manejar el pin CS manualmente |
+## Tabla de Contenidos
+- [SX1262 LoRa Library for STM32](#sx1262-lora-library-for-stm32)
+  - [Tabla de Contenidos](#tabla-de-contenidos)
+  - [Descripción](#descripción)
+    - [Características](#características)
+  - [Pinout y Conexiones](#pinout-y-conexiones)
+    - [Pines requeridos](#pines-requeridos)
+  - [Configuración SPI](#configuración-spi)
+  - [Instalación](#instalación)
+  - [Uso básico](#uso-básico)
+    - [1. Inicialización](#1-inicialización)
+    - [2. Transmisión simple](#2-transmisión-simple)
+    - [3. Recepción](#3-recepción)
+    - [4. Configuración personalizada](#4-configuración-personalizada)
+    - [5. Ejemplo de Transmisión y Recepción Completa](#5-ejemplo-de-transmisión-y-recepción-completa)
+  - [](#)
+  - [API Reference](#api-reference)
+    - [1. Tipos de Datos](#1-tipos-de-datos)
+      - [`SX1262_Status_t` - Estados de Retorno](#sx1262_status_t---estados-de-retorno)
+      - [`lora_config_t` - Configuración de Parámetros LoRa](#lora_config_t---configuración-de-parámetros-lora)
+      - [`lora_network_mode_t` - Modos de Red LoRa](#lora_network_mode_t---modos-de-red-lora)
+      - [`lora_signal_bandwidth_t` - Ancho de Banda LoRa](#lora_signal_bandwidth_t---ancho-de-banda-lora)
+      - [`lora_coding_rate_t` - Coding Rate LoRa](#lora_coding_rate_t---coding-rate-lora)
+    - [2. Funciones Públicas](#2-funciones-públicas)
+      - [`SX1262_Init()`- Inicialización del Driver](#sx1262_init--inicialización-del-driver)
+      - [`SX1262_Transmit()` - Transmisión de Datos](#sx1262_transmit---transmisión-de-datos)
+      - [`SX1262_Receive()` - Recepción de Datos](#sx1262_receive---recepción-de-datos)
+      - [`SX1262_ApplyConfig()` - Aplicar Configuración LoRa](#sx1262_applyconfig---aplicar-configuración-lora)
+  - [Licencia](#licencia)
+  - [Changelog](#changelog)
+    - [Versión 1.0.0 (2026-03-28)](#versión-100-2026-03-28)
 
-### GPIOS
+## Descripción
+Librería desarrollada en C para la interfaz con el módulo transceptor LoRa **Semtech SX1262** utilizando microcontroladores STM32. Proporciona funciones para configurar parámetros de comunicación, transmitir y recibir datos, y manejar eventos de interrupción. La librería está diseñada para ser fácil de usar, eficiente y compatible con la mayoría de las series STM32 (F1, F4, etc.) utilizando HAL. Soporta configuraciones avanzadas de LoRa como Spreading Factor, Bandwidth, Coding Rate y potencia de transmisión. Ideal para proyectos de IoT, sensores remotos y redes de baja potencia.
 
-| PIN | Tipo | Configuración | Nivel por defecto |
-|-----|------|---------------|-------------------|
-| NSS | GPIO_OUTPUT | Push-Pull, No Pull-up/Pull-down, Velocidad: High o Very High | High |
-| RST | GPIO_OUTPUT | Push-Pull, No Pull-up/Pull-down, Velocidad: Low/Medium | High |
-| BUSY | GPIO_INPUT | No Pull-up/Pull-down | --- |
-| DIO | GPIO_INPUT  | No Pull-up / Pull-down | --- |
+---
 
-```C
-void sx1262_write_command(uint8_t op_code, uint8_t* data, uint16 len)
-{
-    // 1. Activar el chip seleccionando el CS (GPIO a LOW)
-    HAL_GPIO_WritePin(CS_PIN_PORT, CS_Pin, GPIO_PIN_RESET);
-    
-    // 2. Enviar el byte de comando (operación)
-    HAL_SPI_Transmit(&hspi1, &op_code, 1, HAL_MAX_DELAY);
+### Características
+- **Comunicación SPI**: Abstracción de comandos (Write/Read registers, buffers) con manejo robusto del flag OVR.
+- **Configuración completa de parámetros LoRa**: Frecuencia (433/868/915 MHz), Spreading Factor (SF5-12), Bandwidth (7.8-500 kHz), Coding Rate (4/5 a 4/8).
+- **Transmisión y recepción blocking**: Espera por IRQ via polling en DIO1 (TxDone/RxDone + errores).
+- **Soporte para redes públicas, privadas y Meshtastic**: SyncWord configurable por modo o valor personalizado.
+- **LDRO automático**: Calcula y activa LowDataRateOptimize dinámicamente según SF y BW, siguiendo la sección 6.1.1.4 del datasheet.
+- **Manejo robusto de hardware**: Busy polling con timeout, reset hardware, wakeup desde Sleep.
+- **Portabilidad**: Compatible con múltiples familias STM32 mediante la capa HAL. Solo requiere cambiar el `#include` del encabezado HAL.
+- **Potencia TX**: Hasta +22 dBm, con rampa configurable.
+- **CRC automático habilitado** en todos los paquetes transmitidos.
+- **Gestión robusta de errores**: Códigos de retorno específicos para timeout, error de SPI e inicialización no completada.
 
-    // 3. Si hay datos, enviarlos
-    if(len > 0)
-    {
-        HAL_SPI_Transmit(&hspi1, data, len, HAL_MAX_DELAY);
-    }
+## Pinout y Conexiones
+### Pines requeridos
+ 
+| Pin SX1262 | Dirección | Descripción | Tipo GPIO | Configuración CubeMX | Nivel por defecto | Etiqueta CubeMX |
+|------------|-----------|-------------|-----------|----------------------|-------------------|-----------------|
+| **VCC**    | Alimentación | 3.3V ±5% (hasta 120mA TX) | N/A | N/A | N/A | N/A |
+| **GND**    | Tierra    | —                          | N/A | N/A | N/A | N/A |
+| **NSS/CS** | Output    | Chip Select (SPI)          | `GPIO_OUTPUT` | Push-Pull, No Pull, Speed: High | High | `NSS` |
+| **SCK**    | Output    | SPI Clock                  | N/A | Configurado por periférico SPI | N/A | N/A |
+| **MISO**   | Input     | SPI Data In                | N/A | Configurado por periférico SPI | N/A | N/A |
+| **MOSI**   | Output    | SPI Data Out               | N/A | Configurado por periférico SPI | N/A | N/A |
+| **BUSY**   | Input     | Estado del chip (polling)  | `GPIO_INPUT` | No Pull-up/Pull-down | — | `BUSY` |
+| **DIO1**   | Input     | IRQ (Tx/Rx done)           | `GPIO_INPUT` | No Pull-up/Pull-down | — | `DIO` |
+| **RST**    | Output    | Reset del módulo           | `GPIO_OUTPUT` | Push-Pull, No Pull, Speed: Low/Medium | High | `RST` |
+| **ANT**    | RF        | Antena 50Ω (SAW filter recomendado) | N/A | N/A | N/A | N/A |
 
-    // 4. Desactivar el chip (CS a HIGH)
-    HAL_GPIO_WritePin(CS_GPIO_Port, CS_Pin, GPIO_PIN_SET);
+> [!NOTE]
+>  DIO2 es controlado internamente por la librería como RF Switch (`SET_DIO2_AS_RF_SWITCH_CTRL`). No necesita configurarse como GPIO externo en CubeMX salvo que el hardware del módulo lo requiera diferente.
+
+## Configuración SPI
+Configura tu periférico SPI en CubeMX/STM32CubeIDE:
+
+| Parámetro | Valor | Notas |
+|-----------|-------|-------|
+| **Mode** | Full-Duplex Master | STM32 controla el bus |
+| **Hardware NSS** | Disable | NSS por software (GPIO) |
+| **Data Size** | 8 Bits | Bytes |
+| **First Bit** | MSB First | Estándar |
+| **Prescaler** | 16-32 (2-4 MHz) | Inicia lento para debug |
+| **CPOL** | Low (0) | Modo SPI 0 |
+| **CPHA** | 1 Edge | Modo SPI 0 |
+| **CRC** | Disabled | No usado |
+
+---
+
+## Instalación
+1. Copia `SX1262.c` y `SX1262.h` a tu proyecto (`Librerias/SX1262/`).
+2. Ajusta el `#include` del encabezado HAL en `SX1262.h` según tu familia STM32:
+   ```c
+   // STM32F1xx:
+   #include "stm32f1xx_hal.h"
+   // STM32F4xx:
+   #include "stm32f4xx_hal.h"
+   ```
+3. Incluye la librería en tu `main.c` o archivo principal:
+   ```c
+   #include "SX1262.h"
+   ```
+4. Configura SPI y GPIOs en CubeMX (ver secciones anteriores).
+5. Genera código y compila.
+
+---
+
+## Uso básico
+
+### 1. Inicialización
+```c
+// En main() después de HAL_Init() y MX_SPIx_Init()
+SX1262_Status_t status = SX1262_Init(
+    &hspi1,                     // Handle SPI
+    GPIOA, GPIO_PIN_4,          // NSS
+    GPIOB, GPIO_PIN_0,          // BUSY
+    GPIOB, GPIO_PIN_1,          // DIO1
+    GPIOB, GPIO_PIN_12          // RST
+);
+
+if (status != SX1262_OK) {
+    Error_Handler();  // Chip no responde
+}
+```
+
+La inicialización aplica automáticamente la configuración por defecto:
+
+| Parámetro | Valor por defecto |
+|-----------|-------------------|
+| Frecuencia | 915 MHz |
+| Spreading Factor | SF7 |
+| Bandwidth | 125 kHz |
+| Coding Rate | CR 4/5 |
+| Potencia TX | +22 dBm |
+| Longitud de preámbulo | 12 |
+| IQ Invertido | No |
+| Red | Privada (SyncWord 0x12) |
+
+### 2. Transmisión simple
+```c
+uint8_t mensaje[] = "Hola LoRa!";
+uint8_t len = sizeof(mensaje) - 1;
+
+SX1262_Status_t status = SX1262_Transmit(mensaje, len);
+if (status == SX1262_OK) {
+    // TX completado
+} else if (status == SX1262_TIMEOUT) {
+    // No se recibió confirmación de TxDone en 5 segundos
+}
+```
+
+### 3. Recepción
+```c
+uint8_t rx_buffer[256];
+uint8_t rx_len = 0;
+
+// Esperar hasta 5 segundos por un paquete
+SX1262_Status_t status = SX1262_Receive(rx_buffer, &rx_len, 5000);
+
+if (status == SX1262_OK) {
+    // rx_buffer[0..rx_len-1] contiene los datos recibidos
+} else if (status == SX1262_TIMEOUT) {
+    // No se recibió ningún paquete en el tiempo indicado
+} else if (status == SX1262_ERROR) {
+    // Error CRC u otro error de recepción
 }
 
+// Recepción continua (bloqueante indefinida, timeout_ms = 0)
+status = SX1262_Receive(rx_buffer, &rx_len, 0);
 ```
+
+### 4. Configuración personalizada
+```c
+lora_config_t mi_config = {
+    .frequency        = 915000000,          // 915 MHz
+    .spreading_factor = 9,                  // SF9
+    .bandwidth        = BW_125_KHZ,
+    .coding_rate      = CR_4_7,
+    .tx_power         = 17,                 // 17 dBm
+    .preamble_len     = 8,
+    .iq_inverted      = false,
+    .network_mode     = LORA_NETWORK_PUBLIC, // LoRaWAN SyncWord 0x34
+    .lora_sync_word   = 0,                  // 0 = usar network_mode
+    .config_pending   = false
+};
+
+SX1262_Status_t status = SX1262_ApplyConfig(&mi_config);
+```
+
+> [!NOTE]
+> La función `SX1262_ApplyConfig()` puede llamarse en cualquier momento después de la inicialización para cambiar los parámetros de modulación sin reiniciar el chip. `SX1262_Transmit()` y `SX1262_Receive()` siempre trabajan con la última configuración aplicada.
+
+
+### 5. Ejemplo de Transmisión y Recepción Completa
+
+![Transmisión y Recepción](/Librerias/SX1262/Images/TransmisionRecepcion.png)
+---
+
+## API Reference
+
+### 1. Tipos de Datos
+
+#### `SX1262_Status_t` - Estados de Retorno
+
+Enumeración que define todos los códigos de retorno posibles para las funciones de la librería, permitiendo una gestión robusta de errores y estados del chip.
+
+```c
+/**
+ * @brief Enumeración para estados de retorno del SX1262.
+ */
+typedef enum {
+	SX1262_OK = 0,				/** Operación exitosa */
+	SX1262_ERROR = 1,			/** Error en la operación */
+	SX1262_TIMEOUT = 2,			/** Timeout en la operación */
+	SX1262_NOT_INITIALIZED = 3	/** Módulo no inicializado */
+}SX1262_Status_t;
+```
+
+#### `lora_config_t` - Configuración de Parámetros LoRa
+
+Estructura que encapsula todos los parámetros configurables para la comunicación LoRa. Se pasa a `SX1262_ApplyConfig()` para aplicar cambios al chip.
+
+```c
+typedef struct {
+	uint32_t frequency;		            // Hz (default: 915000000)
+	uint8_t spreading_factor;	        // 5 to 12 (default: 7)
+	lora_signal_bandwidth_t bandwidth;  // BW_125_KHZ, BW_250_KHZ, BW_500_KHZ...
+	uint8_t coding_rate;                // CR_4_5, CR_4_6, CR_4_7, CR_4_8 (default: CR_4_5)
+	int8_t tx_power;                    // -9 to 22 dBm (default: 20)
+	uint16_t preamble_len;	            // Default: 12
+	bool iq_inverted;	                // IQ inversion (default: false/normal)
+	lora_network_mode_t network_mode;   // Sync word: LORA_NETWORK_PRIVATE / PUBLIC / MESHTASTIC
+	uint8_t lora_sync_word;             // Custom sync word (distinto de 0 tiene prioridad sobre network_mode)
+	bool config_pending;	            // true if changes not yet applied
+} lora_config_t;
+```
+
+**Prioridad del Sync Word:** si `lora_sync_word != 0`, tiene prioridad absoluta sobre `network_mode`.
+
+#### `lora_network_mode_t` - Modos de Red LoRa
+
+Enumeración para seleccionar el modo de red LoRa, que determina el Sync Word utilizado para la comunicación, permitiendo compatibilidad con redes privadas, públicas (LoRaWAN) o Meshtastic.
+
+```c
+/**
+ * @brief Selecciona el modo de red LoRa, que determina el Sync Word enviado al chip.
+ */
+typedef enum {
+    LORA_NETWORK_PRIVATE    = 0,  /**< Sync Word 0x12 — red privada (por defecto LoRa) */
+    LORA_NETWORK_PUBLIC     = 1,  /**< Sync Word 0x34 — red pública (LoRaWAN)          */
+    LORA_NETWORK_MESHTASTIC = 2,  /**< Sync Word 0x2B — compatible con Meshtastic       */
+} lora_network_mode_t;
+```
+
+| Modo | Reg 0x0740 | Reg 0x0741 | Sync Word lógico |
+|------|------------|------------|------------------|
+| `LORA_NETWORK_PRIVATE`    | 0x14 | 0x24 | 0x12 |
+| `LORA_NETWORK_PUBLIC`     | 0x34 | 0x44 | 0x34 |
+| `LORA_NETWORK_MESHTASTIC` | 0x2B | 0xB4 | 0x2B |
+
+#### `lora_signal_bandwidth_t` - Ancho de Banda LoRa
+
+Enumeración para los valores de ancho de banda (Bandwidth) en la modulación LoRa, permitiendo seleccionar entre las opciones estándar de 7.8 kHz a 500 kHz.
+
+```c
+/**
+ * @brief Enumeración para valores de ancho de banda (Bandwidth) en modulación LoRa.
+ */
+typedef enum {
+	BW_7_8_KHZ    = 0x00,
+	BW_10_4_KHZ   = 0x08,
+	BW_15_6_KHZ   = 0x01,
+	BW_20_8_KHZ   = 0x09,
+	BW_31_25_KHZ  = 0x02,
+	BW_41_7_KHZ   = 0x0A,
+	BW_62_5_KHZ   = 0x03,
+	BW_125_KHZ    = 0x04,
+	BW_250_KHZ    = 0x05,
+	BW_500_KHZ    = 0x06
+} lora_signal_bandwidth_t;
+
+```
+
+#### `lora_coding_rate_t` - Coding Rate LoRa
+
+Enumeración para los valores de coding rate en la modulación LoRa, permitiendo seleccionar entre las opciones estándar de 4/5 a 4/8.
+
+```c
+/**
+ * @brief Enumeración para valores de coding rate (CR) en modulación LoRa.
+ */
+typedef enum {
+	CR_4_5 = 0x01,
+	CR_4_6 = 0x02,
+	CR_4_7 = 0x03,
+	CR_4_8 = 0x04
+}lora_coding_rate_t;
+```
+
+---
+
+### 2. Funciones Públicas
+
+#### `SX1262_Init()`- Inicialización del Driver
+
+Inicializa el driver, realiza un reset hardware, despierta el chip y aplica la configuración por defecto. Todas las demás funciones retornan `SX1262_NOT_INITIALIZED` si esta función no se ha llamado exitosamente.
+
+```c
+SX1262_Status_t SX1262_Init(
+	SPI_HandleTypeDef* hspi,
+    GPIO_TypeDef*      nss_port,
+    uint16_t           nss_pin,
+    GPIO_TypeDef*      busy_port,
+    uint16_t           busy_pin,
+    GPIO_TypeDef*      dio_port,
+    uint16_t           dio_pin,
+    GPIO_TypeDef*      rst_port,
+    uint16_t           rst_pin
+);
+```
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `hspi` | `SPI_HandleTypeDef*` | Handle del periférico SPI configurado |
+| `nss_port` | `GPIO_TypeDef*` | Puerto GPIO del pin NSS (Chip Select) |
+| `nss_pin` | `uint16_t` | Pin GPIO para NSS |
+| `busy_port` | `GPIO_TypeDef*` | Puerto GPIO del pin BUSY |
+| `busy_pin` | `uint16_t` | Pin GPIO para BUSY |
+| `dio_port` | `GPIO_TypeDef*` | Puerto GPIO del pin DIO1 (interrupción) |
+| `dio_pin` | `uint16_t` | Pin GPIO para DIO1 |
+| `rst_port` | `GPIO_TypeDef*` | Puerto GPIO del pin RST |
+| `rst_pin` | `uint16_t` | Pin GPIO para RST |
+
+**Retorna:** `SX1262_OK` si la inicialización fue exitosa, `SX1262_ERROR` si algún parámetro es NULL o la comunicación SPI falla.
+
+---
+
+#### `SX1262_Transmit()` - Transmisión de Datos
+
+Transmite un buffer de datos por LoRa. La función es bloqueante: espera a que DIO1 suba indicando `TxDone`, con un timeout de software de 5 segundos.
+
+```c
+SX1262_Status_t SX1262_Transmit(uint8_t* data, uint8_t length);
+```
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `data` | `uint8_t*` | Puntero al buffer de datos a transmitir |
+| `length` | `uint8_t` | Longitud de los datos (máximo 255 bytes) |
+
+**Retorna:** `SX1262_OK` si TxDone fue confirmado, `SX1262_TIMEOUT` si no hubo respuesta en 5 s, `SX1262_ERROR` en caso de fallo SPI, `SX1262_NOT_INITIALIZED` si el módulo no fue inicializado.
+
+**Secuencia interna:**
+1. Standby RC → configura base address del buffer (TX=0x00, RX=0x00).
+2. Escribe el payload al buffer interno del chip.
+3. Actualiza `SET_PACKET_PARAMS` con la longitud real del payload.
+4. Limpia IRQ, habilita `TxDone | Timeout` en DIO1.
+5. Inicia TX con `SET_TX` (timeout de chip = 0, desactivado).
+6. Polling en DIO1 hasta evento o timeout software de 5 s.
+7. Lee y limpia el registro IRQ.
+
+---
+
+#### `SX1262_Receive()` - Recepción de Datos
+
+Pone el chip en modo recepción y espera un paquete válido. Bloqueante con timeout configurable.
+
+```c
+SX1262_Status_t SX1262_Receive(uint8_t* data, uint8_t* length, uint32_t timeout_ms);
+```
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `data` | `uint8_t*` | Buffer donde se almacenarán los datos recibidos |
+| `length` | `uint8_t*` | Puntero donde se escribirá la longitud del paquete recibido |
+| `timeout_ms` | `uint32_t` | Tiempo máximo de espera en ms. `0` = espera indefinida |
+
+**Retorna:** `SX1262_OK` si se recibió un paquete válido, `SX1262_TIMEOUT` si expiró el tiempo, `SX1262_ERROR` si hubo error CRC o fallo de IRQ, `SX1262_NOT_INITIALIZED` si el módulo no fue inicializado.
+
+**Conversión de timeout:** el timeout interno del chip trabaja en ticks de 15.625 µs. La librería convierte automáticamente: `ticks = timeout_ms * 64`. Si `timeout_ms = 0`, se usa `0xFFFFFF` (modo continuo).
+
+**Secuencia interna:**
+1. Standby RC → limpia IRQ.
+2. Habilita `RxDone | Timeout | CRC_ERR` en DIO1.
+3. Inicia RX con `SET_RX` y el timeout calculado.
+4. Polling en DIO1 con un soft-timeout adicional de `timeout_ms + 100 ms`.
+5. Lee registro IRQ: verifica `RxDone` y ausencia de `Timeout` y `CRC_ERR`.
+6. Lee `GET_RX_BUFFER_STATUS` para obtener tamaño y offset del paquete.
+7. Lee el payload del buffer interno con `READ_BUFFER`.
+8. Limpia IRQ.
+
+---
+
+#### `SX1262_ApplyConfig()` - Aplicar Configuración LoRa
+
+Aplica una nueva configuración de modulación y red al chip. Puede llamarse en cualquier momento después de `SX1262_Init()`. No reinicia el chip: solo pone el módulo en Standby RC y reconfigura los registros necesarios.
+
+```c
+SX1262_Status_t SX1262_ApplyConfig(lora_config_t *config);
+```
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `config` | `lora_config_t*` | Puntero a la estructura de configuración |
+
+**Retorna:** `SX1262_OK` si todos los parámetros fueron escritos correctamente, `SX1262_ERROR` si falla alguna escritura SPI o `config` es NULL, `SX1262_NOT_INITIALIZED` si el módulo no fue inicializado.
+
+**Parámetros aplicados en orden:**
+1. Frecuencia RF (conversión entera 64-bit sin punto flotante).
+2. PA Config + TX Params (potencia y rampa de 40 µs).
+3. Modulation Params: SF, BW, CR y LDRO calculado automáticamente.
+4. Sync Word (registros 0x0740–0x0741).
+5. Packet Params: preámbulo, header explícito, longitud dummy, CRC on, IQ.
+
+---
+
+## Licencia
+Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](/LICENSE.md) para más detalles.
+
+---
+
+## Changelog
+
+### Versión 1.0.0 (2026-03-28)
+- Versión inicial de la librería SX1262 para STM32.
+- Implementación de funciones básicas para inicialización, transmisión y recepción de datos.
+- Cálculo automático de LDRO según SF y BW.
+- Soporte de sync word por modo de red (privado, público LoRaWAN, Meshtastic) y valor personalizado.
+- Prevención del flag OVR mediante `HAL_SPI_TransmitReceive` en lecturas SPI.
+- Configuración automática de DIO2 como RF Switch.
+- Sistema de gestión de errores con códigos de retorno específicos.
+- Documentación completa con ejemplos de uso y diagramas de flujo.

@@ -5,8 +5,8 @@
  * Esta librería permite inicializar y controlar
  * 
  * @author Daniel Ruiz
- * @date March 16, 2026
- * @version 1.0
+ * @date March 28, 2026
+ * @version 1.0.0
  */
 
 #include "SX1262.h"
@@ -30,6 +30,11 @@ static lora_config_t        SX1262_CurrentConfig;               /**< Configuraci
 // ============================================================================
 // FUNCIONES PRIVADAS - ABSTRACCIÓN SPI
 // ============================================================================
+/**
+ * @brief Espera a que el pin BUSY del SX1262 se libere, indicando que el módulo está listo para la siguiente operación.
+ * 
+ * @return SX1262_Status_t 
+ */
 static SX1262_Status_t SX1262_WaitBusy(void)
 {
     uint32_t tickstart = HAL_GetTick();
@@ -43,6 +48,14 @@ static SX1262_Status_t SX1262_WaitBusy(void)
     return SX1262_OK;
 }
 
+/**
+ * @brief Escribe un comando al SX1262 a través de SPI, manejando la señal NSS y el pin BUSY.
+ * 
+ * @param cmd Comando a enviar
+ * @param buffer Puntero a los datos asociados al comando (puede ser NULL si no se requieren datos)
+ * @param size Tamaño de los datos a enviar (0 si no se requieren datos)
+ * @return SX1262_Status_t 
+ */
 static SX1262_Status_t SX1262_WriteCommand(uint8_t cmd, uint8_t* buffer, uint16_t size)
 {
     if (SX1262_WaitBusy() != SX1262_OK) return SX1262_TIMEOUT;
@@ -66,6 +79,14 @@ static SX1262_Status_t SX1262_WriteCommand(uint8_t cmd, uint8_t* buffer, uint16_
     return SX1262_OK;
 }
 
+/**
+ * @brief Lee datos del SX1262 a través de SPI, manejando la señal NSS y el pin BUSY.
+ * 
+ * @param cmd Comando de lectura a enviar
+ * @param buffer Puntero al buffer donde se almacenarán los datos leídos
+ * @param size Tamaño de los datos a leer
+ * @return SX1262_Status_t 
+ */
 static SX1262_Status_t SX1262_ReadCommand(uint8_t cmd, uint8_t* buffer, uint16_t size)
 {
     if (SX1262_WaitBusy() != SX1262_OK) return SX1262_TIMEOUT;
@@ -101,6 +122,14 @@ static SX1262_Status_t SX1262_ReadCommand(uint8_t cmd, uint8_t* buffer, uint16_t
     return SX1262_OK;
 }
 
+/**
+ * @brief Escribe datos en el buffer interno del SX1262 a través de SPI, manejando la señal NSS y el pin BUSY.
+ * 
+ * @param offset Offset dentro del buffer interno del SX1262 donde se escribirán los datos
+ * @param data Puntero al buffer de datos a escribir
+ * @param length Longitud de los datos a escribir (máximo 255 bytes) 
+ * @return SX1262_Status_t 
+ */
 static SX1262_Status_t SX1262_WriteBuffer(uint8_t offset, uint8_t* data, uint8_t length)
 {
     if (SX1262_WaitBusy() != SX1262_OK) return SX1262_TIMEOUT;
@@ -122,6 +151,14 @@ static SX1262_Status_t SX1262_WriteBuffer(uint8_t offset, uint8_t* data, uint8_t
     return SX1262_OK;
 }
 
+/**
+ * @brief Lee datos del buffer interno del SX1262 a través de SPI, manejando la señal NSS y el pin BUSY.
+ * 
+ * @param offset Offset dentro del buffer interno del SX1262 desde donde se leerán los datos
+ * @param data Puntero al buffer donde se almacenarán los datos leídos
+ * @param length Longitud de los datos a leer (máximo 255 bytes)
+ * @return SX1262_Status_t 
+ */
 static SX1262_Status_t SX1262_ReadBuffer(uint8_t offset, uint8_t* data, uint8_t length)
 {
     if (SX1262_WaitBusy() != SX1262_OK) return SX1262_TIMEOUT;
@@ -149,6 +186,9 @@ static SX1262_Status_t SX1262_ReadBuffer(uint8_t offset, uint8_t* data, uint8_t 
     return SX1262_OK;
 }
 
+/**
+ * @brief Realiza un reset hardware del SX1262 utilizando el pin RST, siguiendo la secuencia recomendada por el datasheet.
+ */
 static void SX1262_Reset(void)
 {
     HAL_GPIO_WritePin(RST_GPIO_Port, RST_GPIO_Pin, GPIO_PIN_RESET);
@@ -172,18 +212,70 @@ static SX1262_Status_t SX1262_Wakeup(void)
     return SX1262_WaitBusy();
 }
 
+/**
+ * @brief Convierte el valor de ancho de banda (BW) del enum a su equivalente en Hz, necesario para cálculos internos como LDRO.
+ * 
+ * @param bw Ancho de banda representado por el enum lora_signal_bandwidth_t
+ * @return uint32_t 
+ */
+static uint32_t SX1262_BandwidthToHz(lora_signal_bandwidth_t bw)
+{
+    switch (bw)
+    {
+        case BW_7_8_KHZ:   return 7800UL;
+        case BW_10_4_KHZ:  return 10400UL;
+        case BW_15_6_KHZ:  return 15600UL;
+        case BW_20_8_KHZ:  return 20800UL;
+        case BW_31_25_KHZ: return 31250UL;
+        case BW_41_7_KHZ:  return 41700UL;
+        case BW_62_5_KHZ:  return 62500UL;
+        case BW_125_KHZ:   return 125000UL;
+        case BW_250_KHZ:   return 250000UL;
+        case BW_500_KHZ:   return 500000UL;
+        default:           return 0UL;
+    }
+}
+
+/**
+ * @brief Calcula si se debe activar LowDataRateOptimize (LDRO).
+ *        El datasheet exige LDRO cuando el tiempo de símbolo >= 16.38 ms
+ *        (datasheet SX1262, sección 6.1.1.4).
+ *        Fórmula: T_sym_us = (2^SF * 1000000) / BW_Hz
+ *        Se usa aritmética de 64 bits para evitar desbordamiento con SF12/BW bajo.
+ *
+ * @param sf   Spreading Factor (5–12)
+ * @param bw   Bandwidth enum
+ * @return     1 si LDRO debe activarse, 0 en caso contrario
+ */
+static uint8_t SX1262_ComputeLDRO(uint8_t sf, lora_signal_bandwidth_t bw)
+{
+    uint32_t bw_hz = SX1262_BandwidthToHz(bw);
+    if (bw_hz == 0) return 0; // BW desconocido, no activar LDRO
+
+    // T_sym_us = (1 << SF) * 1_000_000 / BW_Hz
+    // Umbral: 16380 us  (≈ 16.38 ms, según datasheet)
+    uint64_t t_sym_us = ((uint64_t)1 << sf) * 1000000ULL / (uint64_t)bw_hz;
+
+    return (t_sym_us >= 16380) ? 1U : 0U;
+}
+
 // ============================================================================
 // FUNCIONES PÚBLICAS
 // ============================================================================
 
 /**
- * @brief Inicializa el módulo LoRa.
+ * @brief Inicializa el módulo SX1262 con la configuración de pines y parámetros por defecto.
  * 
- * @param hspi Puntero al manejador de la interfaz SPI utilizada para comunicarse con el módulo.
- * @param GPIOx Puerto GPIO del pin CS del SX1262.
- * @param GPIO_PIN Pin GPIO del pin CS del SX1262.
- * 
- * @return SX1262_Status_t Estado de la operación
+ * @param hspi Puntero al handle del SPI utilizado para comunicarse con el SX1262.
+ * @param nss_port Puerto GPIO del pin NSS (Chip Select).
+ * @param nss_pin Número de pin GPIO para NSS.
+ * @param busy_port Puerto GPIO del pin BUSY.
+ * @param busy_pin Número de pin GPIO para BUSY.
+ * @param dio_port Puerto GPIO del pin DIO1 (interrupción).
+ * @param dio_pin Número de pin GPIO para DIO1.
+ * @param rst_port Puerto GPIO del pin RST (Reset).
+ * @param rst_pin Número de pin GPIO para RST.
+ * @return SX1262_Status_t Estado de la inicialización (OK, ERROR, etc.)
  */
 SX1262_Status_t SX1262_Init(
 	SPI_HandleTypeDef* hspi,
@@ -384,9 +476,9 @@ SX1262_Status_t SX1262_Transmit(uint8_t* data, uint8_t length)
 /**
  * @brief Recibe datos a través del módulo SX1262
  * 
- * @param data 
- * @param length 
- * @param timeout_ms 
+ * @param data Puntero al buffer donde se almacenarán los datos recibidos
+ * @param length Puntero a una variable donde se almacenará la longitud de los datos recibidos
+ * @param timeout_ms Tiempo máximo de espera para recibir datos (en milisegundos). Si es 0, espera indefinidamente.
  * @return SX1262_Status_t 
  */
 SX1262_Status_t SX1262_Receive(uint8_t* data, uint8_t* length, uint32_t timeout_ms)
@@ -488,51 +580,6 @@ SX1262_Status_t SX1262_Receive(uint8_t* data, uint8_t* length, uint32_t timeout_
     }
 
     return SX1262_OK;
-}
-
-/**
- * @brief Convierte el enum lora_signal_bandwidth_t a su valor en Hz.
- *        Retorna 0 si el valor no es reconocido.
- */
-static uint32_t SX1262_BandwidthToHz(lora_signal_bandwidth_t bw)
-{
-    switch (bw)
-    {
-        case BW_7_8_KHZ:   return 7800UL;
-        case BW_10_4_KHZ:  return 10400UL;
-        case BW_15_6_KHZ:  return 15600UL;
-        case BW_20_8_KHZ:  return 20800UL;
-        case BW_31_25_KHZ: return 31250UL;
-        case BW_41_7_KHZ:  return 41700UL;
-        case BW_62_5_KHZ:  return 62500UL;
-        case BW_125_KHZ:   return 125000UL;
-        case BW_250_KHZ:   return 250000UL;
-        case BW_500_KHZ:   return 500000UL;
-        default:           return 0UL;
-    }
-}
-
-/**
- * @brief Calcula si se debe activar LowDataRateOptimize (LDRO).
- *        El datasheet exige LDRO cuando el tiempo de símbolo >= 16.38 ms
- *        (datasheet SX1262, sección 6.1.1.4).
- *        Fórmula: T_sym_us = (2^SF * 1000000) / BW_Hz
- *        Se usa aritmética de 64 bits para evitar desbordamiento con SF12/BW bajo.
- *
- * @param sf   Spreading Factor (5–12)
- * @param bw   Bandwidth enum
- * @return     1 si LDRO debe activarse, 0 en caso contrario
- */
-static uint8_t SX1262_ComputeLDRO(uint8_t sf, lora_signal_bandwidth_t bw)
-{
-    uint32_t bw_hz = SX1262_BandwidthToHz(bw);
-    if (bw_hz == 0) return 0; // BW desconocido, no activar LDRO
-
-    // T_sym_us = (1 << SF) * 1_000_000 / BW_Hz
-    // Umbral: 16380 us  (≈ 16.38 ms, según datasheet)
-    uint64_t t_sym_us = ((uint64_t)1 << sf) * 1000000ULL / (uint64_t)bw_hz;
-
-    return (t_sym_us >= 16380) ? 1U : 0U;
 }
 
 /**
