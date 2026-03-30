@@ -77,9 +77,37 @@ int main(void)
 
 ---
 
-## Autor
-- **Daniel Ruiz**
-- **Fecha:** Diciembre 28, 2024
-- **Versión:** 1.0
+## Changelog
+
+Todos los cambios notables de esta librería se documentan en esta sección.
+El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ---
+
+### [1.2.0] - 22-09-2025
+
+#### Added
+- Manejador de la interfaz I2C como parámetro en `SI7021_Init()`.
+
+#### Fixed
+- Corrección de errores menores en la documentación.
+
+---
+
+### [1.1.0] - 13-01-2025
+
+#### Changed
+- Cambio a uso de mayúsculas para funciones públicas (`si7021_init` a `SI7021_Init`, `get_si7021` a `SI7021_Get`).
+
+---
+
+### [1.0.0] - 28-12-2024
+
+#### Added
+- Librería inicial para comunicación con sensor SI7021 mediante I2C.
+- Función `si7021_init()` con reset por hardware.
+- Función `get_si7021()` para lectura de temperatura (°C) y humedad relativa (%HR).
+- Conversión de datos crudos según fórmulas del datasheet.
+- Soporte para STM32 HAL Library.
+- Archivos `si7021.h` y `si7021.c`.
+- Documentación completa y ejemplo de uso.

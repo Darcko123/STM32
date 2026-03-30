@@ -5,7 +5,7 @@
  *
  * @author Daniel Ruiz
  * @date Dec 28, 2024
- * @version 1.0
+ * @version 1.2.0
  */
 
 #include "SI7021.h"
