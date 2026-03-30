@@ -4,8 +4,8 @@
  * @brief Librería para la gestión del módulo RTC DS3231 mediante comunicación I2C.
  *
  * @author Daniel Ruiz
- * @date Jan 4, 2025
- * @version 1.0
+ * @date Sep 22, 2025
+ * @version 1.1.0
  */
 
 #ifndef RTC_H_

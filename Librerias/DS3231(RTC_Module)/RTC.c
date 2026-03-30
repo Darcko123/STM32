@@ -4,8 +4,8 @@
  * @brief Implementación de la librería para el módulo RTC DS3231 utilizando I2C en STM32.
  *
  * @author Daniel Ruiz
- * @date Jan 4, 2025
- * @version 1.0
+ * @date Sep 22, 2025
+ * @version 1.1.0
  */
 
 #include "RTC.h"

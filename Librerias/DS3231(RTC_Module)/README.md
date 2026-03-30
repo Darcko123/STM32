@@ -92,6 +92,33 @@ RTC_GetAlarm2(&alarma2);
 - STM32 HAL Library
 - Comunicación I2C habilitada
 
-## Autor
-- **Daniel Ruiz**
-- **daniel18052002@yahoo.com**
+---
+
+## Changelog
+
+Todos los cambios notables de esta librería se documentan en esta sección.
+El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
+
+---
+
+### [1.1.0] - 22-09-2025
+
+#### Added
+- Manejador de la interfaz I2C como parámetro en las funciones de inicialización y lectura.
+- Soporte para múltiples instancias del RTC mediante el paso del handle I2C.
+
+#### Changed
+- Modificación de las funciones públicas para recibir el handle I2C como argumento.
+
+---
+
+### [1.0.0] - 07-01-2025
+
+#### Added
+- Versión inicial con funciones básicas de inicialización, lectura y escritura de datos.
+- Soporte para configuración de hora y fecha mediante `RTC_SetTime()`.
+- Soporte para lectura de hora y fecha mediante `RTC_GetTime()`.
+- Configuración y lectura de Alarma 1 (`RTC_SetAlarm1()`, `RTC_GetAlarm1()`).
+- Configuración y lectura de Alarma 2 (`RTC_SetAlarm2()`, `RTC_GetAlarm2()`).
+- Estructuras `TIME`, `ALARM1` y `ALARM2` para almacenamiento de datos.
+- Conversión automática entre formato BCD y decimal.
