@@ -8,32 +8,33 @@
 
 ## Tabla de Contenidos
 - [DHT11 Library](#dht11-library)
-  - [Tabla de Contenidos](#tabla-de-contenidos)
-  - [Descripción](#descripción)
-  - [Características](#características)
-  - [Requisitos](#requisitos)
-  - [Datos del Sensor](#datos-del-sensor)
-    - [Rangos operativos](#rangos-operativos)
-    - [Funcionamiento del Protocolo](#funcionamiento-del-protocolo)
-      - [Secuencia de Inicialización](#secuencia-de-inicialización)
-      - [Transmisión de Datos y Formato de Trama](#transmisión-de-datos-y-formato-de-trama)
-      - [Secuencia de Comunicación](#secuencia-de-comunicación)
-  - [Ejemplo de Implementación](#ejemplo-de-implementación)
-    - [1. Configuración del Timer para Temporización Precisa](#1-configuración-del-timer-para-temporización-precisa)
-      - [Ejemplo para `STM32F411` a `100MHz`](#ejemplo-para-stm32f411-a-100mhz)
-    - [2. Configuración del Pin de Datos GPIO](#2-configuración-del-pin-de-datos-gpio)
-    - [Declaración e Inicialización del Driver](#declaración-e-inicialización-del-driver)
-    - [Ejemplo completo de uso](#ejemplo-completo-de-uso)
-  - [API Reference](#api-reference)
-    - [1. Tipos de Datos](#1-tipos-de-datos)
-      - [`DHT11_Status_t` - Estados de Retorno](#dht11_status_t---estados-de-retorno)
-      - [`DHT11_Handles_t` - Estructura de Mediciones](#dht11_handles_t---estructura-de-mediciones)
-    - [2. Funciones del Driver](#2-funciones-del-driver)
-      - [`DHT11_Init()` - Inicialización del Driver](#dht11_init---inicialización-del-driver)
-      - [`DHT11_Read_Data()` - Lectura de Mediciones](#dht11_read_data---lectura-de-mediciones)
-  - [📄 Licencia](#-licencia)
-  - [Changelog](#changelog)
-    - [Versión 1.0.0](#versión-100)
+	- [Tabla de Contenidos](#tabla-de-contenidos)
+	- [Descripción](#descripción)
+	- [Características](#características)
+	- [Requisitos](#requisitos)
+	- [Datos del Sensor](#datos-del-sensor)
+		- [Rangos operativos](#rangos-operativos)
+		- [Funcionamiento del Protocolo](#funcionamiento-del-protocolo)
+			- [Secuencia de Inicialización](#secuencia-de-inicialización)
+			- [Transmisión de Datos y Formato de Trama](#transmisión-de-datos-y-formato-de-trama)
+			- [Secuencia de Comunicación](#secuencia-de-comunicación)
+	- [Ejemplo de Implementación](#ejemplo-de-implementación)
+		- [1. Configuración del Timer para Temporización Precisa](#1-configuración-del-timer-para-temporización-precisa)
+			- [Ejemplo para `STM32F411` a `100MHz`](#ejemplo-para-stm32f411-a-100mhz)
+		- [2. Configuración del Pin de Datos GPIO](#2-configuración-del-pin-de-datos-gpio)
+		- [Declaración e Inicialización del Driver](#declaración-e-inicialización-del-driver)
+		- [Ejemplo completo de uso](#ejemplo-completo-de-uso)
+	- [API Reference](#api-reference)
+		- [1. Tipos de Datos](#1-tipos-de-datos)
+			- [`DHT11_Status_t` - Estados de Retorno](#dht11_status_t---estados-de-retorno)
+			- [`DHT11_Handles_t` - Estructura de Mediciones](#dht11_handles_t---estructura-de-mediciones)
+		- [2. Funciones del Driver](#2-funciones-del-driver)
+			- [`DHT11_Init()` - Inicialización del Driver](#dht11_init---inicialización-del-driver)
+			- [`DHT11_Read_Data()` - Lectura de Mediciones](#dht11_read_data---lectura-de-mediciones)
+	- [📄 Licencia](#-licencia)
+	- [Changelog](#changelog)
+		- [\[1.0.0\] - 21-01-2026](#100---21-01-2026)
+			- [Added](#added)
 
 ## Descripción
 Librería desarrollada en C para la interfaz con el sensor **DHT11** mediante comunicación digital de un solo cable (*single-wire*), implementando temporización precisa mediante Timers de hardware. Este driver permite monitorear las condiciones ambientales obteniendo mediciones de temperatura y humedad relativa en sistemas embebidos basados en microcontroladores STM32.
@@ -490,8 +491,20 @@ Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](/LICENSE
 
 ## Changelog
 
-### Versión 1.0.0
+Todos los cambios notables de esta librería se documentan en esta sección.
+El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
+
+---
+
+### [1.0.0] - 21-01-2026
+
+#### Added
 - Versión inicial de la librería DHT11 para STM32.
-- Implementación de funciones básicas para inicialización y lectura de datos.
-- Sistema de gestión de errores.
-- Documentación completa con ejemplos de uso.
+- Comunicación single-wire con temporización precisa mediante Timers de hardware.
+- Funciones públicas: `DHT11_Init()` y `DHT11_Read_Data()`.
+- Sistema de gestión de errores con tipo `DHT11_Status_t` (OK, ERROR, TIMEOUT,
+  CHECKSUM_ERROR, NOT_INITIALIZED).
+- Verificación de integridad de datos mediante checksum de 8 bits.
+- Estructura `DHT11_Handles_t` para almacenamiento de temperatura y humedad.
+- Documentación completa con comentarios Doxygen, ejemplos de uso y diagramas
+  de señal del protocolo.
