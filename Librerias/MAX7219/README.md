@@ -28,9 +28,14 @@
   - [Notas](#notas)
   - [📄 Licencia](#-licencia)
   - [Changelog](#changelog)
-    - [Versión 2.0.0](#versión-200)
-    - [Versión 1.1.0](#versión-110)
-    - [Versión 1.0.0](#versión-100)
+    - [\[2.0.0\] - 03-02-2026](#200---03-02-2026)
+      - [Added](#added)
+      - [Changed](#changed)
+      - [Removed](#removed)
+    - [\[1.1.0\] - 10-10-2025](#110---10-10-2025)
+      - [Changed](#changed-1)
+    - [\[1.0.0\] - 06-02-2025](#100---06-02-2025)
+      - [Added](#added-1)
 
 ## Descripción
 Esta librería permite controlar una matriz de LEDs mediante el controlador **MAX7219** utilizando comunicación **SPI** en un microcontrolador STM32. La implementación permite visualizar caracteres, desplazarlos y manipular la matriz de LEDs de manera eficiente.
@@ -238,24 +243,41 @@ Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](/LICENSE
 
 ## Changelog
 
-### Versión 2.0.0
-- Implementación completa de sistema de gestión de errores con tipo MAX7219_Status_t
-- Validación exhaustiva de parámetros en todas las funciones públicas
-- Conversión de funciones críticas a privadas (`max7219_cmd`, `max7219_write`, `flushBuffer`, `ShiftLeft`, `ShiftRight`, `shiftchar`)
-- Diferenciación entre errores generales, timeouts SPI y módulo no inicializado
-- Mejora en la función de inicialización para recibir parámetros de GPIO del pin CS
-- Implementación de bandera de verificación de inicialización del módulo
-- Control de punteros NULL en todas las funciones públicas
-- Cambio de nombres de funciones para seguir convención de nomenclatura consistente
-- Documentación mejorada con comentarios Doxygen completos
+Todos los cambios notables de esta librería se documentan en esta sección.
+El formato está basado en [Keep a Changelog](https://keepachangelog.com/es/1.0.0/).
 
-### Versión 1.1.0
-- Parametrización del puerto SPI en la función de inicialización
+---
 
-### Versión 1.0.0
-- Versión inicial con control básico de matriz de LEDs usando MAX7219
-- Soporte para múltiples dispositivos en cascada
-- Funciones de desplazamiento de texto (scroll) y visualización estática
-- Conjunto completo de fuentes de caracteres 8x8
-- Gestión de buffer de columnas para actualizaciones eficientes
-- Configuración básica de SPI para comunicación con MAX7219
+### [2.0.0] - 03-02-2026
+
+#### Added
+- Sistema de gestión de errores con tipo `MAX7219_Status_t` (OK, ERROR, TIMEOUT, NOT_INITIALIZED).
+- Validación de punteros NULL en todas las funciones públicas.
+- Bandera interna de verificación de inicialización del módulo.
+- Documentación completa con comentarios Doxygen en todas las funciones.
+
+#### Changed
+- `MAX7219_Init()` ahora recibe parámetros de GPIO para el pin CS.
+- Nombres de funciones actualizados para seguir convención de nomenclatura consistente.
+
+#### Removed
+- Funciones `max7219_cmd`, `max7219_write`, `flushBuffer`, `ShiftLeft`, `ShiftRight` y
+  `shiftchar` movidas a privadas (ya no forman parte de la API pública).
+
+---
+
+### [1.1.0] - 10-10-2025
+
+#### Changed
+- `MAX7219_Init()` parametrizado para recibir el puerto SPI como argumento.
+
+---
+
+### [1.0.0] - 06-02-2025
+
+#### Added
+- Control básico de matriz de LEDs mediante MAX7219 vía SPI.
+- Soporte para múltiples dispositivos en cascada (`NUM_DEV`).
+- Funciones `MAX7219_ScrollString()` y `MAX7219_PrintString()`.
+- Conjunto completo de fuentes de caracteres 8×8.
+- Gestión de buffer de columnas para actualizaciones eficientes.
