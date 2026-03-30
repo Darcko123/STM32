@@ -37,7 +37,8 @@
       - [`SX1262_ApplyConfig()` - Aplicar Configuración LoRa](#sx1262_applyconfig---aplicar-configuración-lora)
   - [Licencia](#licencia)
   - [Changelog](#changelog)
-    - [Versión 1.0.0 (2026-03-28)](#versión-100-2026-03-28)
+    - [\[1.0.0\] - 02-03-2026](#100---02-03-2026)
+      - [Added](#added)
 
 ## Descripción
 Librería desarrollada en C para la interfaz con el módulo transceptor LoRa **Semtech SX1262** utilizando microcontroladores STM32. Proporciona funciones para configurar parámetros de comunicación, transmitir y recibir datos, y manejar eventos de interrupción. La librería está diseñada para ser fácil de usar, eficiente y compatible con la mayoría de las series STM32 (F1, F4, etc.) utilizando HAL. Soporta configuraciones avanzadas de LoRa como Spreading Factor, Bandwidth, Coding Rate y potencia de transmisión. Ideal para proyectos de IoT, sensores remotos y redes de baja potencia.
@@ -425,12 +426,17 @@ Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](/LICENSE
 
 ## Changelog
 
-### Versión 1.0.0 (2026-03-28)
+Todos los cambios notables de esta librería se documentan en esta sección.
+El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
+
+### [1.0.0] - 02-03-2026
+
+#### Added
 - Versión inicial de la librería SX1262 para STM32.
-- Implementación de funciones básicas para inicialización, transmisión y recepción de datos.
-- Cálculo automático de LDRO según SF y BW.
-- Soporte de sync word por modo de red (privado, público LoRaWAN, Meshtastic) y valor personalizado.
+- Funciones públicas: `SX1262_Init()`, `SX1262_Transmit()`, `SX1262_Receive()` y `SX1262_ApplyConfig()`.
+- Cálculo automático de LDRO según SF y BW (sección 6.1.1.4 del datasheet).
+- Soporte de SyncWord por modo de red: privado (0x12), público LoRaWAN (0x34) y Meshtastic (0x2B), con valor personalizado.
+- Configuración automática de DIO2 como RF Switch (`SET_DIO2_AS_RF_SWITCH_CTRL`).
+- Sistema de gestión de errores con códigos de retorno específicos (`SX1262_Status_t`).
 - Prevención del flag OVR mediante `HAL_SPI_TransmitReceive` en lecturas SPI.
-- Configuración automática de DIO2 como RF Switch.
-- Sistema de gestión de errores con códigos de retorno específicos.
-- Documentación completa con ejemplos de uso y diagramas de flujo.
+- Documentación completa con comentarios Doxygen, ejemplos de uso y tabla de pinout.
