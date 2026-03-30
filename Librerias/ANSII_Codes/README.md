@@ -19,7 +19,8 @@
   - [Ejemplos en Proyectos](#ejemplos-en-proyectos)
   - [Licencia](#licencia)
   - [Changelog](#changelog)
-    - [Versión 1.0.0](#versión-100)
+    - [\[1.0.0\] - 24-03-2026](#100---24-03-2026)
+      - [Added](#added)
 
 ---
 
@@ -117,6 +118,8 @@ Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](/LICENSE
 
 ## Changelog
 
-### Versión 1.0.0
+### [1.0.0] - 24-03-2026
+
+#### Added
 - Versión inicial de la librería ANSSI_Codes para STM32.
 - Documentación básica con ejemplos de uso.
