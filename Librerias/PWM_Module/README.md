@@ -31,9 +31,14 @@
   - [Pruebas](#pruebas)
   - [📄 Licencia](#-licencia)
   - [Changelog](#changelog)
-    - [Version 1.2.0](#version-120)
-    - [Version 1.1.0](#version-110)
-    - [Version 1.0.0](#version-100)
+    - [\[1.2.0\] - 13-01-2026](#120---13-01-2026)
+      - [Added](#added)
+      - [Changed](#changed)
+      - [Fixed](#fixed)
+    - [\[1.1.0\] - 21-12-2025](#110---21-12-2025)
+      - [Added](#added-1)
+    - [\[1.0.0\] - 7-01-2025](#100---7-01-2025)
+      - [Added](#added-2)
 
 ## Descripción
 Librería desarrollada en C para el control del módulo **PCA9685** mediante la interfaz **I2C**, utilizando microcontroladores **STM32** con funciones HAL. Este controlador permite generar hasta **16 canales PWM independientes** con resolución de 12 bits, ideal para aplicaciones como servomotores, control de brillo LED, robótica, entre otros.
@@ -358,20 +363,43 @@ Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](/LICENSE
 
 ## Changelog
 
-### Version 1.2.0
-- Sistema completo de gestión de errores con tipo PCA9685_Status_t
-- Validación exhaustiva de parámetros en todas las funciones
+Todos los cambios notables de esta librería se documentan en esta sección.
+El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
+
+---
+
+### [1.2.0] - 13-01-2026
+
+#### Added
+- Sistema completo de gestión de errores con tipo `PCA9685_Status_t`.
+- Validación exhaustiva de parámetros en todas las funciones públicas.
+- Control de punteros NULL en todas las funciones públicas.
+- Verificación de inicialización previa del módulo.
+- Diferenciación entre errores generales y timeouts I2C.
+
+#### Changed
 - Funciones `PCA9685_SetBit` y `PCA9685_SetPWMFrequency` convertidas a privadas.
-- Diferenciación entre errores generales y timeouts I2C
-- Verificación de inicialización previa del módulo
-- Control de punteros NULL en todas las funciones públicas
-- Corrección de bugs menores en funciones de movimiento suave
 
-### Version 1.1.0
-- Añadidas funciones de movimiento suave con interpolación
-- Implementación de control no bloqueante para múltiples servos
-- Función bloqueante `PCA9685_SmoothMove()` para movimientos simples
-- Documentación mejorada con ejemplos avanzados
+#### Fixed
+- Corrección de bugs menores en funciones de movimiento suave.
 
-### Version 1.0.0
-- Versión inicial con control básico de PWM y servomotores
+---
+
+### [1.1.0] - 21-12-2025
+
+#### Added
+- Funciones de movimiento suave con interpolación lineal.
+- Control no bloqueante para múltiples servos simultáneos mediante `Servo_Smooth_t`.
+- Función bloqueante `PCA9685_SmoothMove()` para movimientos simples.
+- Documentación mejorada con ejemplos avanzados de uso.
+
+---
+
+### [1.0.0] - 7-01-2025
+
+#### Added
+- Versión inicial con control básico de PWM y servomotores.
+- Comunicación I2C con STM32 HAL.
+- Control de hasta 16 canales PWM independientes con resolución de 12 bits.
+- Frecuencia PWM configurable de 24 Hz a 1526 Hz.
+- Función `PCA9685_SetServoAngle()` para control de ángulo (0° - 180°).
