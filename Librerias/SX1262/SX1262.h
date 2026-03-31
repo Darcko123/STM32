@@ -5,8 +5,8 @@
  * Esta librería permite inicializar y controlar
  * 
  * @author Daniel Ruiz
- * @date March 28, 2026
- * @version 1.0.0
+ * @date March 30, 2026
+ * @version 1.0.1
  */
 
 #ifndef SX1262_H
@@ -90,11 +90,16 @@ typedef enum {
 /**
  * @brief Selecciona el modo de red LoRa, que determina el Sync Word enviado al chip.
  *
- * | Modo                  | Registro 0x0740 | Registro 0x0741 | Sync Word lógico |
- * |-----------------------|-----------------|-----------------|------------------|
- * | LORA_NETWORK_PRIVATE  |      0x14       |      0x24       |      0x12        |
- * | LORA_NETWORK_PUBLIC   |      0x34       |      0x44       |      0x34        |
- * | LORA_NETWORK_MESHTASTIC|     0x2B       |      0x34       |      0x2B        |
+ * | Modo                   | Registro 0x0740 | Registro 0x0741 | Sync Word lógico |
+ * |------------------------|-----------------|-----------------|------------------|
+ * | LORA_NETWORK_PRIVATE   |      0x14       |      0x24       |      0x12        |
+ * | LORA_NETWORK_PUBLIC    |      0x34       |      0x44       |      0x34        |
+ * | LORA_NETWORK_MESHTASTIC|      0x2B       |      0xB4       |      0x2B        |
+ *
+ * Nota: los valores de registro se calculan con la fórmula de Semtech:
+ *   reg[0x0740] = (SW & 0xF0) | 0x04
+ *   reg[0x0741] = (SW << 4)   | 0x04
+ * Para SW=0x2B: reg[0x0740]=0x2B, reg[0x0741]=(0x2B<<4)|0x04=0xB4.
  *
  * Meshtastic usa el sync word 0x2B (definido en su firmware como LORA_PREAMBLE_LENGTH
  * con sync 0x2B). Permite interoperar directamente con nodos Meshtastic sin

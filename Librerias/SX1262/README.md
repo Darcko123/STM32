@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![STM32](https://img.shields.io/badge/Platform-STM32F411-black)](https://www.st.com/en/microcontrollers-microprocessors/stm32f4-series.html)
-[![Version](https://img.shields.io/badge/Version-1.0.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/SX1262)
+[![Version](https://img.shields.io/badge/Version-1.0.1-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/SX1262)
 [![Protocol](https://img.shields.io/badge/Protocol-LoRa-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/SX1262)
 
 ---
@@ -37,7 +37,9 @@
       - [`SX1262_ApplyConfig()` - Aplicar Configuración LoRa](#sx1262_applyconfig---aplicar-configuración-lora)
   - [Licencia](#licencia)
   - [Changelog](#changelog)
-    - [\[1.0.0\] - 02-03-2026](#100---02-03-2026)
+    - [\[1.0.1\] - 30-03-2026](#101---30-03-2026)
+      - [Fixed](#fixed)
+    - [\[1.0.0\] - 28-03-2026](#100---28-03-2026)
       - [Added](#added)
 
 ## Descripción
@@ -429,7 +431,17 @@ Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](/LICENSE
 Todos los cambios notables de esta librería se documentan en esta sección.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
-### [1.0.0] - 02-03-2026
+### [1.0.1] - 30-03-2026
+
+#### Fixed
+- `config_pending` ahora se verifica correctamente en `SX1262_Transmit()` y `SX1262_Receive()`. La bandera existía en la estructura pero ninguna función la comprobaba.
+- Timeout de TX ahora es parametrizable. Anteriormente, `SX1262_Transmit` tenía un timeout fijo de 5 segundos, a diferencia de `SX1262_Receive` que sí recibía `timeout_ms` como parámetro.
+- El IRQ status de TX no se verificaba. Tras `TxDone` se lee el registro IRQ pero no se comprobaba si el bit `SX126X_IRQ_TX_DONE` estaba activo ni si ocurrió `SX126X_IRQ_TIMEOUT`.
+- Asignación redundante de `SX1262_Initialized` en `SX1262_Init`. No era un bug funcional, pero es redundante.
+
+---
+
+### [1.0.0] - 28-03-2026
 
 #### Added
 - Versión inicial de la librería SX1262 para STM32.

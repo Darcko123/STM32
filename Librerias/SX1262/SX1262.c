@@ -5,8 +5,8 @@
  * Esta librería permite inicializar y controlar
  * 
  * @author Daniel Ruiz
- * @date March 28, 2026
- * @version 1.0.0
+ * @date March 30, 2026
+ * @version 1.0.1
  */
 
 #include "SX1262.h"
@@ -259,6 +259,56 @@ static uint8_t SX1262_ComputeLDRO(uint8_t sf, lora_signal_bandwidth_t bw)
     return (t_sym_us >= 16380) ? 1U : 0U;
 }
 
+/**
+ * @brief Calcula el Time on Air (ToA) aproximado de un paquete LoRa en milisegundos.
+ *
+ *  La fórmula sigue la nota de aplicación de Semtech AN1200.13:
+ *
+ *  N_sym_payload = 8 + max( ceil( (8*n - 4*SF + 28 + 16*crc - 20*ih) /
+ *                                 (4*(SF - 2*ldro)) ) * (CR+4), 0 )
+ *  ToA = (N_preamble + 4.25 + N_sym_payload) * T_sym
+ *
+ * @param payload_len  Bytes del payload
+ * @param config       Configuración LoRa activa
+ * @return uint32_t    ToA en milisegundos (mínimo 1 ms)
+ */
+static uint32_t SX1262_ComputeToA_ms(uint8_t payload_len, const lora_config_t *config)
+{
+    uint32_t bw_hz = SX1262_BandwidthToHz(config->bandwidth);
+    if (bw_hz == 0) return 5000U; // Valor de seguridad si BW es inválido
+
+    uint8_t sf   = config->spreading_factor;
+    uint8_t cr   = (uint8_t)config->coding_rate; // 1=CR4/5 .. 4=CR4/8
+    uint8_t ldro = SX1262_ComputeLDRO(sf, config->bandwidth);
+
+    // T_sym en microsegundos: (2^SF * 1_000_000) / BW_Hz
+    uint64_t t_sym_us = ((uint64_t)1 << sf) * 1000000ULL / (uint64_t)bw_hz;
+
+    // Número de símbolos del payload (header explícito, CRC on)
+    // Denominador: 4 * (SF - 2*LDRO)
+    int32_t denom = 4 * ((int32_t)sf - 2 * (int32_t)ldro);
+    if (denom <= 0) denom = 1; // Protección contra división por cero
+
+    // Numerador: 8*payload - 4*SF + 28 + 16 (CRC on) - 0 (header explícito => ih=0)
+    int32_t numer = 8 * (int32_t)payload_len - 4 * (int32_t)sf + 44;
+
+    // ceil(numer / denom) usando división entera con redondeo hacia arriba
+    int32_t ceil_val = (numer > 0) ? ((numer + denom - 1) / denom) : 0;
+    int32_t n_sym_payload = 8 + ceil_val * ((int32_t)cr + 4);
+    if (n_sym_payload < 8) n_sym_payload = 8;
+
+    // Número total de símbolos: preamble + 4.25 (inicio) + payload
+    // Multiplicamos por 4 para evitar fracciones: (preamble + payload + 4)*4 + 1  (el +1 es 0.25*4)
+    uint64_t n_sym_total_x4 = ((uint64_t)config->preamble_len + (uint64_t)n_sym_payload + 4ULL) * 4ULL + 1ULL;
+
+    // ToA en microsegundos: n_sym_total_x4 * t_sym_us / 4
+    uint64_t toa_us = (n_sym_total_x4 * t_sym_us) / 4ULL;
+
+    // Convertir a ms (redondeo hacia arriba) y garantizar mínimo 1 ms
+    uint32_t toa_ms = (uint32_t)((toa_us + 999ULL) / 1000ULL);
+    return (toa_ms < 1U) ? 1U : toa_ms;
+}
+
 // ============================================================================
 // FUNCIONES PÚBLICAS
 // ============================================================================
@@ -361,8 +411,6 @@ SX1262_Status_t SX1262_Init(
         SX1262_Initialized = 0;
         return SX1262_ERROR;
     }
-    
-    SX1262_Initialized = 1;
     return SX1262_OK;
 }
 
@@ -380,6 +428,13 @@ SX1262_Status_t SX1262_Transmit(uint8_t* data, uint8_t length)
         return SX1262_NOT_INITIALIZED;
     }
 
+    // Verificar si hay una configuración pendiente sin aplicar.
+    // Transmitir con parámetros obsoletos puede causar fallos silenciosos.
+    if(SX1262_CurrentConfig.config_pending)
+    {
+        return SX1262_ERROR; // Llamar a SX1262_ApplyConfig() antes de transmitir
+    }
+
     uint8_t buf[8];
 
     // Set Standby
@@ -389,7 +444,7 @@ SX1262_Status_t SX1262_Transmit(uint8_t* data, uint8_t length)
         return SX1262_ERROR;
     }
 
-    // Buffer base address 
+    // Buffer base address
     buf[0] = 0x00; // TX Base
     buf[1] = 0x00; // RX Base
     if(SX1262_WriteCommand(SX126X_CMD_SET_BUFFER_BASE_ADDRESS, buf, 2) != SX1262_OK)
@@ -403,8 +458,7 @@ SX1262_Status_t SX1262_Transmit(uint8_t* data, uint8_t length)
         return SX1262_ERROR;
     }
 
-    // Actualizar longitud de payload (Requerido antes de Tx)
-    // Usamos los mismos parámetros configurados, pero actualizamos `length`
+    // Actualizar longitud de payload (requerido antes de Tx)
     buf[0] = (SX1262_CurrentConfig.preamble_len >> 8) & 0xFF;
     buf[1] = (SX1262_CurrentConfig.preamble_len) & 0xFF;
     buf[2] = 0x00; // Explicit Header
@@ -425,7 +479,7 @@ SX1262_Status_t SX1262_Transmit(uint8_t* data, uint8_t length)
 
     // Habilitar DIO1 para TxDone y TxTimeout
     uint16_t irqMask = SX126X_IRQ_TX_DONE | SX126X_IRQ_TIMEOUT;
-    buf[0] = (irqMask >> 8) & 0xFF;   buf[1] = irqMask & 0xFF; 
+    buf[0] = (irqMask >> 8) & 0xFF;   buf[1] = irqMask & 0xFF;
     buf[2] = (irqMask >> 8) & 0xFF;   buf[3] = irqMask & 0xFF; // DIO1 mask
     buf[4] = 0x00; buf[5] = 0x00; // DIO2
     buf[6] = 0x00; buf[7] = 0x00; // DIO3
@@ -434,21 +488,32 @@ SX1262_Status_t SX1262_Transmit(uint8_t* data, uint8_t length)
         return SX1262_ERROR;
     }
 
-    // Iniciar Transmisión
-    buf[0] = 0x00; buf[1] = 0x00; buf[2] = 0x00; // 0=Timeout desactivado
+    // Iniciar Transmisión (timeout de chip desactivado: el soft-timeout lo controla)
+    buf[0] = 0x00; buf[1] = 0x00; buf[2] = 0x00;
     if(SX1262_WriteCommand(SX126X_CMD_SET_TX, buf, 3) != SX1262_OK)
     {
         return SX1262_ERROR;
     }
 
-    // Esperar IRQ (DIO1 en alto => TxDone) o un timeout artificial
+    // Calcular timeout de software basado en el ToA real del paquete + 50 % de margen.
+    // Esto evita el hardcode de 5 segundos y adapta el timeout a los parámetros LoRa.
+    uint32_t toa_ms      = SX1262_ComputeToA_ms(length, &SX1262_CurrentConfig);
+    uint32_t tx_timeout  = toa_ms + toa_ms / 2U + 100U; // ToA * 1.5 + 100 ms de margen
+
+    // Esperar IRQ (DIO1 en alto => TxDone o TxTimeout)
     uint32_t start = HAL_GetTick();
     while (HAL_GPIO_ReadPin(DIO_GPIO_Port, DIO_GPIO_Pin) == GPIO_PIN_RESET)
     {
-        if ((HAL_GetTick() - start) > 5000)  // Timeout software de 5 seg
+        if ((HAL_GetTick() - start) > tx_timeout)
         {
+            // Timeout de software: volver a Standby y abortar
             buf[0] = RADIOLIB_SX126X_STANDBY_RC;
             if(SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1) != SX1262_OK)
+            {
+                return SX1262_ERROR;
+            }
+            buf[0] = 0x03; buf[1] = 0xFF;
+            if(SX1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2) != SX1262_OK)
             {
                 return SX1262_ERROR;
             }
@@ -456,17 +521,28 @@ SX1262_Status_t SX1262_Transmit(uint8_t* data, uint8_t length)
         }
     }
 
-    // Comprobar IRQ Status Real
+    // Leer y verificar los bits del registro IRQ
     uint8_t irqStatus[2];
-    if(SX1262_ReadCommand(0x12 /* GET_IRQ_STATUS */, irqStatus, 2) != SX1262_OK)
+    if(SX1262_ReadCommand(SX126X_CMD_GET_IRQ_STATUS, irqStatus, 2) != SX1262_OK)
     {
         return SX1262_ERROR;
     }
-    
-    // Clear IRQ
+    uint16_t irqReg = ((uint16_t)irqStatus[0] << 8) | irqStatus[1];
+
+    // Limpiar IRQ siempre antes de retornar
     buf[0] = 0x03; buf[1] = 0xFF;
-    if(SX1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2) != SX1262_OK)
+    SX1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2);
+
+    // Evaluar resultado: TIMEOUT tiene prioridad sobre TX_DONE ausente
+    if (irqReg & SX126X_IRQ_TIMEOUT)
     {
+        buf[0] = RADIOLIB_SX126X_STANDBY_RC;
+        SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
+        return SX1262_TIMEOUT;
+    }
+    if ((irqReg & SX126X_IRQ_TX_DONE) == 0)
+    {
+        // DIO1 se levantó pero TX_DONE no está activo: condición inesperada
         return SX1262_ERROR;
     }
 
@@ -486,6 +562,14 @@ SX1262_Status_t SX1262_Receive(uint8_t* data, uint8_t* length, uint32_t timeout_
     if(SX1262_Initialized != 1)
     {
         return SX1262_NOT_INITIALIZED;
+    }
+
+    // Verificar si hay una configuración pendiente sin aplicar.
+    // Recibir con parámetros obsoletos (frecuencia, BW, SF, etc.) puede causar
+    // que el chip nunca detecte un paquete válido.
+    if(SX1262_CurrentConfig.config_pending)
+    {
+        return SX1262_ERROR; // Llamar a SX1262_ApplyConfig() antes de recibir
     }
 
     uint8_t buf[8];
