@@ -35,12 +35,17 @@
       - [`SX1262_Transmit()` - Transmisión de Datos](#sx1262_transmit---transmisión-de-datos)
       - [`SX1262_Receive()` - Recepción de Datos](#sx1262_receive---recepción-de-datos)
       - [`SX1262_ApplyConfig()` - Aplicar Configuración LoRa](#sx1262_applyconfig---aplicar-configuración-lora)
+      - [`SX1262_GetConfig()` - Obtener Configuración Actual](#sx1262_getconfig---obtener-configuración-actual)
+      - [`SX1262_GetRSSI()` - Obtener RSSI del último paquete recibido](#sx1262_getrssi---obtener-rssi-del-último-paquete-recibido)
+      - [`SX1262_GetSNR()` - Obtener SNR del último paquete recibido](#sx1262_getsnr---obtener-snr-del-último-paquete-recibido)
   - [Licencia](#licencia)
   - [Changelog](#changelog)
+    - [\[1.1.0\] - 1-04-2026](#110---1-04-2026)
+      - [Added](#added)
     - [\[1.0.1\] - 30-03-2026](#101---30-03-2026)
       - [Fixed](#fixed)
     - [\[1.0.0\] - 28-03-2026](#100---28-03-2026)
-      - [Added](#added)
+      - [Added](#added-1)
 
 ## Descripción
 Librería desarrollada en C para la interfaz con el módulo transceptor LoRa **Semtech SX1262** utilizando microcontroladores STM32. Proporciona funciones para configurar parámetros de comunicación, transmitir y recibir datos, y manejar eventos de interrupción. La librería está diseñada para ser fácil de usar, eficiente y compatible con la mayoría de las series STM32 (F1, F4, etc.) utilizando HAL. Soporta configuraciones avanzadas de LoRa como Spreading Factor, Bandwidth, Coding Rate y potencia de transmisión. Ideal para proyectos de IoT, sensores remotos y redes de baja potencia.
@@ -419,6 +424,44 @@ SX1262_Status_t SX1262_ApplyConfig(lora_config_t *config);
 4. Sync Word (registros 0x0740–0x0741).
 5. Packet Params: preámbulo, header explícito, longitud dummy, CRC on, IQ.
 
+
+#### `SX1262_GetConfig()` - Obtener Configuración Actual
+
+Permite obtener una copia de la configuración LoRa actualmente aplicada al chip. La función retorna una estructura `lora_config_t` con los parámetros que fueron aplicados en el último `SX1262_ApplyConfig()`. No realiza comunicación SPI, ya que la librería mantiene una copia local de la configuración aplicada. El campo `config_pending` de la copia siempre se establece en `false`, ya que esta función solo refleja la configuración que ya está activa en el chip.
+
+```c
+SX1262_Status_t SX1262_GetConfig(lora_config_t *config);
+```
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `config` | `lora_config_t*` | Puntero a la estructura donde se almacenará la configuración actual |
+
+#### `SX1262_GetRSSI()` - Obtener RSSI del último paquete recibido
+
+Permite obtener el RSSI (Received Signal Strength Indicator) del último paquete recibido, en dBm. El valor se calcula a partir del comando `GetPacketStatus` según el datasheet del SX1262.
+
+```c
+SX1262_Status_t SX1262_GetRSSI(int16_t *rssi_dbm);
+```
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `rssi_dbm` | `int16_t*` | Puntero donde se almacenará el valor de RSSI en dBm |
+
+
+#### `SX1262_GetSNR()` - Obtener SNR del último paquete recibido
+
+Permite obtener el SNR (Signal-to-Noise Ratio) del último paquete recibido, en dB. El valor se extrae del mismo comando `GetPacketStatus` y puede ser negativo.
+
+```c 
+SX1262_Status_t SX1262_GetSNR(int8_t *snr_db);
+```
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `snr_db` | `int8_t*` | Puntero donde se almacenará el valor de SNR en dB |
+
 ---
 
 ## Licencia
@@ -430,6 +473,20 @@ Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](/LICENSE
 
 Todos los cambios notables de esta librería se documentan en esta sección.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
+
+### [1.1.0] - 1-04-2026
+
+#### Added
+- Función `SX1262_GetRSSI()`:
+  Permite obtener el RSSI (Received Signal Strength Indicator) del último paquete recibido, en dBm. El valor se calcula a partir del comando GetPacketStatus según el datasheet del SX1262.
+
+- Función `SX1262_GetSNR()`:
+  Permite obtener el SNR (Signal-to-Noise Ratio) del último paquete recibido, en dB. El valor se extrae del mismo comando GetPacketStatus y puede ser negativo.
+
+- Función `SX1262_GetConfig()`:
+  Retorna una copia de la configuración LoRa actualmente aplicada al chip, sin realizar comunicación SPI. El campo config_pending de la copia siempre es false.
+
+---
 
 ### [1.0.1] - 30-03-2026
 

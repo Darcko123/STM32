@@ -1,12 +1,12 @@
 /**
- * @file SX1262.h
+ * @file SX1262.c
  * @brief Librería para la gestión de un módulo LoRa
  * 
  * Esta librería permite inicializar y controlar
  * 
  * @author Daniel Ruiz
- * @date March 30, 2026
- * @version 1.0.1
+ * @date March 31, 2026
+ * @version 1.1.0
  */
 
 #include "SX1262.h"
@@ -786,6 +786,114 @@ SX1262_Status_t SX1262_ApplyConfig(lora_config_t *config)
     // Guardar estado actual
     SX1262_CurrentConfig = *config;
     SX1262_CurrentConfig.config_pending = false;
+
+    return SX1262_OK;
+}
+
+/**
+ * @brief Obtiene el RSSI del último paquete recibido.
+ *
+ *        Internamente emite el comando GetPacketStatus (0x14) y calcula:
+ *          RSSI_pkt [dBm] = -RssiPkt / 2
+ *        según el datasheet SX1262 §13.5.3.
+ *
+ *        Debe llamarse después de una recepción exitosa (SX1262_Receive == SX1262_OK).
+ *        Si se llama fuera de ese contexto, el chip devuelve el último valor
+ *        almacenado en su registro, que puede no ser válido.
+ *
+ * @param rssi_dbm  Puntero donde se almacenará el RSSI en dBm (valor negativo típico).
+ * @return SX1262_Status_t
+ */
+SX1262_Status_t SX1262_GetRSSI(int16_t *rssi_dbm)
+{
+    if (SX1262_Initialized != 1)
+    {
+        return SX1262_NOT_INITIALIZED;
+    }
+    if (rssi_dbm == NULL)
+    {
+        return SX1262_ERROR;
+    }
+
+    // GetPacketStatus devuelve 3 bytes en LoRa:
+    //   [0] RssiPkt  → RSSI = -RssiPkt/2  (dBm)
+    //   [1] SnrPkt   → SNR  =  SnrPkt/4   (dB, con signo)
+    //   [2] SignalRssiPkt (no utilizado aquí)
+    uint8_t status[3];
+    if (SX1262_ReadCommand(SX126X_CMD_GET_PACKET_STATUS, status, 3) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // RssiPkt es un valor sin signo; el resultado en dBm es siempre <= 0
+    *rssi_dbm = -(int16_t)status[0] / 2;
+
+    return SX1262_OK;
+}
+
+/**
+ * @brief Obtiene el SNR del último paquete recibido.
+ *
+ *        Internamente emite el comando GetPacketStatus (0x14) y calcula:
+ *          SNR [dB] = SnrPkt / 4
+ *        El byte SnrPkt es un entero con signo en complemento a 2 (int8_t),
+ *        por lo que el SNR puede ser negativo (señal por debajo del nivel de ruido).
+ *
+ *        Debe llamarse después de una recepción exitosa (SX1262_Receive == SX1262_OK).
+ *
+ * @param snr_db    Puntero donde se almacenará el SNR en dB (puede ser negativo).
+ * @return SX1262_Status_t
+ */
+SX1262_Status_t SX1262_GetSNR(int8_t *snr_db)
+{
+    if (SX1262_Initialized != 1)
+    {
+        return SX1262_NOT_INITIALIZED;
+    }
+    if (snr_db == NULL)
+    {
+        return SX1262_ERROR;
+    }
+
+    uint8_t status[3];
+    if (SX1262_ReadCommand(SX126X_CMD_GET_PACKET_STATUS, status, 3) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // SnrPkt está en el byte [1] como int8_t (complemento a dos).
+    // SNR [dB] = (int8_t)SnrPkt / 4  →  resolución de 0.25 dB
+    // Se devuelve redondeado a dB enteros para mayor simplicidad de uso.
+    *snr_db = (int8_t)status[1] / 4;
+
+    return SX1262_OK;
+}
+
+/**
+ * @brief Retorna una copia de la configuración LoRa actualmente aplicada al chip.
+ *
+ *        La copia refleja el estado que fue enviado al SX1262 en la última llamada
+ *        exitosa a SX1262_ApplyConfig(). El campo config_pending de la copia
+ *        siempre será false, ya que solo se guarda tras una aplicación correcta.
+ *
+ *        Esta función es de solo lectura: no modifica el estado interno del módulo
+ *        ni realiza ninguna comunicación SPI.
+ *
+ * @param config    Puntero a la estructura donde se copiará la configuración actual.
+ * @return SX1262_Status_t
+ */
+SX1262_Status_t SX1262_GetConfig(lora_config_t *config)
+{
+    if (SX1262_Initialized != 1)
+    {
+        return SX1262_NOT_INITIALIZED;
+    }
+    if (config == NULL)
+    {
+        return SX1262_ERROR;
+    }
+
+    *config = SX1262_CurrentConfig;
 
     return SX1262_OK;
 }
