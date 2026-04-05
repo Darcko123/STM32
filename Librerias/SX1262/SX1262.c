@@ -5,8 +5,8 @@
  * Esta librería permite inicializar y controlar
  * 
  * @author Daniel Ruiz
- * @date April 3, 2026
- * @version 1.2.0
+ * @date April 5, 2026
+ * @version 1.3.0
  */
 
 #include "SX1262.h"
@@ -29,10 +29,25 @@ static lora_config_t        SX1262_CurrentConfig;               /**< Configuraci
 
 /**
  * @brief Bandera de recepción no bloqueante (productor: ISR, consumidor: main loop).
- *        SX1262_IRQ_Handler() la activa a 1 cuando DIO1 sube (EXTI).
+ *        SX1262_IRQ_Handler() la activa a 1 cuando DIO1 sube y TxActive == 0.
  *        El main loop la lee, la pone a 0 y llama SX1262_GetReceivedPacket().
  */
 volatile uint8_t SX1262_RxDoneFlag = 0;
+
+/**
+ * @brief Bandera de transmisión no bloqueante (productor: ISR, consumidor: main loop).
+ *        SX1262_IRQ_Handler() la activa a 1 cuando DIO1 sube y TxActive == 1.
+ *        El main loop la lee, la pone a 0 y llama SX1262_GetTransmitStatus().
+ */
+volatile uint8_t SX1262_TxDoneFlag = 0;
+
+/**
+ * @brief Semáforo binario privado: 1 si hay una transmisión IT en curso.
+ *        Escrito desde el main loop (StartTransmitIT / GetTransmitStatus / AbortTransmit).
+ *        Leido desde el ISR (SX1262_IRQ_Handler) para despachar la bandera correcta.
+ *        Declarado volatile porque el ISR lo lee desde contexto de interrupción.
+ */
+static volatile uint8_t SX1262_TxActive = 0;
 
 // ============================================================================
 // FUNCIONES PRIVADAS - ABSTRACCIÓN SPI
@@ -556,6 +571,217 @@ SX1262_Status_t SX1262_Transmit(uint8_t* data, uint8_t length)
     return SX1262_OK;
 }
 
+// ============================================================================
+// TRANSMISIÓN NO BLOQUEANTE (IT)
+// ============================================================================
+
+/**
+ * @brief Inicia la transmisión de un paquete y retorna inmediatamente.
+ *
+ *        Sigue la misma secuencia de comandos que SX1262_Transmit(), pero
+ *        omite el bucle de polling en DIO1. En su lugar:
+ *          1. Activa SX1262_TxActive = 1 (semáforo para el dispatcher ISR).
+ *          2. Llama SetTx con timeout de chip = 0x000000 (infinito).
+ *          3. Retorna — el CPU queda libre.
+ *
+ *        El ISR detectará el flanco de subida en DIO1 y activará
+ *        SX1262_TxDoneFlag, que el main loop debe consumir llamando
+ *        SX1262_GetTransmitStatus().
+ *
+ * Flujo:
+ *  1. Standby RC
+ *  2. SetBufferBaseAddress
+ *  3. WriteBuffer (payload)
+ *  4. SetPacketParams (longitud real del paquete)
+ *  5. ClearIRQ
+ *  6. SetDioIrqParams (TX_DONE | TIMEOUT en DIO1)
+ *  7. SX1262_TxActive = 1
+ *  8. SetTx (timeout chip = 0)
+ *  9. Retorno inmediato
+ *
+ * @param data   Puntero al buffer de datos a transmitir.
+ * @param length Longitud de los datos (máximo 255 bytes).
+ * @return SX1262_Status_t
+ */
+SX1262_Status_t SX1262_StartTransmitIT(uint8_t* data, uint8_t length)
+{
+    if (SX1262_Initialized != 1)
+    {
+        return SX1262_NOT_INITIALIZED;
+    }
+    if (SX1262_CurrentConfig.config_pending)
+    {
+        return SX1262_ERROR; // Llamar a SX1262_ApplyConfig() antes de transmitir
+    }
+    if (SX1262_TxActive)
+    {
+        return SX1262_TX_BUSY; // Ya hay una transmisión IT en curso
+    }
+    if (data == NULL || length == 0)
+    {
+        return SX1262_ERROR;
+    }
+
+    uint8_t buf[8];
+
+    // 1. Standby RC (chip debe estar en Standby antes de configurar TX)
+    buf[0] = RADIOLIB_SX126X_STANDBY_RC;
+    if (SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // 2. Fijar base addresses del buffer interno
+    buf[0] = 0x00; // TX base en offset 0
+    buf[1] = 0x00; // RX base en offset 0
+    if (SX1262_WriteCommand(SX126X_CMD_SET_BUFFER_BASE_ADDRESS, buf, 2) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // 3. Escribir payload en el buffer interno del chip
+    if (SX1262_WriteBuffer(0x00, data, length) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // 4. Actualizar parámetros del paquete con la longitud real del payload
+    buf[0] = (SX1262_CurrentConfig.preamble_len >> 8) & 0xFF; // Preamble MSB
+    buf[1] = (SX1262_CurrentConfig.preamble_len)      & 0xFF; // Preamble LSB
+    buf[2] = 0x00;                                            // Explicit Header
+    buf[3] = length;                                          // PayloadLength real
+    buf[4] = 0x01;                                            // CRC On
+    buf[5] = SX1262_CurrentConfig.iq_inverted ? 0x01 : 0x00; // Invert IQ
+    if (SX1262_WriteCommand(SX126X_CMD_SET_PACKET_PARAMS, buf, 6) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // 5. Limpiar IRQ pendientes
+    buf[0] = 0x03; buf[1] = 0xFF; // Limpiar todos los bits (0x03FF)
+    if (SX1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // 6. Enrutar TX_DONE y TIMEOUT a DIO1
+    uint16_t irqMask = SX126X_IRQ_TX_DONE | SX126X_IRQ_TIMEOUT;
+    buf[0] = (irqMask >> 8) & 0xFF;  buf[1] = irqMask & 0xFF; // IRQ global mask
+    buf[2] = (irqMask >> 8) & 0xFF;  buf[3] = irqMask & 0xFF; // DIO1 mask
+    buf[4] = 0x00; buf[5] = 0x00;                             // DIO2 (no usado)
+    buf[6] = 0x00; buf[7] = 0x00;                             // DIO3 (no usado)
+    if (SX1262_WriteCommand(SX126X_CMD_SET_DIO_IRQ_PARAMS, buf, 8) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // 7. Armar el semáforo ANTES de SetTx para evitar perder el IRQ si el
+    //    paquete es muy corto y DIO1 sube antes de que el main loop lo compruebe.
+    SX1262_TxActive = 1;
+
+    // 8. Iniciar TX (timeout = 0x000000 => sin timeout de chip; soft-timeout en main loop)
+    buf[0] = 0x00; buf[1] = 0x00; buf[2] = 0x00;
+    if (SX1262_WriteCommand(SX126X_CMD_SET_TX, buf, 3) != SX1262_OK)
+    {
+        SX1262_TxActive = 0; // Rollback del semáforo si el comando falla
+        return SX1262_ERROR;
+    }
+
+    // 9. Retorno inmediato — el CPU queda libre
+    return SX1262_OK;
+}
+
+/**
+ * @brief Verifica y consume el evento TX_DONE tras SX1262_TxDoneFlag == 1.
+ *
+ *        Lee el registro IRQ del chip para discernir entre TX_DONE real
+ *        y TIMEOUT del chip, limpia el registro IRQ y libera el semáforo
+ *        SX1262_TxActive para permitir la siguiente transmisión o recepción.
+ *
+ *        SOLO llamar cuando SX1262_TxDoneFlag == 1 (desde el main loop).
+ *        NO llamar desde el ISR (realiza comunicación SPI).
+ *
+ * @return SX1262_Status_t SX1262_OK      si TX_DONE confirmado,
+ *                         SX1262_TIMEOUT si el chip reporta timeout interno,
+ *                         SX1262_ERROR   si condición inesperada o fallo SPI.
+ */
+SX1262_Status_t SX1262_GetTransmitStatus(void)
+{
+    if (SX1262_Initialized != 1)
+    {
+        return SX1262_NOT_INITIALIZED;
+    }
+
+    uint8_t buf[2];
+
+    // 1. Leer registro IRQ del chip
+    uint8_t irqStatus[2];
+    if (SX1262_ReadCommand(SX126X_CMD_GET_IRQ_STATUS, irqStatus, 2) != SX1262_OK)
+    {
+        SX1262_TxActive = 0; // Liberar semáforo aunque haya fallo SPI
+        return SX1262_ERROR;
+    }
+    uint16_t irqReg = ((uint16_t)irqStatus[0] << 8) | irqStatus[1];
+
+    // 2. Limpiar IRQ siempre (independientemente del resultado)
+    buf[0] = 0x03; buf[1] = 0xFF;
+    SX1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2);
+
+    // 3. Liberar semáforo — TX ya terminó (con éxito o error)
+    SX1262_TxActive = 0;
+
+    // 4. Evaluar resultado: TIMEOUT tiene prioridad sobre TX_DONE ausente
+    if (irqReg & SX126X_IRQ_TIMEOUT)
+    {
+        buf[0] = RADIOLIB_SX126X_STANDBY_RC;
+        SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
+        return SX1262_TIMEOUT;
+    }
+    if ((irqReg & SX126X_IRQ_TX_DONE) == 0)
+    {
+        // DIO1 subió pero TX_DONE no está activo: condición inesperada
+        return SX1262_ERROR;
+    }
+
+    return SX1262_OK;
+}
+
+/**
+ * @brief Cancela la transmisión IT en curso y regresa el chip a Standby RC.
+ *
+ *        Útil para timeouts de software: el main loop llama esta función
+ *        si SX1262_TxDoneFlag no se activó en el tiempo esperado.
+ *        Libera SX1262_TxActive para permitir nuevas operaciones.
+ *
+ * @return SX1262_Status_t
+ */
+SX1262_Status_t SX1262_AbortTransmit(void)
+{
+    if (SX1262_Initialized != 1)
+    {
+        return SX1262_NOT_INITIALIZED;
+    }
+
+    uint8_t buf[2];
+
+    // Regresar a Standby RC para detener la transmisión
+    buf[0] = RADIOLIB_SX126X_STANDBY_RC;
+    if (SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1) != SX1262_OK)
+    {
+        SX1262_TxActive = 0; // Liberar semáforo aunque falle el comando
+        return SX1262_ERROR;
+    }
+
+    // Limpiar IRQ residuales
+    buf[0] = 0x03; buf[1] = 0xFF;
+    SX1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2);
+
+    // Liberar semáforo
+    SX1262_TxActive = 0;
+
+    return SX1262_OK;
+}
+
 /**
  * @brief Recibe datos a través del módulo SX1262
  * 
@@ -841,14 +1067,28 @@ SX1262_Status_t SX1262_AbortReceive(void)
 }
 
 /**
- * @brief Manejador de IRQ del SX1262 para el contexto de interrupción.
+ * @brief Manejador de IRQ del SX1262 — dispatcher TX / RX.
  *
- *        SOLO activa SX1262_RxDoneFlag. Sin SPI, sin HAL calls bloqueantes.
+ *        Determina sin comunicación SPI si el evento DIO1 corresponde
+ *        a una TX o RX activa, usando el semáforo interno SX1262_TxActive.
+ *        TX y RX son mutuamente excluyentes en el chip, por lo que la
+ *        decisión es sinérgica y segura desde el contexto ISR.
+ *
+ *        REGLA CRÍTICA: sin SPI, sin HAL calls bloqueantes, sin printf.
+ *        Única responsabilidad: activar la bandera correcta.
+ *
  *        Llamar desde HAL_GPIO_EXTI_Callback() cuando GPIO_Pin == DIO_Pin.
  */
 void SX1262_IRQ_Handler(void)
 {
-    SX1262_RxDoneFlag = 1;
+    if (SX1262_TxActive)
+    {
+        SX1262_TxDoneFlag = 1; // Evento TX: señal a SX1262_GetTransmitStatus()
+    }
+    else
+    {
+        SX1262_RxDoneFlag = 1; // Evento RX: señal a SX1262_GetReceivedPacket()
+    }
 }
 
 /**

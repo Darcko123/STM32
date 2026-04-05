@@ -5,8 +5,8 @@
  * Esta librería permite inicializar y controlar
  * 
  * @author Daniel Ruiz
- * @date April 3, 2026
- * @version 1.2.0
+ * @date April 5, 2026
+ * @version 1.3.0
  */
 
 #ifndef SX1262_H
@@ -155,17 +155,20 @@ typedef enum {
 	SX1262_ERROR = 1,			/**< Error en la operación */
 	SX1262_TIMEOUT = 2,			/**< Timeout en la operación */
 	SX1262_NOT_INITIALIZED = 3,	/**< Módulo no inicializado */
-	SX1262_RX_BUSY = 4			/**< El módulo está en modo RX, esperando paquete (modo IT) */
+	SX1262_RX_BUSY = 4,			/**< El módulo está en modo RX, esperando paquete (modo IT) */
+	SX1262_TX_BUSY = 5			/**< El módulo está en modo TX, enviando paquete (modo IT) */
 }SX1262_Status_t;
 
 // ============================================================================
-// BANDERA DE RECEPCIÓN (modo no bloqueante)
+// BANDERAS DE EVENTO (modo no bloqueante — productor: ISR, consumidor: main loop)
 // ============================================================================
+
 /**
- * @brief Bandera activada por el ISR cuando DIO1 genera un flanco de subida.
+ * @brief Bandera de recepción activada por el ISR cuando DIO1 sube (RX_DONE).
  *
- *        El ISR (vía SX1262_IRQ_Handler) la pone en 1.
- *        El main loop debe ponerla en 0 después de consumirla.
+ *        El ISR (vía SX1262_IRQ_Handler) la pone en 1 cuando el chip
+ *        no está transmitiendo activamente (SX1262_TxActive == 0).
+ *        El main loop debe ponerla en 0 antes de consumirla.
  *        Declarada volatile para forzar lectura directa desde RAM y evitar
  *        optimizaciones del compilador que omitan la actualización del ISR.
  *
@@ -178,6 +181,25 @@ typedef enum {
  * @endcode
  */
 extern volatile uint8_t SX1262_RxDoneFlag;
+
+/**
+ * @brief Bandera de transmisión activada por el ISR cuando DIO1 sube (TX_DONE).
+ *
+ *        El ISR (vía SX1262_IRQ_Handler) la pone en 1 cuando el chip
+ *        está en modo TX activo (SX1262_TxActive == 1).
+ *        El main loop debe ponerla en 0 antes de consumirla.
+ *        Declarada volatile para forzar lectura directa desde RAM y evitar
+ *        optimizaciones del compilador que omitan la actualización del ISR.
+ *
+ * Patrón de uso:
+ * @code
+ *   if (SX1262_TxDoneFlag) {
+ *       SX1262_TxDoneFlag = 0;
+ *       SX1262_Status_t result = SX1262_GetTransmitStatus();
+ *   }
+ * @endcode
+ */
+extern volatile uint8_t SX1262_TxDoneFlag;
 
 // ============================================================================
 // PROTOTIPOS DE FUNCIONES PÚBLICAS
@@ -221,6 +243,61 @@ SX1262_Status_t SX1262_Init(
  * @return SX1262_Status_t 
  */
 SX1262_Status_t SX1262_Transmit(uint8_t* data, uint8_t length);
+
+// ----------------------------------------------------------------------------
+// Transmisión No Bloqueante (basada en interrupciones EXTI en DIO1)
+// ----------------------------------------------------------------------------
+
+/**
+ * @brief Inicia la transmisión de un paquete y retorna inmediatamente.
+ *
+ *        Configura el chip en modo TX y habilita la interrupción TX_DONE
+ *        en DIO1. El evento de transmisión completada se señaliza mediante
+ *        SX1262_TxDoneFlag, activada desde el ISR a través de
+ *        SX1262_IRQ_Handler().
+ *
+ *        Requiere que DIO1 esté configurado como EXTI flanco de subida
+ *        en STM32CubeMX y que HAL_GPIO_EXTI_Callback llame a
+ *        SX1262_IRQ_Handler().
+ *
+ *        No puede llamarse si ya hay una transmisión en curso; en ese
+ *        caso retorna SX1262_TX_BUSY.
+ *
+ * @param data   Puntero al buffer de datos a transmitir.
+ * @param length Longitud de los datos (máximo 255 bytes).
+ * @return SX1262_Status_t SX1262_OK      si el chip entró en modo TX,
+ *                         SX1262_TX_BUSY si ya hay una TX en curso,
+ *                         SX1262_ERROR   si falla SPI o configuración,
+ *                         SX1262_NOT_INITIALIZED si no se inicializó.
+ */
+SX1262_Status_t SX1262_StartTransmitIT(uint8_t* data, uint8_t length);
+
+/**
+ * @brief Verifica el resultado de la transmisión tras SX1262_TxDoneFlag == 1.
+ *
+ *        Debe llamarse SOLO desde el main loop cuando SX1262_TxDoneFlag == 1.
+ *        NO llamar desde el ISR.
+ *
+ *        Lee el registro IRQ del chip, verifica TX_DONE vs TIMEOUT,
+ *        limpia el registro IRQ y libera el semáforo TxActive.
+ *
+ * @return SX1262_Status_t SX1262_OK      si TX_DONE confirmado,
+ *                         SX1262_TIMEOUT si el chip reporta timeout interno,
+ *                         SX1262_ERROR   si DIO1 subió sin TX_DONE válido.
+ */
+SX1262_Status_t SX1262_GetTransmitStatus(void);
+
+/**
+ * @brief Cancela la transmisión en curso y regresa el chip al modo Standby RC.
+ *
+ *        Útil para implementar timeouts de software sin bloquear el CPU:
+ *        el main loop puede llamar esta función si SX1262_TxDoneFlag no se
+ *        activa en el tiempo esperado.
+ *
+ * @return SX1262_Status_t SX1262_OK    si el chip volvió a Standby,
+ *                         SX1262_ERROR si falla la escritura SPI.
+ */
+SX1262_Status_t SX1262_AbortTransmit(void);
 
 /**
  * @brief Recibe datos a través del módulo SX1262 (modo bloqueante)

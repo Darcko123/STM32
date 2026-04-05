@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![STM32](https://img.shields.io/badge/Platform-STM32F411-black)](https://www.st.com/en/microcontrollers-microprocessors/stm32f4-series.html)
-[![Version](https://img.shields.io/badge/Version-1.2.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/SX1262)
+[![Version](https://img.shields.io/badge/Version-1.3.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/SX1262)
 [![Protocol](https://img.shields.io/badge/Protocol-LoRa-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/SX1262)
 
 ---
@@ -14,17 +14,18 @@
     - [Características](#características)
   - [Pinout y Conexiones](#pinout-y-conexiones)
     - [Pines requeridos](#pines-requeridos)
-    - [Configuración EXTI para DIO1 (Recepción No Bloqueante)](#configuración-exti-para-dio1-recepción-no-bloqueante)
+    - [Configuración EXTI para DIO1 (Modos No Bloqueantes)](#configuración-exti-para-dio1-modos-no-bloqueantes)
       - [Pasos en STM32CubeMX](#pasos-en-stm32cubemx)
   - [Configuración SPI](#configuración-spi)
   - [Instalación](#instalación)
   - [Uso básico](#uso-básico)
     - [1. Inicialización](#1-inicialización)
-    - [2. Transmisión simple](#2-transmisión-simple)
-    - [3. Recepción bloqueante](#3-recepción-bloqueante)
-    - [4. Recepción no bloqueante (basada en interrupciones)](#4-recepción-no-bloqueante-basada-en-interrupciones)
-    - [5. Configuración personalizada](#5-configuración-personalizada)
-    - [6. Ejemplo de Transmisión y Recepción Completa](#6-ejemplo-de-transmisión-y-recepción-completa)
+    - [2. Transmisión simple (bloqueante)](#2-transmisión-simple-bloqueante)
+    - [3. Transmisión no bloqueante (basada en interrupciones)](#3-transmisión-no-bloqueante-basada-en-interrupciones)
+    - [4. Recepción bloqueante](#4-recepción-bloqueante)
+    - [5. Recepción no bloqueante (basada en interrupciones)](#5-recepción-no-bloqueante-basada-en-interrupciones)
+    - [6. Configuración personalizada](#6-configuración-personalizada)
+    - [7. Ejemplo de Transmisión y Recepción Completa](#7-ejemplo-de-transmisión-y-recepción-completa)
   - [API Reference](#api-reference)
     - [1. Tipos de Datos](#1-tipos-de-datos)
       - [`SX1262_Status_t` - Estados de Retorno](#sx1262_status_t---estados-de-retorno)
@@ -32,9 +33,13 @@
       - [`lora_network_mode_t` - Modos de Red LoRa](#lora_network_mode_t---modos-de-red-lora)
       - [`lora_signal_bandwidth_t` - Ancho de Banda LoRa](#lora_signal_bandwidth_t---ancho-de-banda-lora)
       - [`lora_coding_rate_t` - Coding Rate LoRa](#lora_coding_rate_t---coding-rate-lora)
+      - [Banderas `volatile` de Evento](#banderas-volatile-de-evento)
     - [2. Funciones Públicas](#2-funciones-públicas)
-      - [`SX1262_Init()`- Inicialización del Driver](#sx1262_init--inicialización-del-driver)
-      - [`SX1262_Transmit()` - Transmisión de Datos](#sx1262_transmit---transmisión-de-datos)
+      - [`SX1262_Init()` - Inicialización del Driver](#sx1262_init---inicialización-del-driver)
+      - [`SX1262_Transmit()` - Transmisión Bloqueante](#sx1262_transmit---transmisión-bloqueante)
+      - [`SX1262_StartTransmitIT()` - Iniciar Transmisión No Bloqueante](#sx1262_starttransmitit---iniciar-transmisión-no-bloqueante)
+      - [`SX1262_GetTransmitStatus()` - Confirmar Resultado de TX](#sx1262_gettransmitstatus---confirmar-resultado-de-tx)
+      - [`SX1262_AbortTransmit()` - Cancelar Transmisión](#sx1262_aborttransmit---cancelar-transmisión)
       - [`SX1262_Receive()` - Recepción Bloqueante](#sx1262_receive---recepción-bloqueante)
       - [`SX1262_StartReceiveIT()` - Iniciar Recepción No Bloqueante](#sx1262_startreceiveit---iniciar-recepción-no-bloqueante)
       - [`SX1262_GetReceivedPacket()` - Leer Paquete Recibido](#sx1262_getreceivedpacket---leer-paquete-recibido)
@@ -46,14 +51,16 @@
       - [`SX1262_GetSNR()` - Obtener SNR del último paquete recibido](#sx1262_getsnr---obtener-snr-del-último-paquete-recibido)
   - [Licencia](#licencia)
   - [Changelog](#changelog)
-    - [\[1.2.0\] - 03-04-2026](#120---03-04-2026)
+    - [\[1.3.0\] - 05-04-2026](#130---05-04-2026)
       - [Added](#added)
-    - [\[1.1.0\] - 1-04-2026](#110---1-04-2026)
+    - [\[1.2.0\] - 03-04-2026](#120---03-04-2026)
       - [Added](#added-1)
+    - [\[1.1.0\] - 01-04-2026](#110---01-04-2026)
+      - [Added](#added-2)
     - [\[1.0.1\] - 30-03-2026](#101---30-03-2026)
       - [Fixed](#fixed)
     - [\[1.0.0\] - 28-03-2026](#100---28-03-2026)
-      - [Added](#added-2)
+      - [Added](#added-3)
 
 ## Descripción
 Librería desarrollada en C para la interfaz con el módulo transceptor LoRa **Semtech SX1262** utilizando microcontroladores STM32. Proporciona funciones para configurar parámetros de comunicación, transmitir y recibir datos, y manejar eventos de interrupción. La librería está diseñada para ser fácil de usar, eficiente y compatible con la mayoría de las series STM32 (F1, F4, etc.) utilizando HAL. Soporta configuraciones avanzadas de LoRa como Spreading Factor, Bandwidth, Coding Rate y potencia de transmisión. Ideal para proyectos de IoT, sensores remotos y redes de baja potencia.
@@ -63,16 +70,18 @@ Librería desarrollada en C para la interfaz con el módulo transceptor LoRa **S
 ### Características
 - **Comunicación SPI**: Abstracción de comandos (Write/Read registers, buffers) con manejo robusto del flag OVR.
 - **Configuración completa de parámetros LoRa**: Frecuencia (433/868/915 MHz), Spreading Factor (SF5-12), Bandwidth (7.8-500 kHz), Coding Rate (4/5 a 4/8).
-- **Transmisión bloqueante**: Espera por IRQ vía polling en DIO1 (TxDone + Timeout), con timeout de software calculado a partir del Time on Air real.
+- **Transmisión bloqueante** (`SX1262_Transmit`): Espera por IRQ vía polling en DIO1 (TxDone + Timeout), con timeout de software calculado a partir del Time on Air real.
+- **Transmisión no bloqueante** (`SX1262_StartTransmitIT` + `SX1262_GetTransmitStatus`): El CPU no se bloquea. El chip notifica TX_DONE vía EXTI en DIO1; la bandera `SX1262_TxDoneFlag` señaliza el evento. Incluye `SX1262_AbortTransmit()` para timeouts de software.
 - **Recepción bloqueante** (`SX1262_Receive`): Espera en polling hasta RxDone, con timeout configurable.
-- **Recepción no bloqueante** (`SX1262_StartReceiveIT` + `SX1262_GetReceivedPacket`): El chip notifica vía EXTI en DIO1. El CPU no se bloquea; la bandera `SX1262_RxDoneFlag` señaliza el evento.
+- **Recepción no bloqueante** (`SX1262_StartReceiveIT` + `SX1262_GetReceivedPacket`): El chip notifica vía EXTI en DIO1. El CPU no se bloquea; la bandera `SX1262_RxDoneFlag` señaliza el evento. Incluye `SX1262_AbortReceive()` para timeouts de software.
+- **Dispatcher ISR unificado** (`SX1262_IRQ_Handler`): Un único callback EXTI en DIO1 maneja tanto TX como RX. El semáforo interno `SX1262_TxActive` decide qué bandera activar, sin realizar ninguna comunicación SPI desde el ISR.
 - **Soporte para redes públicas, privadas y Meshtastic**: SyncWord configurable por modo o valor personalizado.
 - **LDRO automático**: Calcula y activa LowDataRateOptimize dinámicamente según SF y BW, siguiendo la sección 6.1.1.4 del datasheet.
 - **Manejo robusto de hardware**: Busy polling con timeout, reset hardware, wakeup desde Sleep.
 - **Portabilidad**: Compatible con múltiples familias STM32 mediante la capa HAL. Solo requiere cambiar el `#include` del encabezado HAL.
 - **Potencia TX**: Hasta +22 dBm, con rampa configurable.
 - **CRC automático habilitado** en todos los paquetes transmitidos.
-- **Gestión robusta de errores**: Códigos de retorno específicos para timeout, error de SPI e inicialización no completada.
+- **Gestión robusta de errores**: Códigos de retorno específicos para timeout, error de SPI, inicialización no completada, RX ocupado y TX ocupado.
 
 ## Pinout y Conexiones
 ### Pines requeridos
@@ -95,9 +104,12 @@ Librería desarrollada en C para la interfaz con el módulo transceptor LoRa **S
 
 ---
 
-### Configuración EXTI para DIO1 (Recepción No Bloqueante)
+### Configuración EXTI para DIO1 (Modos No Bloqueantes)
 
-Para utilizar las funciones `SX1262_StartReceiveIT()` y `SX1262_GetReceivedPacket()`, el pin DIO1 debe configurarse como entrada con interrupción externa (EXTI) en lugar de entrada GPIO simple. El chip SX1262 mantiene DIO1 en bajo en reposo y genera un **flanco de subida** al completar una operación (RxDone, TxDone, Timeout, etc.).
+Para utilizar las funciones no bloqueantes (`SX1262_StartTransmitIT` / `SX1262_StartReceiveIT`), el pin DIO1 debe configurarse como entrada con interrupción externa (EXTI) en lugar de entrada GPIO simple. El chip SX1262 mantiene DIO1 en bajo en reposo y genera un **flanco de subida** al completar una operación (TxDone, RxDone, Timeout, etc.).
+
+> [!NOTE]
+> La misma configuración EXTI en DIO1 sirve tanto para transmisión como para recepción no bloqueante. El dispatcher `SX1262_IRQ_Handler()` determina automáticamente qué bandera activar (`SX1262_TxDoneFlag` o `SX1262_RxDoneFlag`) según el semáforo interno `SX1262_TxActive`.
 
 #### Pasos en STM32CubeMX
 
@@ -166,7 +178,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 ```
 
 > [!NOTE]
-> `SX1262_IRQ_Handler()` únicamente activa la variable `volatile uint8_t SX1262_RxDoneFlag`. Toda la comunicación SPI (leer IRQ status, leer buffer) se hace en el main loop mediante `SX1262_GetReceivedPacket()`, nunca dentro del ISR.
+> `SX1262_IRQ_Handler()` actúa como **dispatcher**: si `SX1262_TxActive == 1` activa `SX1262_TxDoneFlag`; si es `0` activa `SX1262_RxDoneFlag`. Toda comunicación SPI (leer IRQ status, leer/escribir buffer) se realiza únicamente en el main loop, **nunca dentro del ISR**.
 
 ## Configuración SPI
 Configura tu periférico SPI en CubeMX/STM32CubeIDE:
@@ -233,20 +245,94 @@ La inicialización aplica automáticamente la configuración por defecto:
 | IQ Invertido | No |
 | Red | Privada (SyncWord 0x12) |
 
-### 2. Transmisión simple
+### 2. Transmisión simple (bloqueante)
 ```c
 uint8_t mensaje[] = "Hola LoRa!";
 uint8_t len = sizeof(mensaje) - 1;
 
 SX1262_Status_t status = SX1262_Transmit(mensaje, len);
 if (status == SX1262_OK) {
-    // TX completado
+    // TX completado — TxDone confirmado por hardware
 } else if (status == SX1262_TIMEOUT) {
-    // No se recibió confirmación de TxDone en 5 segundos
+    // No se recibió TxDone antes del timeout de software (ToA * 1.5 + 100 ms)
+} else if (status == SX1262_ERROR) {
+    // Error SPI o DIO1 subió sin TX_DONE válido
 }
 ```
 
-### 3. Recepción bloqueante
+### 3. Transmisión no bloqueante (basada en interrupciones)
+
+> [!IMPORTANT]
+> Requiere configurar DIO1 como EXTI con flanco de subida en CubeMX. Ver sección [Configuración EXTI para DIO1](#configuración-exti-para-dio1-modos-no-bloqueantes).
+
+```c
+// ---------------------------------------------------------------
+// En USER CODE BEGIN 4  (main.c)
+// ---------------------------------------------------------------
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+    if (GPIO_Pin == DIO_Pin)
+    {
+        SX1262_IRQ_Handler();  // Dispatcher TX/RX — sin SPI
+    }
+}
+
+// ---------------------------------------------------------------
+// Variables de estado (antes del while)
+// ---------------------------------------------------------------
+#define TX_INTERVAL_MS    5000UL  // Intervalo entre transmisiones
+#define TX_SW_TIMEOUT_MS  3000UL  // Timeout de software
+
+uint32_t last_tx_tick  = HAL_GetTick() - TX_INTERVAL_MS;
+uint32_t tx_start_tick = 0;
+bool     tx_busy       = false;
+uint8_t  tx_buf[64];
+uint8_t  tx_len;
+
+// ---------------------------------------------------------------
+// En while(1)
+// ---------------------------------------------------------------
+
+/* BLOQUE 1 — Disparar TX cuando el intervalo se cumple */
+if (!tx_busy && (HAL_GetTick() - last_tx_tick) >= TX_INTERVAL_MS)
+{
+    tx_len = snprintf((char*)tx_buf, sizeof(tx_buf), "Hola LoRa!");
+    if (SX1262_StartTransmitIT(tx_buf, tx_len) == SX1262_OK)
+    {
+        tx_busy       = true;
+        tx_start_tick = HAL_GetTick();
+    }
+}
+
+/* BLOQUE 2 — Procesar TX_DONE activado por el ISR */
+if (SX1262_TxDoneFlag)
+{
+    SX1262_TxDoneFlag = 0;  // Consumir bandera — SIEMPRE primero
+    SX1262_Status_t result = SX1262_GetTransmitStatus();
+
+    if (result == SX1262_OK)     { /* TX_DONE confirmado   */ }
+    else if (result == SX1262_TIMEOUT) { /* Timeout interno del chip */ }
+    else                         { /* Condición inesperada */ }
+
+    tx_busy      = false;
+    last_tx_tick = HAL_GetTick();
+}
+
+/* BLOQUE 3 (opcional) — Timeout de software */
+if (tx_busy && (HAL_GetTick() - tx_start_tick) >= TX_SW_TIMEOUT_MS)
+{
+    SX1262_AbortTransmit();  // Standby RC + Clear IRQ + TxActive = 0
+    tx_busy      = false;
+    last_tx_tick = HAL_GetTick();
+}
+
+// [Otras tareas del sistema aquí — el CPU no se bloquea]
+```
+
+> [!NOTE]
+> Ver `mainTransmitIT.c` para un ejemplo completo con máquina de estados, timeout de software configurable, LEDs de confirmación y patrón ping-pong (TX seguido de RX IT).
+
+### 4. Recepción bloqueante
 ```c
 uint8_t rx_buffer[256];
 uint8_t rx_len = 0;
@@ -266,10 +352,10 @@ if (status == SX1262_OK) {
 status = SX1262_Receive(rx_buffer, &rx_len, 0);
 ```
 
-### 4. Recepción no bloqueante (basada en interrupciones)
+### 5. Recepción no bloqueante (basada en interrupciones)
 
 > [!IMPORTANT]
-> Requiere configurar DIO1 (PXx) como EXTI con flanco de subida en CubeMX. Ver sección [Configuración EXTI para DIO1](#configuración-exti-para-dio1-recepción-no-bloqueante).
+> Requiere configurar DIO1 (PXx) como EXTI con flanco de subida en CubeMX. Ver sección [Configuración EXTI para DIO1](#configuración-exti-para-dio1-modos-no-bloqueantes).
 
 ```c
 // ---------------------------------------------------------------
@@ -309,7 +395,7 @@ if (SX1262_RxDoneFlag)
 // [Otras tareas del sistema aquí — el CPU no se bloquea]
 ```
 
-### 5. Configuración personalizada
+### 6. Configuración personalizada
 ```c
 lora_config_t mi_config = {
     .frequency        = 915000000,          // 915 MHz
@@ -328,9 +414,9 @@ SX1262_Status_t status = SX1262_ApplyConfig(&mi_config);
 ```
 
 > [!NOTE]
-> La función `SX1262_ApplyConfig()` puede llamarse en cualquier momento después de la inicialización para cambiar los parámetros de modulación sin reiniciar el chip. `SX1262_Transmit()`, `SX1262_Receive()` y `SX1262_StartReceiveIT()` siempre trabajan con la última configuración aplicada.
+> `SX1262_ApplyConfig()` puede llamarse en cualquier momento después de la inicialización para cambiar los parámetros sin reiniciar el chip. Todas las funciones de transmisión y recepción (`SX1262_Transmit`, `SX1262_StartTransmitIT`, `SX1262_Receive`, `SX1262_StartReceiveIT`) siempre trabajan con la última configuración aplicada. Si hay cambios pendientes sin aplicar (`config_pending == true`), retornan `SX1262_ERROR`.
 
-### 6. Ejemplo de Transmisión y Recepción Completa
+### 7. Ejemplo de Transmisión y Recepción Completa
 
 ![Transmisión y Recepción](/Librerias/SX1262/Images/TransmisionRecepcion.png)
 
@@ -349,12 +435,23 @@ Enumeración que define todos los códigos de retorno posibles para las funcione
  * @brief Enumeración para estados de retorno del SX1262.
  */
 typedef enum {
-	SX1262_OK = 0,				/** Operación exitosa */
-	SX1262_ERROR = 1,			/** Error en la operación */
-	SX1262_TIMEOUT = 2,			/** Timeout en la operación */
-	SX1262_NOT_INITIALIZED = 3	/** Módulo no inicializado */
-}SX1262_Status_t;
+    SX1262_OK             = 0, /**< Operación exitosa */
+    SX1262_ERROR          = 1, /**< Error en la operación */
+    SX1262_TIMEOUT        = 2, /**< Timeout en la operación */
+    SX1262_NOT_INITIALIZED = 3, /**< Módulo no inicializado */
+    SX1262_RX_BUSY        = 4, /**< Módulo en modo RX IT — ya hay recepción activa */
+    SX1262_TX_BUSY        = 5  /**< Módulo en modo TX IT — ya hay transmisión activa */
+} SX1262_Status_t;
 ```
+
+| Valor | Código | Significado |
+|-------|--------|-------------|
+| `SX1262_OK` | 0 | Operación completada sin errores |
+| `SX1262_ERROR` | 1 | Error de SPI, parámetro inválido o condición inesperada de IRQ |
+| `SX1262_TIMEOUT` | 2 | Timeout de software o timeout interno del chip |
+| `SX1262_NOT_INITIALIZED` | 3 | `SX1262_Init()` no se llamó o falló |
+| `SX1262_RX_BUSY` | 4 | Se intentó iniciar RX IT cuando ya había una en curso |
+| `SX1262_TX_BUSY` | 5 | Se intentó iniciar TX IT cuando ya había una en curso |
 
 #### `lora_config_t` - Configuración de Parámetros LoRa
 
@@ -376,6 +473,9 @@ typedef struct {
 ```
 
 **Prioridad del Sync Word:** si `lora_sync_word != 0`, tiene prioridad absoluta sobre `network_mode`.
+
+> [!IMPORTANT]
+> Si `config_pending == true`, las funciones `SX1262_Transmit()`, `SX1262_StartTransmitIT()`, `SX1262_Receive()` y `SX1262_StartReceiveIT()` retornarán `SX1262_ERROR`. Debes llamar a `SX1262_ApplyConfig()` antes de operar.
 
 #### `lora_network_mode_t` - Modos de Red LoRa
 
@@ -439,9 +539,28 @@ typedef enum {
 
 ---
 
+#### Banderas `volatile` de Evento
+
+Las banderas de evento implementan el patrón **productor-consumidor** entre el ISR (productor) y el main loop (consumidor). Están declaradas `volatile` para que el compilador no las optimice fuera de la RAM.
+
+```c
+extern volatile uint8_t SX1262_TxDoneFlag;  // 1 cuando TX IT completó (TxDone o Timeout)
+extern volatile uint8_t SX1262_RxDoneFlag;  // 1 cuando RX IT completó (RxDone, Timeout o error)
+```
+
+| Bandera | Activada por | Consumida por | Función de consumo |
+|---------|-------------|--------------|--------------------|
+| `SX1262_TxDoneFlag` | `SX1262_IRQ_Handler()` cuando `TxActive == 1` | Main loop | `SX1262_GetTransmitStatus()` |
+| `SX1262_RxDoneFlag` | `SX1262_IRQ_Handler()` cuando `TxActive == 0` | Main loop | `SX1262_GetReceivedPacket()` |
+
+> [!WARNING]
+> Siempre poner la bandera a `0` **antes** de llamar a la función de consumo, para evitar perder un nuevo evento que pudiera ocurrir durante el procesamiento SPI.
+
+---
+
 ### 2. Funciones Públicas
 
-#### `SX1262_Init()`- Inicialización del Driver
+#### `SX1262_Init()` - Inicialización del Driver
 
 Inicializa el driver, realiza un reset hardware, despierta el chip y aplica la configuración por defecto. Todas las demás funciones retornan `SX1262_NOT_INITIALIZED` si esta función no se ha llamado exitosamente.
 
@@ -475,9 +594,9 @@ SX1262_Status_t SX1262_Init(
 
 ---
 
-#### `SX1262_Transmit()` - Transmisión de Datos
+#### `SX1262_Transmit()` - Transmisión Bloqueante
 
-Transmite un buffer de datos por LoRa. La función es bloqueante: espera a que DIO1 suba indicando `TxDone`, con un timeout de software de 5 segundos.
+Transmite un buffer de datos por LoRa. La función es **bloqueante**: hace polling en DIO1 hasta que el chip sube `TxDone` o expira el timeout de software (calculado dinámicamente como `ToA × 1.5 + 100 ms`).
 
 ```c
 SX1262_Status_t SX1262_Transmit(uint8_t* data, uint8_t length);
@@ -488,7 +607,7 @@ SX1262_Status_t SX1262_Transmit(uint8_t* data, uint8_t length);
 | `data` | `uint8_t*` | Puntero al buffer de datos a transmitir |
 | `length` | `uint8_t` | Longitud de los datos (máximo 255 bytes) |
 
-**Retorna:** `SX1262_OK` si TxDone fue confirmado, `SX1262_TIMEOUT` si no hubo respuesta en 5 s, `SX1262_ERROR` en caso de fallo SPI, `SX1262_NOT_INITIALIZED` si el módulo no fue inicializado.
+**Retorna:** `SX1262_OK` si TX_DONE fue confirmado, `SX1262_TIMEOUT` si el timeout de software o el chip reportan timeout, `SX1262_ERROR` en caso de fallo SPI o IRQ inesperado, `SX1262_NOT_INITIALIZED` si el módulo no fue inicializado.
 
 **Secuencia interna:**
 1. Standby RC → configura base address del buffer (TX=0x00, RX=0x00).
@@ -496,8 +615,77 @@ SX1262_Status_t SX1262_Transmit(uint8_t* data, uint8_t length);
 3. Actualiza `SET_PACKET_PARAMS` con la longitud real del payload.
 4. Limpia IRQ, habilita `TxDone | Timeout` en DIO1.
 5. Inicia TX con `SET_TX` (timeout de chip = 0, desactivado).
-6. Polling en DIO1 hasta evento o timeout software de 5 s.
-7. Lee y limpia el registro IRQ.
+6. Polling en DIO1 hasta evento o timeout de software.
+7. Lee y limpia el registro IRQ; evalúa `TX_DONE` vs `TIMEOUT`.
+
+---
+
+#### `SX1262_StartTransmitIT()` - Iniciar Transmisión No Bloqueante
+
+Inicia la transmisión de un paquete y **retorna inmediatamente**. El CPU queda libre para ejecutar otras tareas. El evento de finalización se señaliza mediante `SX1262_TxDoneFlag`, activada por el ISR cuando DIO1 genera el flanco de subida.
+
+```c
+SX1262_Status_t SX1262_StartTransmitIT(uint8_t* data, uint8_t length);
+```
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `data` | `uint8_t*` | Puntero al buffer de datos a transmitir |
+| `length` | `uint8_t` | Longitud de los datos (máximo 255 bytes) |
+
+**Retorna:** `SX1262_OK` si el chip entró en modo TX, `SX1262_TX_BUSY` si ya hay una transmisión IT en curso, `SX1262_ERROR` si falla SPI o `data` es NULL, `SX1262_NOT_INITIALIZED` si el módulo no fue inicializado.
+
+**Secuencia interna:**
+1. Standby RC.
+2. `SetBufferBaseAddress` (TX=0x00, RX=0x00).
+3. `WriteBuffer` — escribe el payload en el chip.
+4. `SetPacketParams` — actualiza la longitud real del payload.
+5. `ClearIRQ` — limpia IRQs pendientes.
+6. `SetDioIrqParams` — enruta `TX_DONE | TIMEOUT` a DIO1.
+7. `SX1262_TxActive = 1` — arma el semáforo (antes de `SetTx` para evitar pérdida de IRQ inmediata).
+8. `SetTx` con timeout de chip = `0x000000` (sin timeout de chip; el timeout lo gestiona el main loop).
+9. Retorno inmediato — sin polling.
+
+> [!WARNING]
+> No llamar si `SX1262_TxDoneFlag` aún no ha sido consumida. Usar el estado de la máquina de estados del main loop para garantizar que la TX anterior ha terminado.
+
+---
+
+#### `SX1262_GetTransmitStatus()` - Confirmar Resultado de TX
+
+Verifica y consume el evento `TX_DONE` después de que `SX1262_TxDoneFlag == 1`. Lee el registro IRQ del chip para distinguir entre `TX_DONE` real y `TIMEOUT` interno, limpia el registro y libera el semáforo `SX1262_TxActive`.
+
+```c
+SX1262_Status_t SX1262_GetTransmitStatus(void);
+```
+
+**Retorna:** `SX1262_OK` si `TX_DONE` fue confirmado, `SX1262_TIMEOUT` si el chip reporta timeout interno, `SX1262_ERROR` si la condición de IRQ es inesperada o falla SPI, `SX1262_NOT_INITIALIZED` si el módulo no fue inicializado.
+
+> [!WARNING]
+> Llamar **solo desde el main loop** cuando `SX1262_TxDoneFlag == 1`. **Nunca desde el ISR** — realiza comunicación SPI.
+
+**Secuencia interna:**
+1. Lee `GetIrqStatus`.
+2. Limpia el registro IRQ (`ClearIRQ`) — siempre, independientemente del resultado.
+3. Libera `SX1262_TxActive = 0`.
+4. Evalúa `TIMEOUT` (prioridad) y luego `TX_DONE`.
+
+---
+
+#### `SX1262_AbortTransmit()` - Cancelar Transmisión
+
+Cancela la transmisión IT en curso, regresa el chip a **Standby RC** y libera el semáforo `SX1262_TxActive`. Útil para implementar timeouts de software sin bloquear el CPU.
+
+```c
+SX1262_Status_t SX1262_AbortTransmit(void);
+```
+
+**Retorna:** `SX1262_OK` si el chip volvió a Standby, `SX1262_ERROR` si falla la escritura SPI.
+
+**Secuencia interna:**
+1. `SetStandby RC` — detiene la transmisión activa.
+2. `ClearIRQ` — limpia IRQs residuales.
+3. `SX1262_TxActive = 0` — libera el semáforo para nuevas operaciones.
 
 ---
 
@@ -588,14 +776,25 @@ SX1262_Status_t SX1262_AbortReceive(void);
 
 #### `SX1262_IRQ_Handler()` - Manejador de Interrupción
 
-Función **liviana** que debe llamarse desde `HAL_GPIO_EXTI_Callback()` cuando el pin DIO (PXx) genera una interrupción. Única responsabilidad: activar `SX1262_RxDoneFlag = 1`. No realiza ninguna comunicación SPI.
+Función **liviana** (dispatcher) que debe llamarse desde `HAL_GPIO_EXTI_Callback()` cuando el pin DIO1 genera una interrupción. Determina sin comunicación SPI si el evento corresponde a una TX o RX activa, usando el semáforo interno `SX1262_TxActive`, y activa la bandera correspondiente.
 
 ```c
 void SX1262_IRQ_Handler(void);
 ```
 
+**Lógica de despacho:**
+
+```c
+if (SX1262_TxActive)
+    SX1262_TxDoneFlag = 1;  // Evento TX → consumir con SX1262_GetTransmitStatus()
+else
+    SX1262_RxDoneFlag = 1;  // Evento RX → consumir con SX1262_GetReceivedPacket()
+```
+
 > [!WARNING]
-> Esta función está diseñada para ejecutarse en contexto de interrupción (ISR). **No llames a `SX1262_GetReceivedPacket()` ni a ninguna función SPI desde el ISR** — hazlo desde el main loop después de verificar `SX1262_RxDoneFlag`.
+> Esta función está diseñada para ejecutarse en contexto de **interrupción (ISR)**. Regla crítica: **sin SPI, sin HAL calls bloqueantes, sin printf**. Toda comunicación SPI se realiza únicamente en el main loop mediante `SX1262_GetTransmitStatus()` o `SX1262_GetReceivedPacket()`.
+
+**TX y RX son mutuamente excluyentes** en el chip SX1262, por lo que el semáforo `SX1262_TxActive` es suficiente para un despacho seguro desde el ISR.
 
 ---
 
@@ -670,6 +869,20 @@ Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](/LICENSE
 Todos los cambios notables de esta librería se documentan en esta sección.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+### [1.3.0] - 05-04-2026
+
+#### Added
+- Transmisión no bloqueante basada en interrupciones EXTI (patrón productor-consumidor):
+  - `SX1262_StartTransmitIT()`: Inicia la transmisión de un paquete y retorna inmediatamente sin bloquear el CPU. El chip entra en modo TX y levanta DIO1 al terminar.
+  - `SX1262_GetTransmitStatus()`: Debe invocarse desde el main loop al detectar `SX1262_TxDoneFlag`. Lee el registro IRQ del chip, verifica `TX_DONE` vs `TIMEOUT`, limpia el registro y libera el semáforo `SX1262_TxActive`.
+  - `SX1262_AbortTransmit()`: Cancela la transmisión en curso y regresa el chip a Standby RC. Libera `SX1262_TxActive`. Permite implementar timeouts de software sin bloquear el CPU.
+  - `volatile uint8_t SX1262_TxDoneFlag`: Bandera productor-consumidor entre el ISR y el main loop para eventos TX.
+  - `static volatile uint8_t SX1262_TxActive`: Semáforo interno que indica si hay una TX IT en curso. Permite que el dispatcher `SX1262_IRQ_Handler()` decida qué bandera activar sin leer el chip.
+- `SX1262_IRQ_Handler()` actualizado como **dispatcher TX/RX**: si `SX1262_TxActive == 1` activa `SX1262_TxDoneFlag`; si es `0` activa `SX1262_RxDoneFlag`. El mismo EXTI en DIO1 sirve para ambos modos sin ningún cambio en CubeMX.
+- Nuevos códigos de retorno en `SX1262_Status_t`: `SX1262_TX_BUSY` (5) y `SX1262_RX_BUSY` (4).
+
+---
+
 ### [1.2.0] - 03-04-2026
 
 #### Added
@@ -683,7 +896,7 @@ El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1
 
 ---
 
-### [1.1.0] - 1-04-2026
+### [1.1.0] - 01-04-2026
 
 #### Added
 - Función `SX1262_GetRSSI()`:
