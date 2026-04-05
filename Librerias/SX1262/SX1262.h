@@ -5,8 +5,8 @@
  * Esta librería permite inicializar y controlar
  * 
  * @author Daniel Ruiz
- * @date March 31, 2026
- * @version 1.1.0
+ * @date April 3, 2026
+ * @version 1.2.0
  */
 
 #ifndef SX1262_H
@@ -151,11 +151,33 @@ typedef struct {
  * @brief Enumeración para estados de retorno del SX1262.
  */
 typedef enum {
-	SX1262_OK = 0,				/** Operación exitosa */
-	SX1262_ERROR = 1,			/** Error en la operación */
-	SX1262_TIMEOUT = 2,			/** Timeout en la operación */
-	SX1262_NOT_INITIALIZED = 3	/** Módulo no inicializado */
+	SX1262_OK = 0,				/**< Operación exitosa */
+	SX1262_ERROR = 1,			/**< Error en la operación */
+	SX1262_TIMEOUT = 2,			/**< Timeout en la operación */
+	SX1262_NOT_INITIALIZED = 3,	/**< Módulo no inicializado */
+	SX1262_RX_BUSY = 4			/**< El módulo está en modo RX, esperando paquete (modo IT) */
 }SX1262_Status_t;
+
+// ============================================================================
+// BANDERA DE RECEPCIÓN (modo no bloqueante)
+// ============================================================================
+/**
+ * @brief Bandera activada por el ISR cuando DIO1 genera un flanco de subida.
+ *
+ *        El ISR (vía SX1262_IRQ_Handler) la pone en 1.
+ *        El main loop debe ponerla en 0 después de consumirla.
+ *        Declarada volatile para forzar lectura directa desde RAM y evitar
+ *        optimizaciones del compilador que omitan la actualización del ISR.
+ *
+ * Patrón de uso:
+ * @code
+ *   if (SX1262_RxDoneFlag) {
+ *       SX1262_RxDoneFlag = 0;
+ *       SX1262_GetReceivedPacket(buf, &len);
+ *   }
+ * @endcode
+ */
+extern volatile uint8_t SX1262_RxDoneFlag;
 
 // ============================================================================
 // PROTOTIPOS DE FUNCIONES PÚBLICAS
@@ -201,7 +223,7 @@ SX1262_Status_t SX1262_Init(
 SX1262_Status_t SX1262_Transmit(uint8_t* data, uint8_t length);
 
 /**
- * @brief Recibe datos a través del módulo SX1262
+ * @brief Recibe datos a través del módulo SX1262 (modo bloqueante)
  * 
  * @param data Puntero al buffer donde se almacenarán los datos recibidos
  * @param length Puntero a una variable donde se almacenará la longitud de los datos recibidos
@@ -209,6 +231,73 @@ SX1262_Status_t SX1262_Transmit(uint8_t* data, uint8_t length);
  * @return SX1262_Status_t 
  */
 SX1262_Status_t SX1262_Receive(uint8_t* data, uint8_t* length, uint32_t timeout_ms);
+
+// ----------------------------------------------------------------------------
+// Recepción No Bloqueante (basada en interrupciones EXTI en DIO1)
+// ----------------------------------------------------------------------------
+
+/**
+ * @brief Configura el chip en modo RX continuo y retorna inmediatamente.
+ *
+ *        El evento de recepción se señaliza mediante SX1262_RxDoneFlag,
+ *        que es activada desde el ISR a través de SX1262_IRQ_Handler().
+ *
+ *        Requiere que DIO1 esté configurado como EXTI flanco de subida
+ *        en STM32CubeMX y que HAL_GPIO_EXTI_Callback llame a SX1262_IRQ_Handler().
+ *
+ * @return SX1262_Status_t SX1262_OK si el chip entró en modo RX,
+ *                         SX1262_ERROR si falla SPI,
+ *                         SX1262_NOT_INITIALIZED si no se inicializó.
+ */
+SX1262_Status_t SX1262_StartReceiveIT(void);
+
+/**
+ * @brief Lee el payload del paquete recibido.
+ *
+ *        Debe llamarse SOLO desde el main loop cuando SX1262_RxDoneFlag == 1.
+ *        NO llamar desde el ISR.
+ *
+ *        Lee el registro IRQ del chip, verifica RX_DONE vs TIMEOUT/CRC_ERR,
+ *        obtiene el offset y tamaño del paquete con GetRxBufferStatus,
+ *        lee el payload con ReadBuffer y limpia el registro IRQ.
+ *
+ * @param data   Puntero al buffer donde se almacenarán los datos recibidos.
+ * @param length Puntero donde se escribirá la longitud del paquete (bytes).
+ * @return SX1262_Status_t SX1262_OK si el paquete es válido,
+ *                         SX1262_TIMEOUT si el IRQ indica timeout interno del chip,
+ *                         SX1262_ERROR si hay CRC, header inválido o fallo SPI.
+ */
+SX1262_Status_t SX1262_GetReceivedPacket(uint8_t* data, uint8_t* length);
+
+/**
+ * @brief Cancela la recepción en curso y regresa el chip al modo Standby RC.
+ *
+ *        Útil para implementar timeouts de software sin bloquear el CPU:
+ *        el main loop puede llamar esta función si SX1262_RxDoneFlag no se
+ *        activa en el tiempo esperado.
+ *
+ * @return SX1262_Status_t SX1262_OK si el chip volvió a Standby,
+ *                         SX1262_ERROR si falla la escritura SPI.
+ */
+SX1262_Status_t SX1262_AbortReceive(void);
+
+/**
+ * @brief Manejador de IRQ del SX1262. Llamar desde HAL_GPIO_EXTI_Callback().
+ *
+ *        Esta función está diseñada para ejecutarse en contexto de
+ *        interrupción (ISR). Única responsabilidad: activar SX1262_RxDoneFlag.
+ *        NO realiza ninguna comunicación SPI.
+ *
+ * Ejemplo de integración en main.c:
+ * @code
+ *   void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+ *       if (GPIO_Pin == DIO_Pin) {
+ *           SX1262_IRQ_Handler();
+ *       }
+ *   }
+ * @endcode
+ */
+void SX1262_IRQ_Handler(void);
 
 /**
  * @brief Aplica la configuración de red y modulación LoRa al chip

@@ -5,8 +5,8 @@
  * Esta librería permite inicializar y controlar
  * 
  * @author Daniel Ruiz
- * @date March 31, 2026
- * @version 1.1.0
+ * @date April 3, 2026
+ * @version 1.2.0
  */
 
 #include "SX1262.h"
@@ -26,6 +26,13 @@ static GPIO_TypeDef*        RST_GPIO_Port       = NULL;
 static uint16_t             RST_GPIO_Pin        = 0;
 static uint8_t              SX1262_Initialized  = 0;            /**< Bandera para verificar si el módulo está inicializado */
 static lora_config_t        SX1262_CurrentConfig;               /**< Configuración actual aplicada al módulo */
+
+/**
+ * @brief Bandera de recepción no bloqueante (productor: ISR, consumidor: main loop).
+ *        SX1262_IRQ_Handler() la activa a 1 cuando DIO1 sube (EXTI).
+ *        El main loop la lee, la pone a 0 y llama SX1262_GetReceivedPacket().
+ */
+volatile uint8_t SX1262_RxDoneFlag = 0;
 
 // ============================================================================
 // FUNCIONES PRIVADAS - ABSTRACCIÓN SPI
@@ -664,6 +671,184 @@ SX1262_Status_t SX1262_Receive(uint8_t* data, uint8_t* length, uint32_t timeout_
     }
 
     return SX1262_OK;
+}
+
+/**
+ * @brief Configura el chip SX1262 en modo RX continuo y retorna inmediatamente.
+ *
+ *        No realiza ningún polling. El evento de recepción se señaliza
+ *        mediante SX1262_RxDoneFlag activada desde el ISR (EXTI en DIO1).
+ *
+ * Flujo:
+ *  1. Standby RC
+ *  2. Clear IRQ
+ *  3. SetDioIrqParams: habilita RxDone | Timeout | CRC_ERR | HeaderErr en DIO1
+ *  4. SetRx con timeout 0xFFFFFF (RX continuo)
+ *  5. Retorno inmediato
+ *
+ * @return SX1262_Status_t
+ */
+SX1262_Status_t SX1262_StartReceiveIT(void)
+{
+    if (SX1262_Initialized != 1)
+    {
+        return SX1262_NOT_INITIALIZED;
+    }
+    if (SX1262_CurrentConfig.config_pending)
+    {
+        return SX1262_ERROR; // Llamar a SX1262_ApplyConfig() antes de recibir
+    }
+
+    uint8_t buf[8];
+
+    // 1. Standby RC
+    buf[0] = RADIOLIB_SX126X_STANDBY_RC;
+    if (SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // 2. Limpiar IRQ pendientes
+    buf[0] = 0x03; buf[1] = 0xFF;
+    if (SX1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // 3. Habilitar IRQs en DIO1: RxDone | Timeout | CRC_ERR | HeaderErr
+    //    HeaderErr (bit 4) se incluye para detectar paquetes con header inválido.
+    uint16_t irqMask = SX126X_IRQ_RX_DONE    |
+                       SX126X_IRQ_TIMEOUT    |
+                       SX126X_IRQ_CRC_ERR    |
+                       SX126X_IRQ_HEADER_ERR;
+    buf[0] = (irqMask >> 8) & 0xFF;   buf[1] = irqMask & 0xFF; // IRQ global mask
+    buf[2] = (irqMask >> 8) & 0xFF;   buf[3] = irqMask & 0xFF; // DIO1 mask
+    buf[4] = 0x00; buf[5] = 0x00;                               // DIO2 (no usado)
+    buf[6] = 0x00; buf[7] = 0x00;                               // DIO3 (no usado)
+    if (SX1262_WriteCommand(SX126X_CMD_SET_DIO_IRQ_PARAMS, buf, 8) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // 4. Iniciar RX continuo (timeout = 0xFFFFFF => sin timeout de chip)
+    buf[0] = 0xFF; buf[1] = 0xFF; buf[2] = 0xFF;
+    if (SX1262_WriteCommand(SX126X_CMD_SET_RX, buf, 3) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // Retorno inmediato — sin polling en DIO1
+    return SX1262_OK;
+}
+
+/**
+ * @brief Lee el payload del paquete recibido después de que SX1262_RxDoneFlag se active.
+ *
+ *        SOLO debe llamarse desde el main loop, nunca desde el ISR.
+ *
+ * @param data   Buffer de destino para el payload.
+ * @param length Longitud del paquete recibido (bytes).
+ * @return SX1262_Status_t
+ */
+SX1262_Status_t SX1262_GetReceivedPacket(uint8_t* data, uint8_t* length)
+{
+    if (SX1262_Initialized != 1)
+    {
+        return SX1262_NOT_INITIALIZED;
+    }
+    if (data == NULL || length == NULL)
+    {
+        return SX1262_ERROR;
+    }
+
+    uint8_t buf[2];
+
+    // 1. Leer registro IRQ del chip
+    uint8_t irqStatus[2];
+    if (SX1262_ReadCommand(SX126X_CMD_GET_IRQ_STATUS, irqStatus, 2) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+    uint16_t irqReg = ((uint16_t)irqStatus[0] << 8) | irqStatus[1];
+
+    // 2. Limpiar IRQ siempre (independientemente del resultado)
+    buf[0] = 0x03; buf[1] = 0xFF;
+    SX1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2);
+
+    // 3. Evaluar bits de error con prioridad:
+    //    TIMEOUT > CRC_ERR > HEADER_ERR > ausencia de RX_DONE
+    if (irqReg & SX126X_IRQ_TIMEOUT)
+    {
+        return SX1262_TIMEOUT;
+    }
+    if (irqReg & (SX126X_IRQ_CRC_ERR | SX126X_IRQ_HEADER_ERR))
+    {
+        return SX1262_ERROR;
+    }
+    if ((irqReg & SX126X_IRQ_RX_DONE) == 0)
+    {
+        // DIO1 subió pero RX_DONE no está activo: condición inesperada
+        return SX1262_ERROR;
+    }
+
+    // 4. Obtener offset y tamaño del paquete en el buffer interno
+    uint8_t rxBufferStatus[2];
+    if (SX1262_ReadCommand(SX126X_CMD_GET_RX_BUFFER_STATUS, rxBufferStatus, 2) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+    *length          = rxBufferStatus[0]; // Número de bytes del payload
+    uint8_t offset   = rxBufferStatus[1]; // Offset base en el buffer del chip
+
+    // 5. Leer payload desde el buffer interno del SX1262
+    if (SX1262_ReadBuffer(offset, data, *length) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    return SX1262_OK;
+}
+
+/**
+ * @brief Cancela la recepción en curso y regresa el chip a modo Standby RC.
+ *
+ *        Útil para timeouts de software: el main loop llama esta función
+ *        si SX1262_RxDoneFlag no se activó en el tiempo esperado.
+ *
+ * @return SX1262_Status_t
+ */
+SX1262_Status_t SX1262_AbortReceive(void)
+{
+    if (SX1262_Initialized != 1)
+    {
+        return SX1262_NOT_INITIALIZED;
+    }
+
+    uint8_t buf[2];
+
+    // Regresar a Standby RC para detener la escucha
+    buf[0] = RADIOLIB_SX126X_STANDBY_RC;
+    if (SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1) != SX1262_OK)
+    {
+        return SX1262_ERROR;
+    }
+
+    // Limpiar IRQ residuales
+    buf[0] = 0x03; buf[1] = 0xFF;
+    SX1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2);
+
+    return SX1262_OK;
+}
+
+/**
+ * @brief Manejador de IRQ del SX1262 para el contexto de interrupción.
+ *
+ *        SOLO activa SX1262_RxDoneFlag. Sin SPI, sin HAL calls bloqueantes.
+ *        Llamar desde HAL_GPIO_EXTI_Callback() cuando GPIO_Pin == DIO_Pin.
+ */
+void SX1262_IRQ_Handler(void)
+{
+    SX1262_RxDoneFlag = 1;
 }
 
 /**

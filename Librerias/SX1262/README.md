@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![STM32](https://img.shields.io/badge/Platform-STM32F411-black)](https://www.st.com/en/microcontrollers-microprocessors/stm32f4-series.html)
-[![Version](https://img.shields.io/badge/Version-1.0.1-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/SX1262)
+[![Version](https://img.shields.io/badge/Version-1.2.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/SX1262)
 [![Protocol](https://img.shields.io/badge/Protocol-LoRa-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/SX1262)
 
 ---
@@ -14,15 +14,17 @@
     - [Características](#características)
   - [Pinout y Conexiones](#pinout-y-conexiones)
     - [Pines requeridos](#pines-requeridos)
+    - [Configuración EXTI para DIO1 (Recepción No Bloqueante)](#configuración-exti-para-dio1-recepción-no-bloqueante)
+      - [Pasos en STM32CubeMX](#pasos-en-stm32cubemx)
   - [Configuración SPI](#configuración-spi)
   - [Instalación](#instalación)
   - [Uso básico](#uso-básico)
     - [1. Inicialización](#1-inicialización)
     - [2. Transmisión simple](#2-transmisión-simple)
-    - [3. Recepción](#3-recepción)
-    - [4. Configuración personalizada](#4-configuración-personalizada)
-    - [5. Ejemplo de Transmisión y Recepción Completa](#5-ejemplo-de-transmisión-y-recepción-completa)
-  - [](#)
+    - [3. Recepción bloqueante](#3-recepción-bloqueante)
+    - [4. Recepción no bloqueante (basada en interrupciones)](#4-recepción-no-bloqueante-basada-en-interrupciones)
+    - [5. Configuración personalizada](#5-configuración-personalizada)
+    - [6. Ejemplo de Transmisión y Recepción Completa](#6-ejemplo-de-transmisión-y-recepción-completa)
   - [API Reference](#api-reference)
     - [1. Tipos de Datos](#1-tipos-de-datos)
       - [`SX1262_Status_t` - Estados de Retorno](#sx1262_status_t---estados-de-retorno)
@@ -33,19 +35,25 @@
     - [2. Funciones Públicas](#2-funciones-públicas)
       - [`SX1262_Init()`- Inicialización del Driver](#sx1262_init--inicialización-del-driver)
       - [`SX1262_Transmit()` - Transmisión de Datos](#sx1262_transmit---transmisión-de-datos)
-      - [`SX1262_Receive()` - Recepción de Datos](#sx1262_receive---recepción-de-datos)
+      - [`SX1262_Receive()` - Recepción Bloqueante](#sx1262_receive---recepción-bloqueante)
+      - [`SX1262_StartReceiveIT()` - Iniciar Recepción No Bloqueante](#sx1262_startreceiveit---iniciar-recepción-no-bloqueante)
+      - [`SX1262_GetReceivedPacket()` - Leer Paquete Recibido](#sx1262_getreceivedpacket---leer-paquete-recibido)
+      - [`SX1262_AbortReceive()` - Cancelar Recepción](#sx1262_abortreceive---cancelar-recepción)
+      - [`SX1262_IRQ_Handler()` - Manejador de Interrupción](#sx1262_irq_handler---manejador-de-interrupción)
       - [`SX1262_ApplyConfig()` - Aplicar Configuración LoRa](#sx1262_applyconfig---aplicar-configuración-lora)
       - [`SX1262_GetConfig()` - Obtener Configuración Actual](#sx1262_getconfig---obtener-configuración-actual)
       - [`SX1262_GetRSSI()` - Obtener RSSI del último paquete recibido](#sx1262_getrssi---obtener-rssi-del-último-paquete-recibido)
       - [`SX1262_GetSNR()` - Obtener SNR del último paquete recibido](#sx1262_getsnr---obtener-snr-del-último-paquete-recibido)
   - [Licencia](#licencia)
   - [Changelog](#changelog)
-    - [\[1.1.0\] - 1-04-2026](#110---1-04-2026)
+    - [\[1.2.0\] - 03-04-2026](#120---03-04-2026)
       - [Added](#added)
+    - [\[1.1.0\] - 1-04-2026](#110---1-04-2026)
+      - [Added](#added-1)
     - [\[1.0.1\] - 30-03-2026](#101---30-03-2026)
       - [Fixed](#fixed)
     - [\[1.0.0\] - 28-03-2026](#100---28-03-2026)
-      - [Added](#added-1)
+      - [Added](#added-2)
 
 ## Descripción
 Librería desarrollada en C para la interfaz con el módulo transceptor LoRa **Semtech SX1262** utilizando microcontroladores STM32. Proporciona funciones para configurar parámetros de comunicación, transmitir y recibir datos, y manejar eventos de interrupción. La librería está diseñada para ser fácil de usar, eficiente y compatible con la mayoría de las series STM32 (F1, F4, etc.) utilizando HAL. Soporta configuraciones avanzadas de LoRa como Spreading Factor, Bandwidth, Coding Rate y potencia de transmisión. Ideal para proyectos de IoT, sensores remotos y redes de baja potencia.
@@ -55,7 +63,9 @@ Librería desarrollada en C para la interfaz con el módulo transceptor LoRa **S
 ### Características
 - **Comunicación SPI**: Abstracción de comandos (Write/Read registers, buffers) con manejo robusto del flag OVR.
 - **Configuración completa de parámetros LoRa**: Frecuencia (433/868/915 MHz), Spreading Factor (SF5-12), Bandwidth (7.8-500 kHz), Coding Rate (4/5 a 4/8).
-- **Transmisión y recepción blocking**: Espera por IRQ via polling en DIO1 (TxDone/RxDone + errores).
+- **Transmisión bloqueante**: Espera por IRQ vía polling en DIO1 (TxDone + Timeout), con timeout de software calculado a partir del Time on Air real.
+- **Recepción bloqueante** (`SX1262_Receive`): Espera en polling hasta RxDone, con timeout configurable.
+- **Recepción no bloqueante** (`SX1262_StartReceiveIT` + `SX1262_GetReceivedPacket`): El chip notifica vía EXTI en DIO1. El CPU no se bloquea; la bandera `SX1262_RxDoneFlag` señaliza el evento.
 - **Soporte para redes públicas, privadas y Meshtastic**: SyncWord configurable por modo o valor personalizado.
 - **LDRO automático**: Calcula y activa LowDataRateOptimize dinámicamente según SF y BW, siguiendo la sección 6.1.1.4 del datasheet.
 - **Manejo robusto de hardware**: Busy polling con timeout, reset hardware, wakeup desde Sleep.
@@ -76,12 +86,87 @@ Librería desarrollada en C para la interfaz con el módulo transceptor LoRa **S
 | **MISO**   | Input     | SPI Data In                | N/A | Configurado por periférico SPI | N/A | N/A |
 | **MOSI**   | Output    | SPI Data Out               | N/A | Configurado por periférico SPI | N/A | N/A |
 | **BUSY**   | Input     | Estado del chip (polling)  | `GPIO_INPUT` | No Pull-up/Pull-down | — | `BUSY` |
-| **DIO1**   | Input     | IRQ (Tx/Rx done)           | `GPIO_INPUT` | No Pull-up/Pull-down | — | `DIO` |
+| **DIO1**   | Input     | IRQ (Tx/Rx done) — **modo bloqueante:** `GPIO_INPUT`, **modo IT:** `GPIO_EXTI` flanco subida | `GPIO_INPUT` / `GPIO_MODE_IT_RISING` | No Pull-up/Pull-down — ver sección [EXTI](#configuración-exti-para-dio1-recepción-no-bloqueante) | — | `DIO` |
 | **RST**    | Output    | Reset del módulo           | `GPIO_OUTPUT` | Push-Pull, No Pull, Speed: Low/Medium | High | `RST` |
 | **ANT**    | RF        | Antena 50Ω (SAW filter recomendado) | N/A | N/A | N/A | N/A |
 
 > [!NOTE]
 >  DIO2 es controlado internamente por la librería como RF Switch (`SET_DIO2_AS_RF_SWITCH_CTRL`). No necesita configurarse como GPIO externo en CubeMX salvo que el hardware del módulo lo requiera diferente.
+
+---
+
+### Configuración EXTI para DIO1 (Recepción No Bloqueante)
+
+Para utilizar las funciones `SX1262_StartReceiveIT()` y `SX1262_GetReceivedPacket()`, el pin DIO1 debe configurarse como entrada con interrupción externa (EXTI) en lugar de entrada GPIO simple. El chip SX1262 mantiene DIO1 en bajo en reposo y genera un **flanco de subida** al completar una operación (RxDone, TxDone, Timeout, etc.).
+
+#### Pasos en STM32CubeMX
+
+> [!IMPORTANT]
+> Los pasos siguientes asumen que DIO1 está conectado al pin **PXx** del STM32F429. Si usas otro pin, adapta el número de línea EXTI y el handler correspondiente.
+
+**Paso 1 — Reconfigurar el modo del pin DIO1**
+
+En la vista de pines (*Pinout & Configuration*), hacer clic sobre **PXx** y seleccionar:
+
+```
+GPIO_EXTIx
+```
+
+Esto configura automáticamente PXx en modo `GPIO_MODE_IT_RISING`.
+
+**Paso 2 — Configurar los parámetros GPIO del pin**
+
+En *GPIO* → seleccionar `PXx` → pestaña *Configuration*:
+
+| Parámetro | Valor |
+|-----------|-------|
+| GPIO Mode | `External Interrupt Mode with Rising edge trigger detection` |
+| GPIO Pull-up/Pull-down | `No pull-up and no pull-down` |
+| User Label | `DIO` *(sin cambio)* |
+
+**Paso 3 — Habilitar la interrupción en el NVIC**
+
+En la pestaña *NVIC* (dentro de *System Core → NVIC*), localizar y habilitar:
+
+| Interrupción | Handler generado | Estado |
+|---|---|---|
+| `EXTI line2 interrupt` | `EXTI2_IRQHandler` | ✅ **Enabled** |
+
+Prioridad recomendada:
+
+| Campo | Valor | Motivo |
+|-------|-------|--------|
+| Preemption Priority | `5` | Mayor que UART/SPI, menor que SysTick (0) |
+| Sub Priority | `0` | — |
+
+> [!WARNING]
+> No asignes prioridad `0` a la línea EXTI. SysTick (que alimenta `HAL_GetTick`) corre en prioridad 0. Si EXTI2 también tiene prioridad 0, podría provocar una inanición del SysTick.
+
+**Paso 4 — Regenerar el código**
+
+Al regenerar con CubeMX, los siguientes cambios se aplican automáticamente:
+
+- `MX_GPIO_Init()` configura PXx con `GPIO_MODE_IT_RISING`.
+- `stm32f4xx_it.c` añade el handler `EXTI2_IRQHandler()` que llama a `HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_2)`.
+
+**Paso 5 — Añadir el callback en tu `main.c`**
+
+Dentro del bloque `/* USER CODE BEGIN 4 */` en `main.c`, implementa:
+
+```c
+/* USER CODE BEGIN 4 */
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+    if (GPIO_Pin == DIO_Pin)
+    {
+        SX1262_IRQ_Handler();  // Solo activa la bandera — sin SPI en el ISR
+    }
+}
+/* USER CODE END 4 */
+```
+
+> [!NOTE]
+> `SX1262_IRQ_Handler()` únicamente activa la variable `volatile uint8_t SX1262_RxDoneFlag`. Toda la comunicación SPI (leer IRQ status, leer buffer) se hace en el main loop mediante `SX1262_GetReceivedPacket()`, nunca dentro del ISR.
 
 ## Configuración SPI
 Configura tu periférico SPI en CubeMX/STM32CubeIDE:
@@ -161,7 +246,7 @@ if (status == SX1262_OK) {
 }
 ```
 
-### 3. Recepción
+### 3. Recepción bloqueante
 ```c
 uint8_t rx_buffer[256];
 uint8_t rx_len = 0;
@@ -177,11 +262,54 @@ if (status == SX1262_OK) {
     // Error CRC u otro error de recepción
 }
 
-// Recepción continua (bloqueante indefinida, timeout_ms = 0)
+// Recepción continua bloqueante indefinida (timeout_ms = 0)
 status = SX1262_Receive(rx_buffer, &rx_len, 0);
 ```
 
-### 4. Configuración personalizada
+### 4. Recepción no bloqueante (basada en interrupciones)
+
+> [!IMPORTANT]
+> Requiere configurar DIO1 (PXx) como EXTI con flanco de subida en CubeMX. Ver sección [Configuración EXTI para DIO1](#configuración-exti-para-dio1-recepción-no-bloqueante).
+
+```c
+// ---------------------------------------------------------------
+// En USER CODE BEGIN 4  (main.c)
+// ---------------------------------------------------------------
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+    if (GPIO_Pin == DIO_Pin)
+    {
+        SX1262_IRQ_Handler();  // Solo activa SX1262_RxDoneFlag — sin SPI
+    }
+}
+
+// ---------------------------------------------------------------
+// En USER CODE BEGIN 2  (setup, antes del while)
+// ---------------------------------------------------------------
+SX1262_StartReceiveIT();   // Pone el chip en RX continuo y retorna inmediatamente
+
+// ---------------------------------------------------------------
+// En while(1)
+// ---------------------------------------------------------------
+if (SX1262_RxDoneFlag)
+{
+    SX1262_RxDoneFlag = 0;                              // Consumir bandera
+    status = SX1262_GetReceivedPacket(rx_buffer, &rx_len); // Leer payload
+
+    if (status == SX1262_OK)
+    {
+        // Procesar rx_buffer[0..rx_len-1]
+    }
+    else if (status == SX1262_TIMEOUT) { /* timeout interno del chip */ }
+    else if (status == SX1262_ERROR)   { /* CRC u otro error */         }
+
+    SX1262_StartReceiveIT();  // Re-enganche: volver a escuchar
+}
+
+// [Otras tareas del sistema aquí — el CPU no se bloquea]
+```
+
+### 5. Configuración personalizada
 ```c
 lora_config_t mi_config = {
     .frequency        = 915000000,          // 915 MHz
@@ -200,12 +328,12 @@ SX1262_Status_t status = SX1262_ApplyConfig(&mi_config);
 ```
 
 > [!NOTE]
-> La función `SX1262_ApplyConfig()` puede llamarse en cualquier momento después de la inicialización para cambiar los parámetros de modulación sin reiniciar el chip. `SX1262_Transmit()` y `SX1262_Receive()` siempre trabajan con la última configuración aplicada.
+> La función `SX1262_ApplyConfig()` puede llamarse en cualquier momento después de la inicialización para cambiar los parámetros de modulación sin reiniciar el chip. `SX1262_Transmit()`, `SX1262_Receive()` y `SX1262_StartReceiveIT()` siempre trabajan con la última configuración aplicada.
 
-
-### 5. Ejemplo de Transmisión y Recepción Completa
+### 6. Ejemplo de Transmisión y Recepción Completa
 
 ![Transmisión y Recepción](/Librerias/SX1262/Images/TransmisionRecepcion.png)
+
 ---
 
 ## API Reference
@@ -373,9 +501,9 @@ SX1262_Status_t SX1262_Transmit(uint8_t* data, uint8_t length);
 
 ---
 
-#### `SX1262_Receive()` - Recepción de Datos
+#### `SX1262_Receive()` - Recepción Bloqueante
 
-Pone el chip en modo recepción y espera un paquete válido. Bloqueante con timeout configurable.
+Pone el chip en modo recepción y espera un paquete válido. **Bloqueante** con timeout configurable.
 
 ```c
 SX1262_Status_t SX1262_Receive(uint8_t* data, uint8_t* length, uint32_t timeout_ms);
@@ -400,6 +528,74 @@ SX1262_Status_t SX1262_Receive(uint8_t* data, uint8_t* length, uint32_t timeout_
 6. Lee `GET_RX_BUFFER_STATUS` para obtener tamaño y offset del paquete.
 7. Lee el payload del buffer interno con `READ_BUFFER`.
 8. Limpia IRQ.
+
+---
+
+#### `SX1262_StartReceiveIT()` - Iniciar Recepción No Bloqueante
+
+Pone el chip en modo RX continuo y **retorna inmediatamente**. El evento de recepción se señaliza mediante la bandera `volatile uint8_t SX1262_RxDoneFlag`, que es activada desde el ISR. Requiere que DIO1 esté configurado como EXTI en CubeMX.
+
+```c
+SX1262_Status_t SX1262_StartReceiveIT(void);
+```
+
+**Retorna:** `SX1262_OK` si el chip entró en modo RX correctamente, `SX1262_ERROR` si falla alguna escritura SPI, `SX1262_NOT_INITIALIZED` si el módulo no fue inicializado.
+
+**Secuencia interna:**
+1. Standby RC.
+2. Limpia registro IRQ (ClearIRQ).
+3. Habilita `RxDone | Timeout | CRC_ERR | HeaderErr` en DIO1 (SetDioIrqParams).
+4. Inicia RX con timeout `0xFFFFFF` (modo continuo) → `SET_RX`.
+5. Retorno inmediato — sin polling.
+
+---
+
+#### `SX1262_GetReceivedPacket()` - Leer Paquete Recibido
+
+Lee el payload del buffer interno del SX1262. Debe llamarse **solo** cuando `SX1262_RxDoneFlag == 1` (desde el main loop, no desde el ISR).
+
+```c
+SX1262_Status_t SX1262_GetReceivedPacket(uint8_t* data, uint8_t* length);
+```
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `data` | `uint8_t*` | Buffer donde se almacenará el payload recibido |
+| `length` | `uint8_t*` | Puntero donde se escribirá la longitud del paquete recibido |
+
+**Retorna:** `SX1262_OK` si se leyó un paquete válido, `SX1262_TIMEOUT` si el IRQ indica timeout del chip, `SX1262_ERROR` si hay error CRC, header inválido o fallo SPI.
+
+**Secuencia interna:**
+1. Lee registro IRQ (`GetIrqStatus`).
+2. Verifica bits: `RxDone` presente, `Timeout` y `CRC_ERR` ausentes.
+3. Lee `GetRxBufferStatus` para obtener tamaño y offset del paquete.
+4. Lee payload con `ReadBuffer`.
+5. Limpia registro IRQ.
+
+---
+
+#### `SX1262_AbortReceive()` - Cancelar Recepción
+
+Cancela la recepción en curso y regresa el chip al modo Standby. Útil para implementar un timeout de software sin bloquear el CPU.
+
+```c
+SX1262_Status_t SX1262_AbortReceive(void);
+```
+
+**Retorna:** `SX1262_OK` si el chip volvió a Standby, `SX1262_ERROR` si falla la escritura SPI.
+
+---
+
+#### `SX1262_IRQ_Handler()` - Manejador de Interrupción
+
+Función **liviana** que debe llamarse desde `HAL_GPIO_EXTI_Callback()` cuando el pin DIO (PXx) genera una interrupción. Única responsabilidad: activar `SX1262_RxDoneFlag = 1`. No realiza ninguna comunicación SPI.
+
+```c
+void SX1262_IRQ_Handler(void);
+```
+
+> [!WARNING]
+> Esta función está diseñada para ejecutarse en contexto de interrupción (ISR). **No llames a `SX1262_GetReceivedPacket()` ni a ninguna función SPI desde el ISR** — hazlo desde el main loop después de verificar `SX1262_RxDoneFlag`.
 
 ---
 
@@ -473,6 +669,19 @@ Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](/LICENSE
 
 Todos los cambios notables de esta librería se documentan en esta sección.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
+
+### [1.2.0] - 03-04-2026
+
+#### Added
+- Recepción no bloqueante basada en interrupciones EXTI:
+  - `SX1262_StartReceiveIT()`: Pone el chip en RX continuo y retorna de forma inmediata sin bloquear el CPU.
+  - `SX1262_GetReceivedPacket()`: Lee el payload del buffer interno del SX1262, debe invocarse desde el main loop al detectar `SX1262_RxDoneFlag`.
+  - `SX1262_AbortReceive()`: Cancela la recepción en curso y regresa el chip a Standby RC. Permite implementar timeouts de software sin bloquear el CPU.
+  - `SX1262_IRQ_Handler()`: Función liviana para invocar desde `HAL_GPIO_EXTI_Callback()`. Solo activa `SX1262_RxDoneFlag` — sin SPI en el ISR.
+  - `volatile uint8_t SX1262_RxDoneFlag`: Bandera productor-consumidor entre el ISR y el main loop.
+- Documentación de configuración EXTI en CubeMX para el pin DIO1: modo, NVIC, prioridad y ejemplo de callback.
+
+---
 
 ### [1.1.0] - 1-04-2026
 
