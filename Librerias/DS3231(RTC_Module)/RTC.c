@@ -4,7 +4,7 @@
  *
  * @author Daniel Ruiz
  * @date April 5, 2026
- * @version 2.0.0
+ * @version 2.1.0
  */
 
 #include "RTC.h"
@@ -241,6 +241,77 @@ DS3231_Status_t RTC_GetAlarm2(ds3231_alarm2_t *alarma2)
 
     alarma2->minutes = bcdToDec(get_alarm[0]);
     alarma2->hour    = bcdToDec(get_alarm[1]);
+
+    return DS3231_OK;
+}
+
+/**
+ * @brief Lee la temperatura interna del sensor DS3231.
+ *
+ * @details El DS3231 integra un sensor de temperatura que compensa su
+ *          oscilador TCXO. Los datos residen en dos registros consecutivos:
+ *
+ *            - 0x11 (MSB): parte entera en complemento a dos (int8_t).
+ *            - 0x12 (LSB): los dos bits más significativos (bits 7 y 6)
+ *                          representan la fracción en múltiplos de 0.25 °C.
+ *
+ *          Tabla de conversión de la fracción:
+ *            Bits [7:6] | Fracción (°C)
+ *            -----------+---------------
+ *               00      |  0.00
+ *               01      |  0.25
+ *               10      |  0.50
+ *               11      |  0.75
+ *
+ *          El campo `raw` almacena la temperatura escalada ×100 (sin punto
+ *          flotante), lo que permite imprimir fácilmente con:
+ *
+ *            printf("%d.%02d °C", temp.integer, temp.fraction);
+ *
+ * @param[out] temp Puntero a la estructura ds3231_temp_t donde se guardarán
+ *                  los valores leídos.
+ * @return DS3231_Status_t
+ */
+DS3231_Status_t RTC_GetTemperature(ds3231_temp_t *temp)
+{
+    if(DS3231_Initialized != 1)
+    {
+        return DS3231_NOT_INITIALIZED;
+    }
+
+    if(temp == NULL)
+    {
+        return DS3231_ERROR;
+    }
+
+    uint8_t raw_bytes[2];
+
+    /* Leer 2 bytes consecutivos a partir del registro 0x11 */
+    if(HAL_I2C_Mem_Read(RTC_hi2c, DS3231_ADDRESS, DS3231_TEMP_REG, 1, raw_bytes, 2, DS3231_MAX_BUSY_TIMEOUT) != HAL_OK)
+    {
+        return DS3231_ERROR;
+    }
+
+    /* Parte entera: byte MSB interpretado como entero con signo */
+    temp->integer = (int8_t)raw_bytes[0];
+
+    /* Parte fraccionaria: bits [7:6] del byte LSB → 0, 25, 50 ó 75 */
+    uint8_t frac_bits = (raw_bytes[1] >> 6) & 0x03U;
+    const uint8_t frac_table[4] = {0U, 25U, 50U, 75U};
+    temp->fraction = frac_table[frac_bits];
+
+    /*
+     * Campo raw: temperatura en centésimas de °C (entero escalado ×100).
+     * Para valores negativos la fracción se resta (ej. -6.25 °C → raw = -625).
+     */
+    if(temp->integer < 0)
+    {
+        temp->raw = (int16_t)((int16_t)temp->integer * 100) - (int16_t)temp->fraction;
+    }
+    else
+    {
+        temp->raw = (int16_t)((int16_t)temp->integer * 100) + (int16_t)temp->fraction;
+    }
 
     return DS3231_OK;
 }
