@@ -1,15 +1,14 @@
-/** 
- * RTC.h
- *
+/**
+ * @file RTC.h
  * @brief Librería para la gestión del módulo RTC DS3231 mediante comunicación I2C.
  *
  * @author Daniel Ruiz
- * @date Sep 22, 2025
+ * @date April 5, 2026
  * @version 2.0.0
  */
 
-#ifndef RTC_H_
-#define RTC_H_
+#ifndef RTC_H
+#define RTC_H
 
 /**
  * @brief Incluir el encabezado adecuado según la familia STM32 utilizada.
@@ -18,6 +17,8 @@
  * - Para STM32F4xx: "stm32f4xx_hal.h"
  */
 #include "stm32f4xx_hal.h"
+#include <stdint.h>
+#include <stdbool.h>
 
 // ============================================================================
 // MACROS Y CONSTANTES DE COMANDOS DS3231
@@ -27,6 +28,14 @@
  * @brief Dirección I2C del módulo RTC DS3231.
  */
 #define DS3231_ADDRESS 0xD0
+
+#define DS3231_REG_SECONDS 0x00
+#define DS3231_REG_ALARM1_SECONDS 0x07
+#define DS3231_REG_ALARM2_MINUTES 0x0B
+#define DS3231_TEMP_REG 0x11
+
+// Timeout
+#define DS3231_MAX_BUSY_TIMEOUT 500     /**< milisegundos*/
 
 // ============================================================================
 // CONFIGURACIÓN TIEMPO (ESTRUCTURAS)
@@ -50,7 +59,7 @@ typedef struct
     uint8_t dayofmonth;
     uint8_t month;
     uint8_t year;
-} TIME;
+} ds3231_time_t;
 
 /**
  * @brief Estructura para la configuración de la Alarma 1.
@@ -64,7 +73,7 @@ typedef struct
     uint8_t seconds;
     uint8_t minutes;
     uint8_t hour;
-} ALARM1;
+} ds3231_alarm1_t;
 
 /**
  * @brief Estructura para la configuración de la Alarma 2.
@@ -76,13 +85,13 @@ typedef struct
 {
     uint8_t minutes;
     uint8_t hour;
-} ALARM2;
+} ds3231_alarm2_t;
 
 // ============================================================================
 // ENUMERACIONES Y ESTRUCTURAS
 // ============================================================================
 /**
- * @brief Enumeración para estados de retorno del SX1262.
+ * @brief Enumeración para estados de retorno del DS3231.
  */
 typedef enum {
 	DS3231_OK = 0,				/**< Operación exitosa */
@@ -100,6 +109,14 @@ extern "C" {
 #endif
 
 /**
+ * @brief Inicializa el módulo DS3231 con el handle I2C.
+ *
+ * @param hi2c Puntero al handle de I2C utilizado para comunicarse con el DS3231.
+ * @return DS3231_Status_t Estado de la inicialización (OK, ERROR, etc.)
+ */
+DS3231_Status_t RTC_Init(I2C_HandleTypeDef* hi2c);
+
+/**
  * @brief Configura la hora y fecha del módulo RTC DS3231.
  *
  * @param hour  Hora (0-23)
@@ -108,7 +125,7 @@ extern "C" {
  * @param dom   Día del mes (1-31)
  * @param month Mes (1-12)
  * @param year  Año (0-99)
- * 
+ *
  * @return DS3231_Status_t
  */
 DS3231_Status_t RTC_SetTime(uint8_t hour, uint8_t min, uint8_t sec, uint8_t dom, uint8_t month, uint8_t year);
@@ -116,17 +133,18 @@ DS3231_Status_t RTC_SetTime(uint8_t hour, uint8_t min, uint8_t sec, uint8_t dom,
 /**
  * @brief Obtiene la hora y fecha actuales del módulo RTC DS3231.
  *
- * @param[out] time Puntero a la estructura TIME donde se almacenarán los datos.
+ * @param[out] time Puntero a la estructura ds3231_time_t donde se almacenarán los datos.
+ * @return DS3231_Status_t
  */
-DS3231_Status_t RTC_GetTime(TIME *time);
+DS3231_Status_t RTC_GetTime(ds3231_time_t *time);
 
 /**
  * @brief Configura la Alarma 1 del módulo RTC DS3231.
  *
  * @param hourAlarm Horas de la alarma (0-23)
  * @param minAlarm  Minutos de la alarma (0-59)
- * @param secAlarm  Segundos de la alarma (0-59) 
- * 
+ * @param secAlarm  Segundos de la alarma (0-59)
+ *
  * @return DS3231_Status_t
  */
 DS3231_Status_t RTC_SetAlarm1(uint8_t hourAlarm, uint8_t minAlarm, uint8_t secAlarm);
@@ -134,18 +152,18 @@ DS3231_Status_t RTC_SetAlarm1(uint8_t hourAlarm, uint8_t minAlarm, uint8_t secAl
 /**
  * @brief Obtiene la configuración actual de la Alarma 1.
  *
- * @param[out] alarma1 Puntero a la estructura ALARM1 donde se almacenarán los datos.
- * 
+ * @param[out] alarma1 Puntero a la estructura ds3231_alarm1_t donde se almacenarán los datos.
+ *
  * @return DS3231_Status_t
  */
-DS3231_Status_t RTC_GetAlarm1(ALARM1 *alarma1);
+DS3231_Status_t RTC_GetAlarm1(ds3231_alarm1_t *alarma1);
 
 /**
  * @brief Configura la Alarma 2 del módulo RTC DS3231.
  *
  * @param hourAlarm Horas de la alarma (0-23)
  * @param minAlarm  Minutos de la alarma (0-59)
- * 
+ *
  * @return DS3231_Status_t
  */
 DS3231_Status_t RTC_SetAlarm2(uint8_t hourAlarm, uint8_t minAlarm);
@@ -153,14 +171,14 @@ DS3231_Status_t RTC_SetAlarm2(uint8_t hourAlarm, uint8_t minAlarm);
 /**
  * @brief Obtiene la configuración actual de la Alarma 2.
  *
- * @param[out] alarma2 Puntero a la estructura ALARM2 donde se almacenarán los datos.
- * 
+ * @param[out] alarma2 Puntero a la estructura ds3231_alarm2_t donde se almacenarán los datos.
+ *
  * @return DS3231_Status_t
  */
-DS3231_Status_t RTC_GetAlarm2(ALARM2 *alarma2);
+DS3231_Status_t RTC_GetAlarm2(ds3231_alarm2_t *alarma2);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* RTC_H_ */
+#endif /* RTC_H */
