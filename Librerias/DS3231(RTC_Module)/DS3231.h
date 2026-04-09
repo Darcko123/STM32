@@ -3,12 +3,12 @@
  * @brief Librería para la gestión del módulo RTC DS3231 mediante comunicación I2C.
  *
  * @author Daniel Ruiz
- * @date April 5, 2026
- * @version 2.1.0
+ * @date April 9, 2026
+ * @version 2.0.0
  */
 
-#ifndef RTC_H
-#define RTC_H
+#ifndef DS3231_H
+#define DS3231_H
 
 /**
  * @brief Incluir el encabezado adecuado según la familia STM32 utilizada.
@@ -130,7 +130,7 @@ extern "C" {
  * @param hi2c Puntero al handle de I2C utilizado para comunicarse con el DS3231.
  * @return DS3231_Status_t Estado de la inicialización (OK, ERROR, etc.)
  */
-DS3231_Status_t RTC_Init(I2C_HandleTypeDef* hi2c);
+DS3231_Status_t DS3231_Init(I2C_HandleTypeDef* hi2c);
 
 /**
  * @brief Configura la hora y fecha del módulo RTC DS3231.
@@ -144,7 +144,7 @@ DS3231_Status_t RTC_Init(I2C_HandleTypeDef* hi2c);
  *
  * @return DS3231_Status_t
  */
-DS3231_Status_t RTC_SetTime(uint8_t hour, uint8_t min, uint8_t sec, uint8_t dom, uint8_t month, uint8_t year);
+DS3231_Status_t DS3231_SetTime(uint8_t hour, uint8_t min, uint8_t sec, uint8_t dom, uint8_t month, uint8_t year);
 
 /**
  * @brief Obtiene la hora y fecha actuales del módulo RTC DS3231.
@@ -152,7 +152,7 @@ DS3231_Status_t RTC_SetTime(uint8_t hour, uint8_t min, uint8_t sec, uint8_t dom,
  * @param[out] time Puntero a la estructura ds3231_time_t donde se almacenarán los datos.
  * @return DS3231_Status_t
  */
-DS3231_Status_t RTC_GetTime(ds3231_time_t *time);
+DS3231_Status_t DS3231_GetTime(ds3231_time_t *time);
 
 /**
  * @brief Configura la Alarma 1 del módulo RTC DS3231.
@@ -163,7 +163,7 @@ DS3231_Status_t RTC_GetTime(ds3231_time_t *time);
  *
  * @return DS3231_Status_t
  */
-DS3231_Status_t RTC_SetAlarm1(uint8_t hourAlarm, uint8_t minAlarm, uint8_t secAlarm);
+DS3231_Status_t DS3231_SetAlarm1(uint8_t hourAlarm, uint8_t minAlarm, uint8_t secAlarm);
 
 /**
  * @brief Obtiene la configuración actual de la Alarma 1.
@@ -172,7 +172,7 @@ DS3231_Status_t RTC_SetAlarm1(uint8_t hourAlarm, uint8_t minAlarm, uint8_t secAl
  *
  * @return DS3231_Status_t
  */
-DS3231_Status_t RTC_GetAlarm1(ds3231_alarm1_t *alarma1);
+DS3231_Status_t DS3231_GetAlarm1(ds3231_alarm1_t *alarma1);
 
 /**
  * @brief Configura la Alarma 2 del módulo RTC DS3231.
@@ -182,7 +182,7 @@ DS3231_Status_t RTC_GetAlarm1(ds3231_alarm1_t *alarma1);
  *
  * @return DS3231_Status_t
  */
-DS3231_Status_t RTC_SetAlarm2(uint8_t hourAlarm, uint8_t minAlarm);
+DS3231_Status_t DS3231_SetAlarm2(uint8_t hourAlarm, uint8_t minAlarm);
 
 /**
  * @brief Obtiene la configuración actual de la Alarma 2.
@@ -191,7 +191,7 @@ DS3231_Status_t RTC_SetAlarm2(uint8_t hourAlarm, uint8_t minAlarm);
  *
  * @return DS3231_Status_t
  */
-DS3231_Status_t RTC_GetAlarm2(ds3231_alarm2_t *alarma2);
+DS3231_Status_t DS3231_GetAlarm2(ds3231_alarm2_t *alarma2);
 
 /**
  * @brief Lee la temperatura interna del sensor DS3231.
@@ -211,10 +211,10 @@ DS3231_Status_t RTC_GetAlarm2(ds3231_alarm2_t *alarma2);
  *   - DS3231_ERROR          : Fallo en la comunicación I2C.
  *   - DS3231_NOT_INITIALIZED: El módulo no fue inicializado previamente.
  */
-DS3231_Status_t RTC_GetTemperature(ds3231_temp_t *temp);
+DS3231_Status_t DS3231_GetTemperature(ds3231_temp_t *temp);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* RTC_H */
+#endif /* DS3231_H */

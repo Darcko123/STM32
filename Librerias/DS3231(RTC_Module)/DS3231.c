@@ -3,18 +3,18 @@
  * @brief Implementación de la librería para el módulo RTC DS3231 utilizando I2C en STM32.
  *
  * @author Daniel Ruiz
- * @date April 5, 2026
- * @version 2.1.0
+ * @date April 9, 2026
+ * @version 2.0.0
  */
 
-#include "RTC.h"
+#include "DS3231.h"
 
 // ============================================================================
 // VARIABLES PRIVADAS
 // ============================================================================
 
-static I2C_HandleTypeDef* RTC_hi2c  =   NULL;     /**< Manejador de la interfaz I2C utilizado para comunicarse con el RTC */
-static uint8_t  DS3231_Initialized  =   0;        /**< Bandera para verificar si el módulo está inicializado */
+static I2C_HandleTypeDef* DS3231_hi2c  =   NULL;  /**< Manejador de la interfaz I2C utilizado para comunicarse con el RTC */
+static uint8_t     DS3231_Initialized  =   0;     /**< Bandera para verificar si el módulo está inicializado */
 
 // ============================================================================
 // FUNCIONES PRIVADAS
@@ -57,14 +57,14 @@ static uint8_t bcdToDec(uint8_t val)
  * 
  * @return DS3231_Status_t 
  */
-DS3231_Status_t RTC_Init(I2C_HandleTypeDef* hi2c)
+DS3231_Status_t DS3231_Init(I2C_HandleTypeDef* hi2c)
 {
     if(hi2c == NULL)
     {
         return DS3231_ERROR;
     }
 
-    RTC_hi2c = hi2c;
+    DS3231_hi2c = hi2c;
     DS3231_Initialized = 1;
 
     return DS3231_OK;
@@ -81,7 +81,7 @@ DS3231_Status_t RTC_Init(I2C_HandleTypeDef* hi2c)
  * @param year Año (0-99).
  * @return DS3231_Status_t 
  */
-DS3231_Status_t RTC_SetTime(uint8_t hour, uint8_t min, uint8_t sec, uint8_t dom, uint8_t month, uint8_t year)
+DS3231_Status_t DS3231_SetTime(uint8_t hour, uint8_t min, uint8_t sec, uint8_t dom, uint8_t month, uint8_t year)
 {
     if(DS3231_Initialized != 1)
     {
@@ -97,7 +97,7 @@ DS3231_Status_t RTC_SetTime(uint8_t hour, uint8_t min, uint8_t sec, uint8_t dom,
     set_time[5] = decToBcd(month);
     set_time[6] = decToBcd(year);
 
-    if(HAL_I2C_Mem_Write(RTC_hi2c, DS3231_ADDRESS, DS3231_REG_SECONDS, 1, set_time, 7, DS3231_MAX_BUSY_TIMEOUT) != HAL_OK)
+    if(HAL_I2C_Mem_Write(DS3231_hi2c, DS3231_ADDRESS, DS3231_REG_SECONDS, 1, set_time, 7, DS3231_MAX_BUSY_TIMEOUT) != HAL_OK)
     {
         return DS3231_ERROR;
     }
@@ -111,7 +111,7 @@ DS3231_Status_t RTC_SetTime(uint8_t hour, uint8_t min, uint8_t sec, uint8_t dom,
   * @param time Puntero a una estructura TIME para almacenar la hora y fecha.
   * @return DS3231_Status_t 
   */
-DS3231_Status_t RTC_GetTime(ds3231_time_t *time)
+DS3231_Status_t DS3231_GetTime(ds3231_time_t *time)
 {
     if(DS3231_Initialized != 1)
     {
@@ -119,7 +119,7 @@ DS3231_Status_t RTC_GetTime(ds3231_time_t *time)
     }
 
     uint8_t get_time[7];
-    if(HAL_I2C_Mem_Read(RTC_hi2c, DS3231_ADDRESS, DS3231_REG_SECONDS, 1, get_time, 7, DS3231_MAX_BUSY_TIMEOUT) != HAL_OK)
+    if(HAL_I2C_Mem_Read(DS3231_hi2c, DS3231_ADDRESS, DS3231_REG_SECONDS, 1, get_time, 7, DS3231_MAX_BUSY_TIMEOUT) != HAL_OK)
     {
         return DS3231_ERROR;
     }
@@ -142,7 +142,7 @@ DS3231_Status_t RTC_GetTime(ds3231_time_t *time)
  * @param secAlarm Segundos de la alarma.
  * @return DS3231_Status_t 
  */
-DS3231_Status_t RTC_SetAlarm1(uint8_t hourAlarm, uint8_t minAlarm, uint8_t secAlarm)
+DS3231_Status_t DS3231_SetAlarm1(uint8_t hourAlarm, uint8_t minAlarm, uint8_t secAlarm)
 {
     if(DS3231_Initialized != 1)
     {
@@ -155,7 +155,7 @@ DS3231_Status_t RTC_SetAlarm1(uint8_t hourAlarm, uint8_t minAlarm, uint8_t secAl
     set_alarm[1] = decToBcd(minAlarm); 
     set_alarm[2] = decToBcd(hourAlarm); 
 
-    if(HAL_I2C_Mem_Write(RTC_hi2c, DS3231_ADDRESS, DS3231_REG_ALARM1_SECONDS, 1, set_alarm, 3, DS3231_MAX_BUSY_TIMEOUT) != HAL_OK)
+    if(HAL_I2C_Mem_Write(DS3231_hi2c, DS3231_ADDRESS, DS3231_REG_ALARM1_SECONDS, 1, set_alarm, 3, DS3231_MAX_BUSY_TIMEOUT) != HAL_OK)
     {
         return DS3231_ERROR;
     }
@@ -169,7 +169,7 @@ DS3231_Status_t RTC_SetAlarm1(uint8_t hourAlarm, uint8_t minAlarm, uint8_t secAl
  * @param alarma1 Puntero a una estructura ALARM1 para almacenar los datos.
  * @return DS3231_Status_t 
  */
-DS3231_Status_t RTC_GetAlarm1(ds3231_alarm1_t *alarma1)
+DS3231_Status_t DS3231_GetAlarm1(ds3231_alarm1_t *alarma1)
 {
 
     if(DS3231_Initialized != 1)
@@ -179,7 +179,7 @@ DS3231_Status_t RTC_GetAlarm1(ds3231_alarm1_t *alarma1)
 
     uint8_t get_alarm[3];
 
-    if(HAL_I2C_Mem_Read(RTC_hi2c, DS3231_ADDRESS, DS3231_REG_ALARM1_SECONDS, 1, get_alarm, 3, DS3231_MAX_BUSY_TIMEOUT) != HAL_OK)
+    if(HAL_I2C_Mem_Read(DS3231_hi2c, DS3231_ADDRESS, DS3231_REG_ALARM1_SECONDS, 1, get_alarm, 3, DS3231_MAX_BUSY_TIMEOUT) != HAL_OK)
     {
         return DS3231_ERROR;
     }
@@ -198,7 +198,7 @@ DS3231_Status_t RTC_GetAlarm1(ds3231_alarm1_t *alarma1)
  * @param minAlarm Minutos de la alarma.
  * @return DS3231_Status_t 
  */
-DS3231_Status_t RTC_SetAlarm2(uint8_t hourAlarm, uint8_t minAlarm)
+DS3231_Status_t DS3231_SetAlarm2(uint8_t hourAlarm, uint8_t minAlarm)
 {
 
     if(DS3231_Initialized != 1)
@@ -211,7 +211,7 @@ DS3231_Status_t RTC_SetAlarm2(uint8_t hourAlarm, uint8_t minAlarm)
     set_alarm[0] = decToBcd(minAlarm);
     set_alarm[1] = decToBcd(hourAlarm);
 
-    if(HAL_I2C_Mem_Write(RTC_hi2c, DS3231_ADDRESS, DS3231_REG_ALARM2_MINUTES, 1, set_alarm, 2, DS3231_MAX_BUSY_TIMEOUT) != HAL_OK)
+    if(HAL_I2C_Mem_Write(DS3231_hi2c, DS3231_ADDRESS, DS3231_REG_ALARM2_MINUTES, 1, set_alarm, 2, DS3231_MAX_BUSY_TIMEOUT) != HAL_OK)
     {
         return DS3231_ERROR;
     }
@@ -225,7 +225,7 @@ DS3231_Status_t RTC_SetAlarm2(uint8_t hourAlarm, uint8_t minAlarm)
  * @param alarma2 Puntero a una estructura ALARM2 para almacenar los datos.
  * @return DS3231_Status_t 
  */
-DS3231_Status_t RTC_GetAlarm2(ds3231_alarm2_t *alarma2)
+DS3231_Status_t DS3231_GetAlarm2(ds3231_alarm2_t *alarma2)
 {
     if(DS3231_Initialized != 1)
     {
@@ -234,7 +234,7 @@ DS3231_Status_t RTC_GetAlarm2(ds3231_alarm2_t *alarma2)
 
     uint8_t get_alarm[2];
 
-    if(HAL_I2C_Mem_Read(RTC_hi2c, DS3231_ADDRESS, DS3231_REG_ALARM2_MINUTES, 1, get_alarm, 2, DS3231_MAX_BUSY_TIMEOUT) != HAL_OK)
+    if(HAL_I2C_Mem_Read(DS3231_hi2c, DS3231_ADDRESS, DS3231_REG_ALARM2_MINUTES, 1, get_alarm, 2, DS3231_MAX_BUSY_TIMEOUT) != HAL_OK)
     {
         return DS3231_ERROR;
     }
@@ -272,7 +272,7 @@ DS3231_Status_t RTC_GetAlarm2(ds3231_alarm2_t *alarma2)
  *                  los valores leídos.
  * @return DS3231_Status_t
  */
-DS3231_Status_t RTC_GetTemperature(ds3231_temp_t *temp)
+DS3231_Status_t DS3231_GetTemperature(ds3231_temp_t *temp)
 {
     if(DS3231_Initialized != 1)
     {
@@ -287,7 +287,7 @@ DS3231_Status_t RTC_GetTemperature(ds3231_temp_t *temp)
     uint8_t raw_bytes[2];
 
     /* Leer 2 bytes consecutivos a partir del registro 0x11 */
-    if(HAL_I2C_Mem_Read(RTC_hi2c, DS3231_ADDRESS, DS3231_TEMP_REG, 1, raw_bytes, 2, DS3231_MAX_BUSY_TIMEOUT) != HAL_OK)
+    if(HAL_I2C_Mem_Read(DS3231_hi2c, DS3231_ADDRESS, DS3231_TEMP_REG, 1, raw_bytes, 2, DS3231_MAX_BUSY_TIMEOUT) != HAL_OK)
     {
         return DS3231_ERROR;
     }
