@@ -1,5 +1,5 @@
-/*
- * si7021.c
+/**
+ * @file SI7021.c
  *
  * @brief Implementación de la librería para el sensor de temperatura y humedad SI7021 utilizando I2C en STM32.
  *
@@ -10,7 +10,12 @@
 
 #include "SI7021.h"
 
-static I2C_HandleTypeDef* SI7021_hi2c;     /**< Manejador de la interfaz I2C utilizado para comunicarse con el módulo */
+// ============================================================================
+// VARIABLES PRIVADAS
+// ============================================================================
+
+static I2C_HandleTypeDef* SI7021_hi2c   =   NULL;   /**< Manejador de la interfaz I2C utilizado para comunicarse con el módulo */
+static uint8_t      SI7021_Initialized  =   0;      /**< Bandera para verificar si el módulo está inicializado */
 
 /**
  * @brief Buffers de datos para comunicación I2C.
@@ -36,6 +41,11 @@ static uint8_t data1[3];      // Buffer para datos recibidos de humedad
 static uint16_t sum_temp, sum_humid;
 static float tempp, hu;
 
+// ============================================================================
+// FUNCIONES PÚBLICAS
+// ============================================================================
+
+
 /**
  * @brief Inicializa el sensor SI7021.
  *
@@ -45,15 +55,27 @@ static float tempp, hu;
  * 
  * @note Esta función debe ser llamada antes de realizar lecturas de temperatura y humedad.
  */
-void SI7021_Init(I2C_HandleTypeDef* hi2c)
+SI7021_Status_t SI7021_Init(I2C_HandleTypeDef* hi2c)
 {
+    if(hi2c == NULL)
+    {
+        return SI7021_ERROR;
+    }
 
     // Asigna el handler de I2C proporcionado a la variable estática
     SI7021_hi2c = hi2c;
 
     // Envía el comando de reset (0xFE) al sensor SI7021
-    HAL_I2C_Master_Transmit(SI7021_hi2c, 0x80, da, 1, 100);
+    if(HAL_I2C_Master_Transmit(SI7021_hi2c, 0x80, da, 1, 100) != HAL_OK)
+    {
+        return SI7021_ERROR;
+    }
+
     HAL_Delay(20); // Espera 20 ms para completar el reset
+
+    SI7021_Initialized = 1;
+
+    return SI7021_OK;
 }
 
 /**
@@ -64,29 +86,49 @@ void SI7021_Init(I2C_HandleTypeDef* hi2c)
  *
  * @note La fórmula de conversión está basada en el datasheet del SI7021.
  */
-void SI7021_Get(float *temp, float *humid)
+SI7021_Status_t SI7021_Get(si7021_data_t *environment)
 {
+    if(SI7021_Initialized)
+    {
+        return SI7021_NOT_INITIALIZED;
+    }
+
     // ----- Lectura de Temperatura -----
-    HAL_I2C_Master_Transmit(SI7021_hi2c, 0x80, &read[0], 1, 100); // Envía comando para medir temperatura (0xE3)
-    HAL_I2C_Master_Receive(SI7021_hi2c, 0x80, data, 3, 1000); // Recibe 3 bytes de datos de temperatura
+    if(HAL_I2C_Master_Transmit(SI7021_hi2c, 0x80, &read[0], 1, 100) != HAL_OK)  // Envía comando para medir temperatura (0xE3)
+    {
+        return SI7021_ERROR;
+    }
+    if(HAL_I2C_Master_Receive(SI7021_hi2c, 0x80, data, 3, 1000) != HAL_OK)  // Recibe 3 bytes de datos de temperatura
+    {
+        return SI7021_ERROR;
+    }
 
     // Combina los datos recibidos en un entero de 16 bits
     sum_temp = (data[0] << 8) | data[1];
     tempp = sum_temp;
 
     // Convierte el valor recibido a grados Celsius usando la fórmula del datasheet
-    *temp = (-46.85 + (175.72 * (tempp / 65536)));
+    environment->temperatura = (-46.85 + (175.72 * (tempp / 65536)));
     HAL_Delay(20);
 
     // ----- Lectura de Humedad -----
-    HAL_I2C_Master_Transmit(SI7021_hi2c, 0x80, &read[1], 1, 100); // Envía comando para medir humedad (0xE5)
-    HAL_I2C_Master_Receive(SI7021_hi2c, 0x80, data1, 3, 1000); // Recibe 3 bytes de datos de humedad
+    if(HAL_I2C_Master_Transmit(SI7021_hi2c, 0x80, &read[1], 1, 100) != HAL_OK) // Envía comando para medir humedad (0xE5)
+    {
+        return SI7021_ERROR;
+    }
+
+    if(HAL_I2C_Master_Receive(SI7021_hi2c, 0x80, data1, 3, 1000) != HAL_OK) // Recibe 3 bytes de datos de humedad
+    {
+        return SI7021_ERROR;
+    }
 
     // Combina los datos recibidos en un entero de 16 bits
     sum_humid = (data1[0] << 8) | data1[1];
     hu = sum_humid;
 
     // Convierte el valor recibido a porcentaje de humedad usando la fórmula del datasheet
-    *humid = (-6 + (125 * (hu / 65536)));
+    environment->humedad = (-6 + (125 * (hu / 65536)));
     HAL_Delay(20);
+
+    return SI7021_OK;
 }
