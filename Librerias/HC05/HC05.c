@@ -5,7 +5,7 @@
  *
  * @author Daniel Ruiz
  * @date Sep 24, 2025
- * @version 1.3
+ * @version 1.2
  */
 
 #include "HC05.h"
@@ -84,6 +84,7 @@ HC05_Status_t HC05_Init(UART_HandleTypeDef *huart,
 	for(int baud_idx = 0; baud_idx < 2; baud_idx++)
 	{
 		// Configurar UART para modo AT
+		HAL_UART_DeInit(HC05_HUART); // Resetear estado anterior para un reinicio limpio
 		HC05_HUART->Init.BaudRate = at_baudrates[baud_idx];
 		HC05_HUART->Init.WordLength = UART_WORDLENGTH_8B;
 		HC05_HUART->Init.StopBits = UART_STOPBITS_1;
@@ -114,6 +115,7 @@ HC05_Status_t HC05_Init(UART_HandleTypeDef *huart,
 		}
 	}
 
+	HC05_AT_Mode = false;
 	return HC05_ERROR;
 }
 
@@ -191,7 +193,7 @@ HC05_Status_t HC05_GetAddress(char* address)
 
 	if(HC05_SendCommand("AT+ADDR?", response, sizeof(response)) == HC05_OK)
     {
-        char* addr_ptr = strstr(response, "+ADDR=");
+        char* addr_ptr = strstr(response, "+ADDR:");
         if(addr_ptr != NULL)
         {
             addr_ptr += 6; // Saltar "+ADDR:"
@@ -654,13 +656,22 @@ HC05_Status_t HC05_SetDataBaudrate(uint32_t baudrate)
  */
 HC05_Status_t HC05_EnterDataMode(uint32_t baudrate)
 {
+	// 1. Enviar reinicio mientras aún estamos a 38400 (Modo AT)
+	char response[32];
+	HC05_SendCommand("AT+RESET", response, sizeof(response));
+
+	// 2. Apagar el pin EN (a LOW) rápidamente antes de que arranque de nuevo
 	if(HC05_ExitATMode() != HC05_OK)
 	{
 		return HC05_ERROR;
 	}
 
-	// Reconfigurar UART para modo de datos (Por defecto 115200)
-	HC05_HUART ->Init.BaudRate = HC05_DATA_BAUDRATE;
+	// Esperar a que el módulo complete su reinicio ya en modo datos
+	HAL_Delay(1000);
+
+	// 3. Reconfigurar UART para modo de datos
+	HAL_UART_DeInit(HC05_HUART);
+	HC05_HUART->Init.BaudRate = baudrate;
 	if(HAL_UART_Init(HC05_HUART) != HAL_OK)
 	{
 		return HC05_ERROR;

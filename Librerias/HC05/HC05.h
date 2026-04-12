@@ -5,7 +5,7 @@
  * 
  * @author Daniel Ruiz
  * @date Sep 24, 2025
- * @version 1.3
+ * @version 1.2
  */
 
 #ifndef INC_HC05_H_
