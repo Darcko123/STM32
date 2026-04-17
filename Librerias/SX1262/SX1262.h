@@ -5,8 +5,8 @@
  * Esta librería permite inicializar y controlar
  * 
  * @author Daniel Ruiz
- * @date April 5, 2026
- * @version 1.3.0
+ * @date April 17, 2026
+ * @version 1.4.0
  */
 
 #ifndef SX1262_H
@@ -50,6 +50,11 @@
 // Valores comunes
 #define RADIOLIB_SX126X_PACKET_TYPE_LORA      0x01
 #define RADIOLIB_SX126X_STANDBY_RC            0x00
+
+// Modos de reposo (Sleep)
+#define SX126X_SLEEP_START_WARM               0x00  /**< Mantiene la configuración en retención */
+#define SX126X_SLEEP_START_COLD               0x01  /**< Pierde la configuración al despertar */
+#define SX126X_SLEEP_RTC_WAKEUP               0x04  /**< Permite despertar mediante el temporizador RTC */
 
 // IRQ Flags 
 #define SX126X_IRQ_TX_DONE                    (1 << 0)
@@ -420,6 +425,30 @@ SX1262_Status_t SX1262_GetSNR(int8_t *snr_db);
  * @return SX1262_Status_t
  */
 SX1262_Status_t SX1262_GetConfig(lora_config_t *config);
+
+/**
+ * @brief Pone el módulo SX1262 en modo Sleep para consumo mínimo.
+ * 
+ *        En este modo el chip consume el mínimo de corriente. Para despertarlo,
+ *        se debe llamar a SX1262_Wakeup() o realizar cualquier operación SPI (NSS low).
+ * 
+ * @param sleep_config Configuración del modo sleep:
+ *                     - SX126X_SLEEP_START_WARM: Mantiene configuración (recomendado).
+ *                     - SX126X_SLEEP_START_COLD: Pierde configuración (consumo mínimo absoluto).
+ *                     - SX126X_SLEEP_RTC_WAKEUP: Permite despertar por tiempo.
+ * @return SX1262_Status_t
+ */
+SX1262_Status_t SX1262_SetSleep(uint8_t sleep_config);
+
+/**
+ * @brief Despierta el chip desde el modo Sleep.
+ * 
+ *        Realiza una secuencia de flancos en NSS para activar el regulador interno
+ *        del SX1262 y espera a que el pin BUSY se libere.
+ * 
+ * @return SX1262_Status_t
+ */
+SX1262_Status_t SX1262_Wakeup(void);
 
 #ifdef __cplusplus
 }

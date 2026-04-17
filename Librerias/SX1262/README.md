@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![STM32](https://img.shields.io/badge/Platform-STM32F411-black)](https://www.st.com/en/microcontrollers-microprocessors/stm32f4-series.html)
-[![Version](https://img.shields.io/badge/Version-1.3.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/SX1262)
+[![Version](https://img.shields.io/badge/Version-1.4.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/SX1262)
 [![Protocol](https://img.shields.io/badge/Protocol-LoRa-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/SX1262)
 
 ---
@@ -49,18 +49,22 @@
       - [`SX1262_GetConfig()` - Obtener Configuración Actual](#sx1262_getconfig---obtener-configuración-actual)
       - [`SX1262_GetRSSI()` - Obtener RSSI del último paquete recibido](#sx1262_getrssi---obtener-rssi-del-último-paquete-recibido)
       - [`SX1262_GetSNR()` - Obtener SNR del último paquete recibido](#sx1262_getsnr---obtener-snr-del-último-paquete-recibido)
+      - [`SX1262_SetSleep()` - Entrar en Modo Reposo](#sx1262_setsleep---entrar-en-modo-reposo)
+      - [`SX1262_Wakeup()` - Despertar del Modo Reposo](#sx1262_wakeup---despertar-del-modo-reposo)
   - [Licencia](#licencia)
   - [Changelog](#changelog)
-    - [\[1.3.0\] - 05-04-2026](#130---05-04-2026)
+    - [\[1.4.0\] - 17-04-2026](#140---17-04-2026)
       - [Added](#added)
-    - [\[1.2.0\] - 03-04-2026](#120---03-04-2026)
+    - [\[1.3.0\] - 05-04-2026](#130---05-04-2026)
       - [Added](#added-1)
-    - [\[1.1.0\] - 01-04-2026](#110---01-04-2026)
+    - [\[1.2.0\] - 03-04-2026](#120---03-04-2026)
       - [Added](#added-2)
+    - [\[1.1.0\] - 01-04-2026](#110---01-04-2026)
+      - [Added](#added-3)
     - [\[1.0.1\] - 30-03-2026](#101---30-03-2026)
       - [Fixed](#fixed)
     - [\[1.0.0\] - 28-03-2026](#100---28-03-2026)
-      - [Added](#added-3)
+      - [Added](#added-4)
 
 ## Descripción
 Librería desarrollada en C para la interfaz con el módulo transceptor LoRa **Semtech SX1262** utilizando microcontroladores STM32. Proporciona funciones para configurar parámetros de comunicación, transmitir y recibir datos, y manejar eventos de interrupción. La librería está diseñada para ser fácil de usar, eficiente y compatible con la mayoría de las series STM32 (F1, F4, etc.) utilizando HAL. Soporta configuraciones avanzadas de LoRa como Spreading Factor, Bandwidth, Coding Rate y potencia de transmisión. Ideal para proyectos de IoT, sensores remotos y redes de baja potencia.
@@ -482,9 +486,6 @@ typedef struct {
 Enumeración para seleccionar el modo de red LoRa, que determina el Sync Word utilizado para la comunicación, permitiendo compatibilidad con redes privadas, públicas (LoRaWAN) o Meshtastic.
 
 ```c
-/**
- * @brief Selecciona el modo de red LoRa, que determina el Sync Word enviado al chip.
- */
 typedef enum {
     LORA_NETWORK_PRIVATE    = 0,  /**< Sync Word 0x12 — red privada (por defecto LoRa) */
     LORA_NETWORK_PUBLIC     = 1,  /**< Sync Word 0x34 — red pública (LoRaWAN)          */
@@ -857,6 +858,32 @@ SX1262_Status_t SX1262_GetSNR(int8_t *snr_db);
 |-----------|------|-------------|
 | `snr_db` | `int8_t*` | Puntero donde se almacenará el valor de SNR en dB |
 
+#### `SX1262_SetSleep()` - Entrar en Modo Reposo
+
+Pone el módulo SX1262 en modo Sleep para consumo energético mínimo. En este modo el chip detiene la mayoría de sus funciones y el consumo cae a niveles de microamperios.
+
+```c
+SX1262_Status_t SX1262_SetSleep(uint8_t sleep_config);
+```
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `sleep_config` | `uint8_t` | Configuración del modo sleep (bit 0: Warm/Cold, bit 2: RTC wakeup) |
+
+**Valores recomendados:**
+- `SX126X_SLEEP_START_WARM` (0x00): Mantiene la configuración en la memoria de retención. Es el modo recomendado para poder operar rápidamente tras despertar.
+- `SX126X_SLEEP_START_COLD` (0x01): El chip se apaga completamente. Al despertar se debe re-inicializar o aplicar la configuración nuevamente.
+
+#### `SX1262_Wakeup()` - Despertar del Modo Reposo
+
+Despierta el chip desde el modo Sleep realizando una secuencia de flancos en la línea NSS. Esta función debe llamarse antes de intentar cualquier comunicación SPI tras un `SetSleep`.
+
+```c
+SX1262_Status_t SX1262_Wakeup(void);
+```
+
+**Retorna:** `SX1262_OK` si el chip despertó y liberó el pin BUSY correctamente, `SX1262_TIMEOUT` si el chip no responde.
+
 ---
 
 ## Licencia
@@ -868,6 +895,15 @@ Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](/LICENSE
 
 Todos los cambios notables de esta librería se documentan en esta sección.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
+
+### [1.4.0] - 17-04-2026
+
+#### Added
+- Gestión de estados de bajo consumo (Sleep Mode):
+  - `SX1262_SetSleep()`: Pone el transceptor en reposo profundo. Soporta modos Warm Start (retención de configuración) y Cold Start.
+  - `SX1262_Wakeup()`: Secuencia de despertar mediante NSS para reanudar operaciones tras el modo Sleep.
+  - Macros de configuración: `SX126X_SLEEP_START_WARM`, `SX126X_SLEEP_START_COLD` y `SX126X_SLEEP_RTC_WAKEUP`.
+- Documentación detallada de la nueva API en el README.
 
 ### [1.3.0] - 05-04-2026
 
