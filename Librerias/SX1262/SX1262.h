@@ -165,6 +165,37 @@ typedef enum {
 }SX1262_Status_t;
 
 // ============================================================================
+// ESTRUCTURAS PREDEFINIDAS PARA MESHTASTIC
+// ============================================================================
+
+lora_config_t LongFast = {
+	.frequency = 906875000, // Meshtastic US CH 0 freq (906.875 MHz)
+	.spreading_factor = 11,
+	.bandwidth = BW_250_KHZ,
+	.coding_rate = CR_4_5,
+	.tx_power = 20,
+	.preamble_len = 16,     // Meshtastic usa preámbulo de 16
+	.iq_inverted = false,
+	.network_mode = LORA_NETWORK_MESHTASTIC,
+	.lora_sync_word = 0, // No se usa, se determina por network_mode
+	.config_pending = true
+};
+
+lora_config_t ShortFast = {
+	.frequency = 906875000, // Meshtastic US CH 0 freq (906.875 MHz)
+	.spreading_factor = 7,
+	.bandwidth = BW_250_KHZ,
+	.coding_rate = CR_4_5,
+	.tx_power = 20,
+	.preamble_len = 16,     // Meshtastic usa preámbulo de 16
+	.iq_inverted = false,
+	.network_mode = LORA_NETWORK_MESHTASTIC,
+	.lora_sync_word = 0, // No se usa, se determina por network_mode
+	.config_pending = true
+};
+
+
+// ============================================================================
 // BANDERAS DE EVENTO (modo no bloqueante — productor: ISR, consumidor: main loop)
 // ============================================================================
 
