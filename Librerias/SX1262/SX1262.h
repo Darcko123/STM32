@@ -167,33 +167,126 @@ typedef enum {
 // ============================================================================
 // ESTRUCTURAS PREDEFINIDAS PARA MESHTASTIC
 // ============================================================================
+#ifdef MESHTASTIC
 
-lora_config_t LongFast = {
-	.frequency = 906875000, // Meshtastic US CH 0 freq (906.875 MHz)
+// Frecuencia del canal 0 de Meshtastic para la región US (906.875 MHz)
+#define MESHTASTIC_US_CH0_FREQ   906875000UL
+
+// Tamaño del encabezado OTA de Meshtastic (16 bytes, alineado a bloque AES-128)
+#define MESHTASTIC_HEADER_SIZE   16
+// Payload máximo desencriptado: 255 (límite LoRa) - 16 (header)
+#define MESHTASTIC_MAX_PAYLOAD   239
+
+/**
+ * @brief Presets de modulación LoRa de Meshtastic para la región US (915 MHz).
+ *        SF y BW según documentación oficial de Meshtastic.
+ *        Declaradas static para evitar errores de "multiple definition" al
+ *        incluir este header en más de una unidad de compilación.
+ */
+static lora_config_t LongSlow = {
+	.frequency = MESHTASTIC_US_CH0_FREQ,
+	.spreading_factor = 12,
+	.bandwidth = BW_125_KHZ,
+	.coding_rate = CR_4_8,
+	.tx_power = 20,
+	.preamble_len = 16,
+	.iq_inverted = false,
+	.network_mode = LORA_NETWORK_MESHTASTIC,
+	.lora_sync_word = 0,
+	.config_pending = true
+};
+
+static lora_config_t LongFast = {
+	.frequency = MESHTASTIC_US_CH0_FREQ,
 	.spreading_factor = 11,
 	.bandwidth = BW_250_KHZ,
 	.coding_rate = CR_4_5,
 	.tx_power = 20,
-	.preamble_len = 16,     // Meshtastic usa preámbulo de 16
+	.preamble_len = 16,
 	.iq_inverted = false,
 	.network_mode = LORA_NETWORK_MESHTASTIC,
-	.lora_sync_word = 0, // No se usa, se determina por network_mode
+	.lora_sync_word = 0,
 	.config_pending = true
 };
 
-lora_config_t ShortFast = {
-	.frequency = 906875000, // Meshtastic US CH 0 freq (906.875 MHz)
+static lora_config_t MediumSlow = {
+	.frequency = MESHTASTIC_US_CH0_FREQ,
+	.spreading_factor = 10,
+	.bandwidth = BW_250_KHZ,
+	.coding_rate = CR_4_5,
+	.tx_power = 20,
+	.preamble_len = 16,
+	.iq_inverted = false,
+	.network_mode = LORA_NETWORK_MESHTASTIC,
+	.lora_sync_word = 0,
+	.config_pending = true
+};
+
+static lora_config_t MediumFast = {
+	.frequency = MESHTASTIC_US_CH0_FREQ,
+	.spreading_factor = 9,
+	.bandwidth = BW_250_KHZ,
+	.coding_rate = CR_4_5,
+	.tx_power = 20,
+	.preamble_len = 16,
+	.iq_inverted = false,
+	.network_mode = LORA_NETWORK_MESHTASTIC,
+	.lora_sync_word = 0,
+	.config_pending = true
+};
+
+static lora_config_t ShortSlow = {
+	.frequency = MESHTASTIC_US_CH0_FREQ,
+	.spreading_factor = 8,
+	.bandwidth = BW_250_KHZ,
+	.coding_rate = CR_4_5,
+	.tx_power = 20,
+	.preamble_len = 16,
+	.iq_inverted = false,
+	.network_mode = LORA_NETWORK_MESHTASTIC,
+	.lora_sync_word = 0,
+	.config_pending = true
+};
+
+static lora_config_t ShortFast = {
+	.frequency = MESHTASTIC_US_CH0_FREQ,
 	.spreading_factor = 7,
 	.bandwidth = BW_250_KHZ,
 	.coding_rate = CR_4_5,
 	.tx_power = 20,
-	.preamble_len = 16,     // Meshtastic usa preámbulo de 16
+	.preamble_len = 16,
 	.iq_inverted = false,
 	.network_mode = LORA_NETWORK_MESHTASTIC,
-	.lora_sync_word = 0, // No se usa, se determina por network_mode
+	.lora_sync_word = 0,
 	.config_pending = true
 };
 
+/**
+ * @brief Estructura de un paquete Meshtastic ya desencriptado.
+ *
+ *        Corresponde al encabezado OTA de 16 bytes seguido del payload protobuf.
+ *        El campo `payload_len` indica cuántos bytes de `payload[]` son válidos.
+ *
+ * Distribución del encabezado (16 bytes, little-endian):
+ *   [0-3]  dest       — ID del nodo destino (0xFFFFFFFF = broadcast)
+ *   [4-7]  sender     — ID del nodo emisor
+ *   [8-11] packet_id  — Identificador único del paquete
+ *   [12]   flags      — bits[2:0]=hop_limit, bit[3]=want_ack, bit[4]=via_mqtt
+ *   [13]   channel    — Hash del canal
+ *   [14-15]reserved  — Relleno para alinear al bloque AES-128
+ */
+typedef struct __attribute__((packed)) {
+	uint32_t dest;
+	uint32_t sender;
+	uint32_t packet_id;
+	uint8_t  flags;
+	uint8_t  channel;
+	uint8_t  reserved[2];
+	uint8_t  payload[MESHTASTIC_MAX_PAYLOAD];
+	uint8_t  payload_len;
+} meshtastic_packet_t;
+
+#endif /* MESHTASTIC */
 
 // ============================================================================
 // BANDERAS DE EVENTO (modo no bloqueante — productor: ISR, consumidor: main loop)
