@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![STM32](https://img.shields.io/badge/Platform-STM32F411-black)](https://www.st.com/en/microcontrollers-microprocessors/stm32f4-series.html)
-[![Version](https://img.shields.io/badge/Version-1.4.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/SX1262)
+[![Version](https://img.shields.io/badge/Version-1.4.1-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/SX1262)
 [![Protocol](https://img.shields.io/badge/Protocol-LoRa-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/SX1262)
 
 ---
@@ -14,6 +14,8 @@
     - [Características](#características)
   - [Pinout y Conexiones](#pinout-y-conexiones)
     - [Pines requeridos](#pines-requeridos)
+      - [Bus SPI](#bus-spi)
+      - [GPIO de Control](#gpio-de-control)
     - [Configuración EXTI para DIO1 (Modos No Bloqueantes)](#configuración-exti-para-dio1-modos-no-bloqueantes)
       - [Pasos en STM32CubeMX](#pasos-en-stm32cubemx)
   - [Configuración SPI](#configuración-spi)
@@ -89,19 +91,26 @@ Librería desarrollada en C para la interfaz con el módulo transceptor LoRa **S
 
 ## Pinout y Conexiones
 ### Pines requeridos
- 
-| Pin SX1262 | Dirección | Descripción | Tipo GPIO | Configuración CubeMX | Nivel por defecto | Etiqueta CubeMX |
-|------------|-----------|-------------|-----------|----------------------|-------------------|-----------------|
-| **VCC**    | Alimentación | 3.3V ±5% (hasta 120mA TX) | N/A | N/A | N/A | N/A |
-| **GND**    | Tierra    | —                          | N/A | N/A | N/A | N/A |
-| **NSS/CS** | Output    | Chip Select (SPI)          | `GPIO_OUTPUT` | Push-Pull, No Pull, Speed: High | High | `NSS` |
-| **SCK**    | Output    | SPI Clock                  | N/A | Configurado por periférico SPI | N/A | N/A |
-| **MISO**   | Input     | SPI Data In                | N/A | Configurado por periférico SPI | N/A | N/A |
-| **MOSI**   | Output    | SPI Data Out               | N/A | Configurado por periférico SPI | N/A | N/A |
-| **BUSY**   | Input     | Estado del chip (polling)  | `GPIO_INPUT` | No Pull-up/Pull-down | — | `BUSY` |
-| **DIO1**   | Input     | IRQ (Tx/Rx done) — **modo bloqueante:** `GPIO_INPUT`, **modo IT:** `GPIO_EXTI` flanco subida | `GPIO_INPUT` / `GPIO_MODE_IT_RISING` | No Pull-up/Pull-down — ver sección [EXTI](#configuración-exti-para-dio1-recepción-no-bloqueante) | — | `DIO` |
-| **RST**    | Output    | Reset del módulo           | `GPIO_OUTPUT` | Push-Pull, No Pull, Speed: Low/Medium | High | `RST` |
-| **ANT**    | RF        | Antena 50Ω (SAW filter recomendado) | N/A | N/A | N/A | N/A |
+
+#### Bus SPI
+
+| Pin SX1262 | Dirección | Descripción | Configuración CubeMX |
+|------------|-----------|-------------|----------------------|
+| **VCC**    | Alimentación | 3.3V ±5% (hasta 120mA TX) | N/A |
+| **GND**    | Tierra    | —                          | N/A |
+| **SCK**    | Output    | SPI Clock                  | Configurado por periférico SPI |
+| **MISO**   | Input     | SPI Data In                | Configurado por periférico SPI |
+| **MOSI**   | Output    | SPI Data Out               | Configurado por periférico SPI |
+| **ANT**    | RF        | Antena 50Ω (SAW filter recomendado) | N/A |
+
+#### GPIO de Control
+
+| Pin SX1262 | Dirección | Descripción | Tipo GPIO | Nivel por defecto | GPIO Pull-up/Pull-down | Velocidad Máxima de Salida | Etiqueta CubeMX |
+|------------|-----------|-------------|-----------|-------------------|------------------------|----------------------------|-----------------|
+| **NSS/CS** | Output    | Chip Select (SPI)          | `GPIO_OUTPUT` | HIGH | No pull-up no pull-down | Very High | `NSS` |
+| **RST**    | Output    | Reset del módulo           | `GPIO_OUTPUT` | HIGH | No pull-up no pull-down | Low |`RST` |
+| **BUSY**   | Input     | Estado del chip (polling)  | `GPIO_INPUT` | — | No pull-up no pull-down | n/a |`BUSY` |
+| **DIO1**   | Input     | IRQ (Tx/Rx done) — **modo bloqueante:** `GPIO_INPUT`, **modo IT:** `GPIO_EXTI` flanco subida | `GPIO_INPUT` / `GPIO_MODE_IT_RISING` | — | No pull-up no pull-down - ver seccion [EXIT](#configuración-exti-para-dio1-modos-no-bloqueantes) | n/a |`DIO` |
 
 > [!NOTE]
 >  DIO2 es controlado internamente por la librería como RF Switch (`SET_DIO2_AS_RF_SWITCH_CTRL`). No necesita configurarse como GPIO externo en CubeMX salvo que el hardware del módulo lo requiera diferente.
