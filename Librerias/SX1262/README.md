@@ -55,18 +55,21 @@
       - [`SX1262_Wakeup()` - Despertar del Modo Reposo](#sx1262_wakeup---despertar-del-modo-reposo)
   - [Licencia](#licencia)
   - [Changelog](#changelog)
-    - [\[1.4.0\] - 17-04-2026](#140---17-04-2026)
+    - [\[1.5.0\] - 19-04-2026](#150---19-04-2026)
       - [Added](#added)
-    - [\[1.3.0\] - 05-04-2026](#130---05-04-2026)
+      - [Changed](#changed)
+    - [\[1.4.0\] - 17-04-2026](#140---17-04-2026)
       - [Added](#added-1)
-    - [\[1.2.0\] - 03-04-2026](#120---03-04-2026)
+    - [\[1.3.0\] - 05-04-2026](#130---05-04-2026)
       - [Added](#added-2)
-    - [\[1.1.0\] - 01-04-2026](#110---01-04-2026)
+    - [\[1.2.0\] - 03-04-2026](#120---03-04-2026)
       - [Added](#added-3)
+    - [\[1.1.0\] - 01-04-2026](#110---01-04-2026)
+      - [Added](#added-4)
     - [\[1.0.1\] - 30-03-2026](#101---30-03-2026)
       - [Fixed](#fixed)
     - [\[1.0.0\] - 28-03-2026](#100---28-03-2026)
-      - [Added](#added-4)
+      - [Added](#added-5)
 
 ## Descripción
 Librería desarrollada en C para la interfaz con el módulo transceptor LoRa **Semtech SX1262** utilizando microcontroladores STM32. Proporciona funciones para configurar parámetros de comunicación, transmitir y recibir datos, y manejar eventos de interrupción. La librería está diseñada para ser fácil de usar, eficiente y compatible con la mayoría de las series STM32 (F1, F4, etc.) utilizando HAL. Soporta configuraciones avanzadas de LoRa como Spreading Factor, Bandwidth, Coding Rate y potencia de transmisión. Ideal para proyectos de IoT, sensores remotos y redes de baja potencia.
@@ -904,6 +907,16 @@ Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](/LICENSE
 
 Todos los cambios notables de esta librería se documentan en esta sección.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
+
+### [1.5.0] - 19-04-2026
+
+#### Added
+- Preset de configuración para red Meshtastic: `LORA_NETWORK_MESHTASTIC` con Sync Word 0x2B, compatible con dispositivos que usan el firmware Meshtastic.
+
+#### Changed
+- Documentación: la tabla de *Pines requeridos* fue dividida en dos subtablas diferenciadas — **Bus SPI** (VCC, GND, SCK, MISO, MOSI, ANT) y **GPIO de Control** (NSS/CS, RST, BUSY, DIO1) — para mayor claridad en la configuración de CubeMX.
+
+---
 
 ### [1.4.0] - 17-04-2026
 
