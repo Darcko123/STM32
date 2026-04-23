@@ -1157,8 +1157,8 @@ SX1262_Status_t SX1262_ApplyConfig(lora_config_t *config) {
       sync_lsb = 0x44; // SW lógico 0x34 (LoRaWAN)
       break;
     case LORA_NETWORK_MESHTASTIC:
-      sync_msb = 0x2B;
-      sync_lsb = 0xB4; // SW lógico 0x2B (Meshtastic)
+      sync_msb = 0x24;
+      sync_lsb = 0xB4; // SW lógico 0x2B (Meshtastic): (0x2B & 0xF0)|0x04=0x24, ((0x2B&0x0F)<<4)|0x04=0xB4
       break;
     case LORA_NETWORK_PRIVATE:
     default:

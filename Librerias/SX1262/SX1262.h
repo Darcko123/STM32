@@ -66,6 +66,8 @@
 #define SX126X_IRQ_CRC_ERR                    (1 << 6)
 #define SX126X_IRQ_TIMEOUT                    (1 << 9)
 
+#define MESHTASTIC_US_CH0_FREQ   906875000UL
+
 // Timeout
 #define SX1262_MAX_BUSY_TIMEOUT 500     /**< milisegundos*/
 
@@ -99,12 +101,12 @@ typedef enum {
  * |------------------------|-----------------|-----------------|------------------|
  * | LORA_NETWORK_PRIVATE   |      0x14       |      0x24       |      0x12        |
  * | LORA_NETWORK_PUBLIC    |      0x34       |      0x44       |      0x34        |
- * | LORA_NETWORK_MESHTASTIC|      0x2B       |      0xB4       |      0x2B        |
+ * | LORA_NETWORK_MESHTASTIC|      0x24       |      0xB4       |      0x2B        |
  *
  * Nota: los valores de registro se calculan con la fórmula de Semtech:
  *   reg[0x0740] = (SW & 0xF0) | 0x04
- *   reg[0x0741] = (SW << 4)   | 0x04
- * Para SW=0x2B: reg[0x0740]=0x2B, reg[0x0741]=(0x2B<<4)|0x04=0xB4.
+ *   reg[0x0741] = ((SW & 0x0F) << 4) | 0x04
+ * Para SW=0x2B: reg[0x0740]=(0x2B&0xF0)|0x04=0x24, reg[0x0741]=(0x0B<<4)|0x04=0xB4.
  *
  * Meshtastic usa el sync word 0x2B (definido en su firmware como LORA_PREAMBLE_LENGTH
  * con sync 0x2B). Permite interoperar directamente con nodos Meshtastic sin
@@ -168,32 +170,89 @@ typedef enum {
 // ESTRUCTURAS PREDEFINIDAS PARA MESHTASTIC
 // ============================================================================
 
-lora_config_t LongFast = {
-	.frequency = 906875000, // Meshtastic US CH 0 freq (906.875 MHz)
+/**
+ * @brief Presets de modulación LoRa de Meshtastic para la región US (915 MHz).
+ *        SF y BW según documentación oficial de Meshtastic.
+ *        Declaradas static para evitar errores de "multiple definition" al
+ *        incluir este header en más de una unidad de compilación.
+ */
+static lora_config_t LongSlow = {
+	.frequency = MESHTASTIC_US_CH0_FREQ,
+	.spreading_factor = 12,
+	.bandwidth = BW_125_KHZ,
+	.coding_rate = CR_4_8,
+	.tx_power = 20,
+	.preamble_len = 16,
+	.iq_inverted = false,
+	.network_mode = LORA_NETWORK_MESHTASTIC,
+	.lora_sync_word = 0,
+	.config_pending = true
+};
+
+static lora_config_t LongFast = {
+	.frequency = MESHTASTIC_US_CH0_FREQ,
 	.spreading_factor = 11,
 	.bandwidth = BW_250_KHZ,
 	.coding_rate = CR_4_5,
 	.tx_power = 20,
-	.preamble_len = 16,     // Meshtastic usa preámbulo de 16
+	.preamble_len = 16,
 	.iq_inverted = false,
 	.network_mode = LORA_NETWORK_MESHTASTIC,
-	.lora_sync_word = 0, // No se usa, se determina por network_mode
+	.lora_sync_word = 0,
 	.config_pending = true
 };
 
-lora_config_t ShortFast = {
-	.frequency = 906875000, // Meshtastic US CH 0 freq (906.875 MHz)
+static lora_config_t MediumSlow = {
+	.frequency = MESHTASTIC_US_CH0_FREQ,
+	.spreading_factor = 10,
+	.bandwidth = BW_250_KHZ,
+	.coding_rate = CR_4_5,
+	.tx_power = 20,
+	.preamble_len = 16,
+	.iq_inverted = false,
+	.network_mode = LORA_NETWORK_MESHTASTIC,
+	.lora_sync_word = 0,
+	.config_pending = true
+};
+
+static lora_config_t MediumFast = {
+	.frequency = MESHTASTIC_US_CH0_FREQ,
+	.spreading_factor = 9,
+	.bandwidth = BW_250_KHZ,
+	.coding_rate = CR_4_5,
+	.tx_power = 20,
+	.preamble_len = 16,
+	.iq_inverted = false,
+	.network_mode = LORA_NETWORK_MESHTASTIC,
+	.lora_sync_word = 0,
+	.config_pending = true
+};
+
+static lora_config_t ShortSlow = {
+	.frequency = MESHTASTIC_US_CH0_FREQ,
+	.spreading_factor = 8,
+	.bandwidth = BW_250_KHZ,
+	.coding_rate = CR_4_5,
+	.tx_power = 20,
+	.preamble_len = 16,
+	.iq_inverted = false,
+	.network_mode = LORA_NETWORK_MESHTASTIC,
+	.lora_sync_word = 0,
+	.config_pending = true
+};
+
+static lora_config_t ShortFast = {
+	.frequency = MESHTASTIC_US_CH0_FREQ,
 	.spreading_factor = 7,
 	.bandwidth = BW_250_KHZ,
 	.coding_rate = CR_4_5,
 	.tx_power = 20,
-	.preamble_len = 16,     // Meshtastic usa preámbulo de 16
+	.preamble_len = 16,
 	.iq_inverted = false,
 	.network_mode = LORA_NETWORK_MESHTASTIC,
-	.lora_sync_word = 0, // No se usa, se determina por network_mode
+	.lora_sync_word = 0,
 	.config_pending = true
 };
-
 
 // ============================================================================
 // BANDERAS DE EVENTO (modo no bloqueante — productor: ISR, consumidor: main loop)
