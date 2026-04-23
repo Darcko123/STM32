@@ -38,7 +38,7 @@
       - [`DS3231_GetTemperature()` - Leer Temperatura](#ds3231_gettemperature---leer-temperatura)
   - [Licencia](#licencia)
   - [Changelog](#changelog)
-    - [\[2.0.0\] - 09-04-2025](#200---09-04-2025)
+    - [\[2.0.0\] - 09-04-2026](#200---09-04-2026)
       - [Added](#added)
       - [Changed](#changed)
     - [\[1.1.0\] - 22-09-2025](#110---22-09-2025)
@@ -411,7 +411,7 @@ El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1
 
 ---
 
-### [2.0.0] - 09-04-2025
+### [2.0.0] - 09-04-2026
 
 #### Added
 - Sistema de gestión de errores con códigos de retorno específicos (`DS3231_Status_t`).
