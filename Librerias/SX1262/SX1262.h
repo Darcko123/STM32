@@ -5,8 +5,8 @@
  * Esta librería permite inicializar y controlar
  * 
  * @author Daniel Ruiz
- * @date April 17, 2026
- * @version 1.4.0
+ * @date Abril 23, 2026
+ * @version 1.5.0
  */
 
 #ifndef SX1262_H
@@ -173,86 +173,14 @@ typedef enum {
 /**
  * @brief Presets de modulación LoRa de Meshtastic para la región US (915 MHz).
  *        SF y BW según documentación oficial de Meshtastic.
- *        Declaradas static para evitar errores de "multiple definition" al
- *        incluir este header en más de una unidad de compilación.
+ *        Definidas en SX1262.c para evitar la advertencia -Wunused-variable.
  */
-static lora_config_t LongSlow = {
-	.frequency = MESHTASTIC_US_CH0_FREQ,
-	.spreading_factor = 12,
-	.bandwidth = BW_125_KHZ,
-	.coding_rate = CR_4_8,
-	.tx_power = 20,
-	.preamble_len = 16,
-	.iq_inverted = false,
-	.network_mode = LORA_NETWORK_MESHTASTIC,
-	.lora_sync_word = 0,
-	.config_pending = true
-};
-
-static lora_config_t LongFast = {
-	.frequency = MESHTASTIC_US_CH0_FREQ,
-	.spreading_factor = 11,
-	.bandwidth = BW_250_KHZ,
-	.coding_rate = CR_4_5,
-	.tx_power = 20,
-	.preamble_len = 16,
-	.iq_inverted = false,
-	.network_mode = LORA_NETWORK_MESHTASTIC,
-	.lora_sync_word = 0,
-	.config_pending = true
-};
-
-static lora_config_t MediumSlow = {
-	.frequency = MESHTASTIC_US_CH0_FREQ,
-	.spreading_factor = 10,
-	.bandwidth = BW_250_KHZ,
-	.coding_rate = CR_4_5,
-	.tx_power = 20,
-	.preamble_len = 16,
-	.iq_inverted = false,
-	.network_mode = LORA_NETWORK_MESHTASTIC,
-	.lora_sync_word = 0,
-	.config_pending = true
-};
-
-static lora_config_t MediumFast = {
-	.frequency = MESHTASTIC_US_CH0_FREQ,
-	.spreading_factor = 9,
-	.bandwidth = BW_250_KHZ,
-	.coding_rate = CR_4_5,
-	.tx_power = 20,
-	.preamble_len = 16,
-	.iq_inverted = false,
-	.network_mode = LORA_NETWORK_MESHTASTIC,
-	.lora_sync_word = 0,
-	.config_pending = true
-};
-
-static lora_config_t ShortSlow = {
-	.frequency = MESHTASTIC_US_CH0_FREQ,
-	.spreading_factor = 8,
-	.bandwidth = BW_250_KHZ,
-	.coding_rate = CR_4_5,
-	.tx_power = 20,
-	.preamble_len = 16,
-	.iq_inverted = false,
-	.network_mode = LORA_NETWORK_MESHTASTIC,
-	.lora_sync_word = 0,
-	.config_pending = true
-};
-
-static lora_config_t ShortFast = {
-	.frequency = MESHTASTIC_US_CH0_FREQ,
-	.spreading_factor = 7,
-	.bandwidth = BW_250_KHZ,
-	.coding_rate = CR_4_5,
-	.tx_power = 20,
-	.preamble_len = 16,
-	.iq_inverted = false,
-	.network_mode = LORA_NETWORK_MESHTASTIC,
-	.lora_sync_word = 0,
-	.config_pending = true
-};
+extern lora_config_t LongSlow;
+extern lora_config_t LongFast;
+extern lora_config_t MediumSlow;
+extern lora_config_t MediumFast;
+extern lora_config_t ShortSlow;
+extern lora_config_t ShortFast;
 
 // ============================================================================
 // BANDERAS DE EVENTO (modo no bloqueante — productor: ISR, consumidor: main loop)
