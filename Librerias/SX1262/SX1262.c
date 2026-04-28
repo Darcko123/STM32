@@ -5,8 +5,8 @@
  * Esta librería permite inicializar y controlar
  *
  * @author Daniel Ruiz
- * @date Abril 23, 2026
- * @version 1.5.0
+ * @date Abril 27, 2026
+ * @version 1.6.0
  */
 
 #include "SX1262.h"
@@ -31,21 +31,21 @@ static uint16_t RST_GPIO_Pin          = 0;
 
 static uint8_t SX1262_Initialized     = 0;    /**< Bandera para verificar si el módulo está inicializado */
 
-static lora_config_t  SX1262_CurrentConfig;   /**< Configuración actual aplicada al módulo */
+static lora_config_t  SX1262_LoRa_CurrentConfig;   /**< Configuración actual aplicada al módulo */
 
 /**
  * @brief Bandera de recepción no bloqueante (productor: ISR, consumidor: main
  * loop). SX1262_IRQ_Handler() la activa a 1 cuando DIO1 sube y TxActive == 0.
- *        El main loop la lee, la pone a 0 y llama SX1262_GetReceivedPacket().
+ *        El main loop la lee, la pone a 0 y llama SX1262_LoRa_GetReceivedPacket().
  */
-volatile uint8_t SX1262_RxDoneFlag = 0;
+volatile uint8_t SX1262_LoRa_RxDoneFlag = 0;
 
 /**
  * @brief Bandera de transmisión no bloqueante (productor: ISR, consumidor: main
  * loop). SX1262_IRQ_Handler() la activa a 1 cuando DIO1 sube y TxActive == 1.
- *        El main loop la lee, la pone a 0 y llama SX1262_GetTransmitStatus().
+ *        El main loop la lee, la pone a 0 y llama SX1262_LoRa_GetTransmitStatus().
  */
-volatile uint8_t SX1262_TxDoneFlag = 0;
+volatile uint8_t SX1262_LoRa_TxDoneFlag = 0;
 
 // ============================================================================
 // PRESETS MESHTASTIC (US, 915 MHz)
@@ -178,7 +178,7 @@ static SX1262_Status_t SX1262_WriteCommand(uint8_t cmd, uint8_t *buffer, uint16_
   }
 
   HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_RESET);
-  
+
   if (HAL_SPI_Transmit(SX1262_hspi, &cmd, 1, HAL_MAX_DELAY) != HAL_OK)
   {
     HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_SET);
@@ -377,7 +377,7 @@ static uint32_t SX1262_BandwidthToHz(lora_signal_bandwidth_t bw)
 
     case BW_500_KHZ:
       return 500000UL;
-      
+
     default:
       return 0UL;
   }
@@ -540,7 +540,7 @@ SX1262_Status_t SX1262_Init(SPI_HandleTypeDef *hspi,
   }
 
   // Configuración base por defecto
-  lora_config_t default_config =
+  lora_config_t default_lora_config =
   {
     .frequency = 915000000,
     .spreading_factor = 7,
@@ -556,7 +556,7 @@ SX1262_Status_t SX1262_Init(SPI_HandleTypeDef *hspi,
 
   // Habilitar marca para permitir comandos internos
   SX1262_Initialized = 1;
-  if (SX1262_ApplyConfig(&default_config) != SX1262_OK)
+  if (SX1262_LoRa_ApplyConfig(&default_lora_config) != SX1262_OK)
   {
     SX1262_Initialized = 0;
     return SX1262_ERROR;
@@ -574,13 +574,13 @@ SX1262_Status_t SX1262_Init(SPI_HandleTypeDef *hspi,
 }
 
 /**
- * @brief Transmite datos a través del módulo SX1262
+ * @brief Transmite datos a través del módulo SX1262 en modo LoRa (bloqueante).
  *
  * @param data Puntero a los datos a transmitir
  * @param length Longitud de los datos a transmitir (máximo 255 bytes)
  * @return SX1262_Status_t
  */
-SX1262_Status_t SX1262_Transmit(uint8_t *data, uint8_t length)
+SX1262_Status_t SX1262_LoRa_Transmit(uint8_t *data, uint8_t length)
 {
   if (SX1262_Initialized != 1)
   {
@@ -589,9 +589,9 @@ SX1262_Status_t SX1262_Transmit(uint8_t *data, uint8_t length)
 
   // Verificar si hay una configuración pendiente sin aplicar.
   // Transmitir con parámetros obsoletos puede causar fallos silenciosos.
-  if (SX1262_CurrentConfig.config_pending)
+  if (SX1262_LoRa_CurrentConfig.config_pending)
   {
-    return SX1262_ERROR; // Llamar a SX1262_ApplyConfig() antes de transmitir
+    return SX1262_ERROR; // Llamar a SX1262_LoRa_ApplyConfig() antes de transmitir
   }
 
   uint8_t buf[8];
@@ -618,12 +618,12 @@ SX1262_Status_t SX1262_Transmit(uint8_t *data, uint8_t length)
   }
 
   // Actualizar longitud de payload (requerido antes de Tx)
-  buf[0] = (SX1262_CurrentConfig.preamble_len >> 8) & 0xFF;
-  buf[1] = (SX1262_CurrentConfig.preamble_len) & 0xFF;
+  buf[0] = (SX1262_LoRa_CurrentConfig.preamble_len >> 8) & 0xFF;
+  buf[1] = (SX1262_LoRa_CurrentConfig.preamble_len) & 0xFF;
   buf[2] = 0x00; // Explicit Header
   buf[3] = length;
   buf[4] = 0x01; // CRC On
-  buf[5] = SX1262_CurrentConfig.iq_inverted ? 0x01 : 0x00;
+  buf[5] = SX1262_LoRa_CurrentConfig.iq_inverted ? 0x01 : 0x00;
   if (SX1262_WriteCommand(SX126X_CMD_SET_PACKET_PARAMS, buf, 6) != SX1262_OK)
   {
     return SX1262_ERROR;
@@ -665,7 +665,7 @@ SX1262_Status_t SX1262_Transmit(uint8_t *data, uint8_t length)
   // Calcular timeout de software basado en el ToA real del paquete + 50 % de
   // margen. Esto evita el hardcode de 5 segundos y adapta el timeout a los
   // parámetros LoRa.
-  uint32_t toa_ms = SX1262_ComputeToA_ms(length, &SX1262_CurrentConfig);
+  uint32_t toa_ms = SX1262_ComputeToA_ms(length, &SX1262_LoRa_CurrentConfig);
   uint32_t tx_timeout = toa_ms + toa_ms / 2U + 100U; // ToA * 1.5 + 100 ms de margen
 
   // Esperar IRQ (DIO1 en alto => TxDone o TxTimeout)
@@ -724,21 +724,21 @@ SX1262_Status_t SX1262_Transmit(uint8_t *data, uint8_t length)
 }
 
 // ============================================================================
-// TRANSMISIÓN NO BLOQUEANTE (IT)
+// TRANSMISIÓN NO BLOQUEANTE (IT) — LoRa
 // ============================================================================
 
 /**
- * @brief Inicia la transmisión de un paquete y retorna inmediatamente.
+ * @brief Inicia la transmisión de un paquete LoRa y retorna inmediatamente.
  *
- *        Sigue la misma secuencia de comandos que SX1262_Transmit(), pero
+ *        Sigue la misma secuencia de comandos que SX1262_LoRa_Transmit(), pero
  *        omite el bucle de polling en DIO1. En su lugar:
  *          1. Activa SX1262_TxActive = 1 (semáforo para el dispatcher ISR).
  *          2. Llama SetTx con timeout de chip = 0x000000 (infinito).
  *          3. Retorna — el CPU queda libre.
  *
  *        El ISR detectará el flanco de subida en DIO1 y activará
- *        SX1262_TxDoneFlag, que el main loop debe consumir llamando
- *        SX1262_GetTransmitStatus().
+ *        SX1262_LoRa_TxDoneFlag, que el main loop debe consumir llamando
+ *        SX1262_LoRa_GetTransmitStatus().
  *
  * Flujo:
  *  1. Standby RC
@@ -755,16 +755,16 @@ SX1262_Status_t SX1262_Transmit(uint8_t *data, uint8_t length)
  * @param length Longitud de los datos (máximo 255 bytes).
  * @return SX1262_Status_t
  */
-SX1262_Status_t SX1262_StartTransmitIT(uint8_t *data, uint8_t length)
+SX1262_Status_t SX1262_LoRa_StartTransmitIT(uint8_t *data, uint8_t length)
 {
   if (SX1262_Initialized != 1)
   {
     return SX1262_NOT_INITIALIZED;
   }
-  
-  if (SX1262_CurrentConfig.config_pending)
+
+  if (SX1262_LoRa_CurrentConfig.config_pending)
   {
-    return SX1262_ERROR; // Llamar a SX1262_ApplyConfig() antes de transmitir
+    return SX1262_ERROR; // Llamar a SX1262_LoRa_ApplyConfig() antes de transmitir
   }
 
   if (SX1262_TxActive)
@@ -801,12 +801,12 @@ SX1262_Status_t SX1262_StartTransmitIT(uint8_t *data, uint8_t length)
   }
 
   // 4. Actualizar parámetros del paquete con la longitud real del payload
-  buf[0] = (SX1262_CurrentConfig.preamble_len >> 8) & 0xFF; // Preamble MSB
-  buf[1] = (SX1262_CurrentConfig.preamble_len) & 0xFF;      // Preamble LSB
-  buf[2] = 0x00;                                            // Explicit Header
-  buf[3] = length;                                          // PayloadLength real
-  buf[4] = 0x01;                                            // CRC On
-  buf[5] = SX1262_CurrentConfig.iq_inverted ? 0x01 : 0x00;  // Invert IQ
+  buf[0] = (SX1262_LoRa_CurrentConfig.preamble_len >> 8) & 0xFF; // Preamble MSB
+  buf[1] = (SX1262_LoRa_CurrentConfig.preamble_len) & 0xFF;      // Preamble LSB
+  buf[2] = 0x00;                                                  // Explicit Header
+  buf[3] = length;                                                // PayloadLength real
+  buf[4] = 0x01;                                                  // CRC On
+  buf[5] = SX1262_LoRa_CurrentConfig.iq_inverted ? 0x01 : 0x00;  // Invert IQ
   if (SX1262_WriteCommand(SX126X_CMD_SET_PACKET_PARAMS, buf, 6) != SX1262_OK)
   {
     return SX1262_ERROR;
@@ -855,20 +855,20 @@ SX1262_Status_t SX1262_StartTransmitIT(uint8_t *data, uint8_t length)
 }
 
 /**
- * @brief Verifica y consume el evento TX_DONE tras SX1262_TxDoneFlag == 1.
+ * @brief Verifica y consume el evento TX_DONE tras SX1262_LoRa_TxDoneFlag == 1.
  *
  *        Lee el registro IRQ del chip para discernir entre TX_DONE real
  *        y TIMEOUT del chip, limpia el registro IRQ y libera el semáforo
  *        SX1262_TxActive para permitir la siguiente transmisión o recepción.
  *
- *        SOLO llamar cuando SX1262_TxDoneFlag == 1 (desde el main loop).
+ *        SOLO llamar cuando SX1262_LoRa_TxDoneFlag == 1 (desde el main loop).
  *        NO llamar desde el ISR (realiza comunicación SPI).
  *
  * @return SX1262_Status_t SX1262_OK      si TX_DONE confirmado,
  *                         SX1262_TIMEOUT si el chip reporta timeout interno,
  *                         SX1262_ERROR   si condición inesperada o fallo SPI.
  */
-SX1262_Status_t SX1262_GetTransmitStatus(void)
+SX1262_Status_t SX1262_LoRa_GetTransmitStatus(void)
 {
   if (SX1262_Initialized != 1)
   {
@@ -914,15 +914,15 @@ SX1262_Status_t SX1262_GetTransmitStatus(void)
 }
 
 /**
- * @brief Cancela la transmisión IT en curso y regresa el chip a Standby RC.
+ * @brief Cancela la transmisión LoRa IT en curso y regresa el chip a Standby RC.
  *
  *        Útil para timeouts de software: el main loop llama esta función
- *        si SX1262_TxDoneFlag no se activó en el tiempo esperado.
+ *        si SX1262_LoRa_TxDoneFlag no se activó en el tiempo esperado.
  *        Libera SX1262_TxActive para permitir nuevas operaciones.
  *
  * @return SX1262_Status_t
  */
-SX1262_Status_t SX1262_AbortTransmit(void)
+SX1262_Status_t SX1262_LoRa_AbortTransmit(void)
 {
   if (SX1262_Initialized != 1)
   {
@@ -951,7 +951,7 @@ SX1262_Status_t SX1262_AbortTransmit(void)
 }
 
 /**
- * @brief Recibe datos a través del módulo SX1262
+ * @brief Recibe datos a través del módulo SX1262 en modo LoRa (bloqueante).
  *
  * @param data Puntero al buffer donde se almacenarán los datos recibidos
  * @param length Puntero a una variable donde se almacenará la longitud de los
@@ -960,7 +960,7 @@ SX1262_Status_t SX1262_AbortTransmit(void)
  * milisegundos). Si es 0, espera indefinidamente.
  * @return SX1262_Status_t
  */
-SX1262_Status_t SX1262_Receive(uint8_t *data, uint8_t *length, uint32_t timeout_ms)
+SX1262_Status_t SX1262_LoRa_Receive(uint8_t *data, uint8_t *length, uint32_t timeout_ms)
 {
   if (SX1262_Initialized != 1)
   {
@@ -970,9 +970,9 @@ SX1262_Status_t SX1262_Receive(uint8_t *data, uint8_t *length, uint32_t timeout_
   // Verificar si hay una configuración pendiente sin aplicar.
   // Recibir con parámetros obsoletos (frecuencia, BW, SF, etc.) puede causar
   // que el chip nunca detecte un paquete válido.
-  if (SX1262_CurrentConfig.config_pending)
+  if (SX1262_LoRa_CurrentConfig.config_pending)
   {
-    return SX1262_ERROR; // Llamar a SX1262_ApplyConfig() antes de recibir
+    return SX1262_ERROR; // Llamar a SX1262_LoRa_ApplyConfig() antes de recibir
   }
 
   uint8_t buf[8];
@@ -1083,10 +1083,10 @@ SX1262_Status_t SX1262_Receive(uint8_t *data, uint8_t *length, uint32_t timeout_
 }
 
 /**
- * @brief Configura el chip SX1262 en modo RX continuo y retorna inmediatamente.
+ * @brief Configura el chip SX1262 en modo RX LoRa continuo y retorna inmediatamente.
  *
  *        No realiza ningún polling. El evento de recepción se señaliza
- *        mediante SX1262_RxDoneFlag activada desde el ISR (EXTI en DIO1).
+ *        mediante SX1262_LoRa_RxDoneFlag activada desde el ISR (EXTI en DIO1).
  *
  * Flujo:
  *  1. Standby RC
@@ -1097,16 +1097,16 @@ SX1262_Status_t SX1262_Receive(uint8_t *data, uint8_t *length, uint32_t timeout_
  *
  * @return SX1262_Status_t
  */
-SX1262_Status_t SX1262_StartReceiveIT(void)
+SX1262_Status_t SX1262_LoRa_StartReceiveIT(void)
 {
   if (SX1262_Initialized != 1)
   {
     return SX1262_NOT_INITIALIZED;
   }
 
-  if (SX1262_CurrentConfig.config_pending)
+  if (SX1262_LoRa_CurrentConfig.config_pending)
   {
-    return SX1262_ERROR; // Llamar a SX1262_ApplyConfig() antes de recibir
+    return SX1262_ERROR; // Llamar a SX1262_LoRa_ApplyConfig() antes de recibir
   }
 
   uint8_t buf[8];
@@ -1157,8 +1157,8 @@ SX1262_Status_t SX1262_StartReceiveIT(void)
 }
 
 /**
- * @brief Lee el payload del paquete recibido después de que SX1262_RxDoneFlag
- * se active.
+ * @brief Lee el payload del paquete LoRa recibido después de que
+ * SX1262_LoRa_RxDoneFlag se active.
  *
  *        SOLO debe llamarse desde el main loop, nunca desde el ISR.
  *
@@ -1166,7 +1166,7 @@ SX1262_Status_t SX1262_StartReceiveIT(void)
  * @param length Longitud del paquete recibido (bytes).
  * @return SX1262_Status_t
  */
-SX1262_Status_t SX1262_GetReceivedPacket(uint8_t *data, uint8_t *length)
+SX1262_Status_t SX1262_LoRa_GetReceivedPacket(uint8_t *data, uint8_t *length)
 {
   if (SX1262_Initialized != 1)
   {
@@ -1230,14 +1230,14 @@ SX1262_Status_t SX1262_GetReceivedPacket(uint8_t *data, uint8_t *length)
 }
 
 /**
- * @brief Cancela la recepción en curso y regresa el chip a modo Standby RC.
+ * @brief Cancela la recepción LoRa en curso y regresa el chip a modo Standby RC.
  *
  *        Útil para timeouts de software: el main loop llama esta función
- *        si SX1262_RxDoneFlag no se activó en el tiempo esperado.
+ *        si SX1262_LoRa_RxDoneFlag no se activó en el tiempo esperado.
  *
  * @return SX1262_Status_t
  */
-SX1262_Status_t SX1262_AbortReceive(void)
+SX1262_Status_t SX1262_LoRa_AbortReceive(void)
 {
   if (SX1262_Initialized != 1)
   {
@@ -1278,11 +1278,11 @@ void SX1262_IRQ_Handler(void)
 {
   if (SX1262_TxActive)
   {
-    SX1262_TxDoneFlag = 1; // Evento TX: señal a SX1262_GetTransmitStatus()
+    SX1262_LoRa_TxDoneFlag = 1; // Evento TX: señal a SX1262_LoRa_GetTransmitStatus()
   }
   else
   {
-    SX1262_RxDoneFlag = 1; // Evento RX: señal a SX1262_GetReceivedPacket()
+    SX1262_LoRa_RxDoneFlag = 1; // Evento RX: señal a SX1262_LoRa_GetReceivedPacket()
   }
 }
 
@@ -1292,7 +1292,7 @@ void SX1262_IRQ_Handler(void)
  * @param config Puntero a la estructura de configuración (lora_config_t)
  * @return SX1262_Status_t
  */
-SX1262_Status_t SX1262_ApplyConfig(lora_config_t *config)
+SX1262_Status_t SX1262_LoRa_ApplyConfig(lora_config_t *config)
 {
   if (SX1262_Initialized != 1)
   {
@@ -1416,20 +1416,20 @@ SX1262_Status_t SX1262_ApplyConfig(lora_config_t *config)
   }
 
   // Guardar estado actual
-  SX1262_CurrentConfig = *config;
-  SX1262_CurrentConfig.config_pending = false;
+  SX1262_LoRa_CurrentConfig = *config;
+  SX1262_LoRa_CurrentConfig.config_pending = false;
 
   return SX1262_OK;
 }
 
 /**
- * @brief Obtiene el RSSI del último paquete recibido.
+ * @brief Obtiene el RSSI del último paquete LoRa recibido.
  *
  *        Internamente emite el comando GetPacketStatus (0x14) y calcula:
  *          RSSI_pkt [dBm] = -RssiPkt / 2
  *        según el datasheet SX1262 §13.5.3.
  *
- *        Debe llamarse después de una recepción exitosa (SX1262_Receive ==
+ *        Debe llamarse después de una recepción exitosa (SX1262_LoRa_Receive ==
  * SX1262_OK). Si se llama fuera de ese contexto, el chip devuelve el último
  * valor almacenado en su registro, que puede no ser válido.
  *
@@ -1437,7 +1437,7 @@ SX1262_Status_t SX1262_ApplyConfig(lora_config_t *config)
  * típico).
  * @return SX1262_Status_t
  */
-SX1262_Status_t SX1262_GetRSSI(int16_t *rssi_dbm)
+SX1262_Status_t SX1262_LoRa_GetRSSI(int16_t *rssi_dbm)
 {
   if (SX1262_Initialized != 1)
   {
@@ -1465,7 +1465,7 @@ SX1262_Status_t SX1262_GetRSSI(int16_t *rssi_dbm)
 }
 
 /**
- * @brief Obtiene el SNR del último paquete recibido.
+ * @brief Obtiene el SNR del último paquete LoRa recibido.
  *
  *        Internamente emite el comando GetPacketStatus (0x14) y calcula:
  *          SNR [dB] = SnrPkt / 4
@@ -1473,14 +1473,14 @@ SX1262_Status_t SX1262_GetRSSI(int16_t *rssi_dbm)
  *        por lo que el SNR puede ser negativo (señal por debajo del nivel de
  * ruido).
  *
- *        Debe llamarse después de una recepción exitosa (SX1262_Receive ==
+ *        Debe llamarse después de una recepción exitosa (SX1262_LoRa_Receive ==
  * SX1262_OK).
  *
  * @param snr_db    Puntero donde se almacenará el SNR en dB (puede ser
  * negativo).
  * @return SX1262_Status_t
  */
-SX1262_Status_t SX1262_GetSNR(int8_t *snr_db)
+SX1262_Status_t SX1262_LoRa_GetSNR(int8_t *snr_db)
 {
   if (SX1262_Initialized != 1)
   {
@@ -1510,9 +1510,8 @@ SX1262_Status_t SX1262_GetSNR(int8_t *snr_db)
  * chip.
  *
  *        La copia refleja el estado que fue enviado al SX1262 en la última
- * llamada exitosa a SX1262_ApplyConfig(). El campo config_pending de la copia
- *        siempre será false, ya que solo se guarda tras una aplicación
- * correcta.
+ * llamada exitosa a SX1262_LoRa_ApplyConfig(). El campo config_pending de la
+ * copia siempre será false, ya que solo se guarda tras una aplicación correcta.
  *
  *        Esta función es de solo lectura: no modifica el estado interno del
  * módulo ni realiza ninguna comunicación SPI.
@@ -1521,7 +1520,7 @@ SX1262_Status_t SX1262_GetSNR(int8_t *snr_db)
  * actual.
  * @return SX1262_Status_t
  */
-SX1262_Status_t SX1262_GetConfig(lora_config_t *config)
+SX1262_Status_t SX1262_LoRa_GetConfig(lora_config_t *config)
 {
   if (SX1262_Initialized != 1)
   {
@@ -1532,7 +1531,7 @@ SX1262_Status_t SX1262_GetConfig(lora_config_t *config)
     return SX1262_ERROR;
   }
 
-  *config = SX1262_CurrentConfig;
+  *config = SX1262_LoRa_CurrentConfig;
 
   return SX1262_OK;
 }
