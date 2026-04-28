@@ -3,7 +3,7 @@
 
 ¡Bienvenido al repositorio de **STM32 Embedded Libraries and Examples**! Aquí encontrarás una colección de librerías y ejemplos prácticos para facilitar el desarrollo de aplicaciones embebidas basadas en microcontroladores STM32.
 
-## 📚 **Descripción General**
+## **Descripción General**
 
 Este repositorio está dividido en cuatro secciones principales:
 
@@ -14,7 +14,7 @@ Este repositorio está dividido en cuatro secciones principales:
 
 ---
 
-## 📁 **Estructura del Repositorio**
+## **Estructura del Repositorio**
 
 ```
 STM32/
@@ -64,7 +64,7 @@ STM32/
 
 ---
 
-## ⚙️ **Requisitos Previos**
+## **Requisitos Previos**
 
 - STM32CubeIDE o cualquier entorno compatible con STM32.
 - Microcontrolador STM32 (dependiendo del ejemplo o librería).
@@ -72,7 +72,7 @@ STM32/
 
 ---
 
-## 🚀 **Cómo Empezar**
+## **Cómo Empezar**
 
 1. **Clona el repositorio:**
    ```bash
@@ -89,13 +89,13 @@ STM32/
 
 ---
 
-## 📄 **Licencia**
+## **Licencia**
 
 Este proyecto está bajo la licencia **MIT**. Consulta el archivo [LICENSE](./LICENSE.md) para más detalles.
 
 ---
 
-## 📞 **Contacto**
+## **Contacto**
 
 Si tienes alguna duda o sugerencia, no dudes en ponerte en contacto:
 - **Autor:** Daniel Ruiz
