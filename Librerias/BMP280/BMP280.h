@@ -113,7 +113,7 @@ typedef enum {
  */
 typedef struct {
     float temperatura;  /**< Temperatura [°C] */
-    float presion;      /**< Presión [Pa] */
+    float presion;      /**< Presión [hPa] */
     float altitud;      /**< Altitud estimada [m] */
 } BMP280_Data_t;
 
@@ -137,34 +137,30 @@ extern "C" {
 #endif
 
 /**
- * @brief Inicializa el driver BMP280.
+ * @brief Inicializa el driver BMP280 con configuración por defecto.
  *
- * Verifica el Chip ID, realiza un soft reset, lee los coeficientes de
- * calibración y aplica la configuración proporcionada en modo normal.
+ * Intenta detectar el sensor en las direcciones 0x76 y 0x77.
+ * Realiza un soft reset y aplica una configuración óptima para uso general.
  *
- * @param[in] hi2c   Puntero al handle de I2C utilizado para comunicarse con el módulo BMP280.
- * @param[in] config Puntero a la estructura de configuración del BMP280.
+ * @param[in] hi2c   Puntero al handle de I2C.
  * @return BMP280_Status_t
- *         - BMP280_OK             si la inicialización fue exitosa.
- *         - BMP280_ERROR          si el Chip ID no coincide o hay error de comunicación.
- *         - BMP280_INVALID_PARAM  si @p hi2c o @p config son NULL, o si la dirección es inválida.
  */
-BMP280_Status_t BMP280_Init(I2C_HandleTypeDef* hi2c, const BMP280_Config_t* config);
+BMP280_Status_t BMP280_Init(I2C_HandleTypeDef* hi2c);
 
 /**
  * @brief Lee temperatura, presión y altitud compensadas del BMP280.
  *
- * @note El cálculo de altitud requiere enlazar la biblioteca matemática (-lm).
- *
  * @param[out] data Puntero a la estructura donde se guardarán los datos.
  * @return BMP280_Status_t
- *         - BMP280_OK              si la lectura fue exitosa.
- *         - BMP280_TIMEOUT         si ocurrió un timeout de HAL.
- *         - BMP280_ERROR           si hubo un error de comunicación.
- *         - BMP280_NOT_INITIALIZED si el driver no ha sido inicializado.
- *         - BMP280_INVALID_PARAM   si @p data es NULL.
  */
-BMP280_Status_t BMP280_Get(BMP280_Data_t* data);
+BMP280_Status_t BMP280_ReadData(BMP280_Data_t* data);
+
+/**
+ * @brief Macro para lectura simplificada de datos.
+ *
+ * Permite llamar a la función como BMP280_Get(variable) en lugar de usar punteros.
+ */
+#define BMP280_Get(data) BMP280_ReadData(&(data))
 
 #ifdef __cplusplus
 }

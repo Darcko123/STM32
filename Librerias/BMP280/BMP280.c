@@ -146,30 +146,29 @@ static uint32_t bmp280_CompensatePress(int32_t adc_P, int32_t fine_temp)
 // ============================================================================
 
 /**
- * @brief Inicializa el driver BMP280.
+ * @brief Inicializa el driver BMP280 con configuración por defecto.
  *
- * Verifica el Chip ID, realiza un soft reset, lee los coeficientes de
- * calibración y aplica la configuración proporcionada en modo normal.
- *
- * @param[in] hi2c   Puntero al handle de I2C utilizado para comunicarse con el módulo BMP280.
- * @param[in] config Puntero a la estructura de configuración del BMP280.
+ * @param[in] hi2c   Puntero al handle de I2C.
  * @return BMP280_Status_t
  */
-BMP280_Status_t BMP280_Init(I2C_HandleTypeDef* hi2c, const BMP280_Config_t* config)
+BMP280_Status_t BMP280_Init(I2C_HandleTypeDef* hi2c)
 {
-    if (hi2c == NULL || config == NULL) { return BMP280_INVALID_PARAM; }
-
-    if (config->address != BMP280_ADDRESS_0 &&
-        config->address != BMP280_ADDRESS_1)  { return BMP280_INVALID_PARAM; }
+    if (hi2c == NULL) { return BMP280_INVALID_PARAM; }
 
     BMP280_hi2c = hi2c;
-    BMP280_addr = config->address;
 
-    /* Verificar Chip ID */
+    /* Intentar detectar el sensor en las dos direcciones posibles */
     uint8_t id = 0U;
+    BMP280_addr = BMP280_ADDRESS_0;
     BMP280_Status_t status = bmp280_ReadRegs(BMP280_REG_ID, &id, 1U);
-    if (status != BMP280_OK)  { return status; }
-    if (id != BMP280_CHIP_ID) { return BMP280_ERROR; }
+
+    if (status != BMP280_OK || id != BMP280_CHIP_ID) {
+        BMP280_addr = BMP280_ADDRESS_1;
+        status = bmp280_ReadRegs(BMP280_REG_ID, &id, 1U);
+        if (status != BMP280_OK || id != BMP280_CHIP_ID) {
+            return BMP280_ERROR;
+        }
+    }
 
     /* Soft reset */
     status = bmp280_WriteReg(BMP280_REG_RESET, BMP280_RESET_VALUE);
@@ -187,14 +186,13 @@ BMP280_Status_t BMP280_Init(I2C_HandleTypeDef* hi2c, const BMP280_Config_t* conf
     status = bmp280_ReadCalibration();
     if (status != BMP280_OK) { return status; }
 
-    /* Configurar filtro IIR y standby time */
-    uint8_t cfg = (uint8_t)(((uint8_t)config->standby << 5) | ((uint8_t)config->filter << 2));
+    /* Configuración por defecto: Filter x16, Standby 0.5ms */
+    uint8_t cfg = (uint8_t)(((uint8_t)BMP280_STANDBY_0_5MS << 5) | ((uint8_t)BMP280_FILTER_16 << 2));
     status = bmp280_WriteReg(BMP280_REG_CONFIG, cfg);
     if (status != BMP280_OK) { return status; }
 
-    /* Configurar oversampling y activar modo normal */
-    uint8_t ctrl = (uint8_t)(((uint8_t)config->oversampling_temp << 5) |
-                              ((uint8_t)config->oversampling_pressure << 2) | 0x03U);
+    /* Configuración por defecto: Temp x2, Press x16, Mode Normal */
+    uint8_t ctrl = (uint8_t)(((uint8_t)BMP280_OS_X2 << 5) | ((uint8_t)BMP280_OS_X16 << 2) | 0x03U);
     status = bmp280_WriteReg(BMP280_REG_CTRL, ctrl);
     if (status != BMP280_OK) { return status; }
 
@@ -206,12 +204,10 @@ BMP280_Status_t BMP280_Init(I2C_HandleTypeDef* hi2c, const BMP280_Config_t* conf
 /**
  * @brief Lee temperatura, presión y altitud compensadas del BMP280.
  *
- * @note El cálculo de altitud requiere enlazar la biblioteca matemática (-lm).
- *
  * @param[out] data Puntero a la estructura donde se guardarán los datos.
  * @return BMP280_Status_t
  */
-BMP280_Status_t BMP280_Get(BMP280_Data_t* data)
+BMP280_Status_t BMP280_ReadData(BMP280_Data_t* data)
 {
     if (data == NULL)             { return BMP280_INVALID_PARAM;   }
     if (BMP280_Initialized != 1U) { return BMP280_NOT_INITIALIZED; }
@@ -229,8 +225,8 @@ BMP280_Status_t BMP280_Get(BMP280_Data_t* data)
     uint32_t press_q248 = bmp280_CompensatePress(adc_P, fine_temp);
 
     data->temperatura = (float)temp_c100  / 100.0f;
-    data->presion     = (float)press_q248 / 256.0f;
-    data->altitud     = 44330.0f * (1.0f - powf(data->presion / (BMP280_SEA_LEVEL_HPA * 100.0f), 0.1903f));
+    data->presion     = (float)press_q248 / 25600.0f; // Convertir Pa a hPa
+    data->altitud     = 44330.0f * (1.0f - powf(data->presion / BMP280_SEA_LEVEL_HPA, 0.1903f));
 
     return BMP280_OK;
 }
