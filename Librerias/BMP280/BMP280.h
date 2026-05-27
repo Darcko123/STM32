@@ -144,6 +144,9 @@ extern "C" {
  *
  * @param[in] hi2c   Puntero al handle de I2C.
  * @return BMP280_Status_t
+ *         - BMP280_OK             si la inicialización fue exitosa.
+ *         - BMP280_ERROR          si el Chip ID no coincide o hay error de comunicación.
+ *         - BMP280_INVALID_PARAM  si @p hi2c o @p config son NULL, o si la dirección es inválida.
  */
 BMP280_Status_t BMP280_Init(I2C_HandleTypeDef* hi2c);
 

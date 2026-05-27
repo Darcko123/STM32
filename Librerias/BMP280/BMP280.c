@@ -174,13 +174,19 @@ BMP280_Status_t BMP280_Init(I2C_HandleTypeDef* hi2c)
     status = bmp280_WriteReg(BMP280_REG_RESET, BMP280_RESET_VALUE);
     if (status != BMP280_OK) { return status; }
 
-    /* Esperar a que termine la copia de coeficientes desde NVM */
-    uint8_t stat = 1U;
+    /* El BMP280 necesita ~2ms para reiniciarse antes de responder por I2C */
+    HAL_Delay(3U);
+
+    /* Esperar a que termine la copia de coeficientes desde NVM (bit im_update) */
+    uint8_t stat    = 1U;
+    uint8_t retries = 10U;
     do {
         HAL_Delay(1U);
         status = bmp280_ReadRegs(BMP280_REG_STATUS, &stat, 1U);
         if (status != BMP280_OK) { return status; }
-    } while (stat & 0x01U);
+    } while ((stat & 0x01U) && (--retries > 0U));
+
+    if (retries == 0U) { return BMP280_TIMEOUT; }
 
     /* Leer coeficientes de calibración de fábrica */
     status = bmp280_ReadCalibration();
