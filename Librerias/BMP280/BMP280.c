@@ -8,8 +8,8 @@
  *          Basado en la implementación de sheinz (MIT License, 2016).
  *
  * @author Daniel Ruiz
- * @date Mayo 12, 2026
- * @version 0.1.0
+ * @date Mayo 28, 2026
+ * @version 1.0.0
  */
 
 #include "BMP280.h"
@@ -18,7 +18,7 @@
 // VARIABLES PRIVADAS
 // ============================================================================
 
-static I2C_HandleTypeDef*  BMP280_hi2c        = NULL;
+static I2C_HandleTypeDef*   BMP280_hi2c        = NULL;
 static uint8_t              BMP280_addr        = BMP280_ADDRESS_0;
 static uint8_t              BMP280_Initialized = 0U;
 
@@ -202,6 +202,9 @@ BMP280_Status_t BMP280_Init(I2C_HandleTypeDef* hi2c)
     status = bmp280_WriteReg(BMP280_REG_CTRL, ctrl);
     if (status != BMP280_OK) { return status; }
 
+    /* Esperar a que se complete la primera medición antes de retornar */
+    HAL_Delay(50U);
+
     BMP280_Initialized = 1U;
 
     return BMP280_OK;
@@ -213,7 +216,7 @@ BMP280_Status_t BMP280_Init(I2C_HandleTypeDef* hi2c)
  * @param[out] data Puntero a la estructura donde se guardarán los datos.
  * @return BMP280_Status_t
  */
-BMP280_Status_t BMP280_ReadData(BMP280_Data_t* data)
+BMP280_Status_t BMP280_Get(BMP280_Data_t* data)
 {
     if (data == NULL)             { return BMP280_INVALID_PARAM;   }
     if (BMP280_Initialized != 1U) { return BMP280_NOT_INITIALIZED; }

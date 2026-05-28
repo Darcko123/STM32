@@ -8,8 +8,8 @@
  *          Basado en la implementación de sheinz (MIT License, 2016).
  *
  * @author Daniel Ruiz
- * @date Mayo 12, 2026
- * @version 0.1.0
+ * @date Mayo 28, 2026
+ * @version 1.0.0
  */
 
 #ifndef BMP280_H
@@ -19,17 +19,9 @@
 // INCLUDES
 // ============================================================================
 
-/* Ajustar según la familia STM32 utilizada:
- * STM32F0xx: #include "stm32f0xx_hal.h"
- * STM32F1xx: #include "stm32f1xx_hal.h"
- * STM32F4xx: #include "stm32f4xx_hal.h"
- * STM32G0xx: #include "stm32g0xx_hal.h"
- * STM32L0xx: #include "stm32l0xx_hal.h"
- */
-#include "stm32f4xx_hal.h"
+#include "main.h"
 
 #include <stdint.h>
-#include <stdbool.h>
 #include <math.h>
 
 // ============================================================================
@@ -117,17 +109,6 @@ typedef struct {
     float altitud;      /**< Altitud estimada [m] */
 } BMP280_Data_t;
 
-/**
- * @brief Estructura de configuración del BMP280.
- */
-typedef struct {
-    uint8_t               address;              /**< Dirección I2C: BMP280_ADDRESS_0 o BMP280_ADDRESS_1 */
-    BMP280_Filter_t       filter;               /**< Filtro IIR */
-    BMP280_Oversampling_t oversampling_pressure;/**< Oversampling de presión */
-    BMP280_Oversampling_t oversampling_temp;    /**< Oversampling de temperatura */
-    BMP280_StandbyTime_t  standby;             /**< Tiempo de espera en modo normal */
-} BMP280_Config_t;
-
 // ============================================================================
 // PROTOTIPOS DE FUNCIONES PÚBLICAS
 // ============================================================================
@@ -146,7 +127,7 @@ extern "C" {
  * @return BMP280_Status_t
  *         - BMP280_OK             si la inicialización fue exitosa.
  *         - BMP280_ERROR          si el Chip ID no coincide o hay error de comunicación.
- *         - BMP280_INVALID_PARAM  si @p hi2c o @p config son NULL, o si la dirección es inválida.
+ *         - BMP280_INVALID_PARAM  si @p hi2c es NULL.
  */
 BMP280_Status_t BMP280_Init(I2C_HandleTypeDef* hi2c);
 
@@ -156,14 +137,7 @@ BMP280_Status_t BMP280_Init(I2C_HandleTypeDef* hi2c);
  * @param[out] data Puntero a la estructura donde se guardarán los datos.
  * @return BMP280_Status_t
  */
-BMP280_Status_t BMP280_ReadData(BMP280_Data_t* data);
-
-/**
- * @brief Macro para lectura simplificada de datos.
- *
- * Permite llamar a la función como BMP280_Get(variable) en lugar de usar punteros.
- */
-#define BMP280_Get(data) BMP280_ReadData(&(data))
+BMP280_Status_t BMP280_Get(BMP280_Data_t* data);
 
 #ifdef __cplusplus
 }
