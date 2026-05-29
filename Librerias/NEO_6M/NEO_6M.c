@@ -9,6 +9,7 @@
 
 #include "NEO_6M.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 // ============================================================================
@@ -28,9 +29,10 @@ static NEO6M_GPS_Data_t gpsData = {0};
 // PROTOTIPOS DE FUNCIONES PRIVADAS
 // ============================================================================
 
-static float nmeaToDecimal(float coordinate);
-static void  gpsParse(char* strParse);
-static int   gpsValidate(char* nmea);
+static double nmeaToDecimal(double coordinate);
+static void   parseUtcTime(const char* timeStr);
+static void   gpsParse(char* strParse);
+static int    gpsValidate(char* nmea);
 
 // ============================================================================
 // FUNCIONES PRIVADAS
@@ -39,11 +41,43 @@ static int   gpsValidate(char* nmea);
 /**
  * @brief Convierte una coordenada NMEA (DDmm.mmmm) a grados decimales.
  */
-static float nmeaToDecimal(float coordinate)
+static double nmeaToDecimal(double coordinate)
 {
-    int   degree  = (int)(coordinate / 100);
-    float minutes = coordinate - degree * 100;
-    return degree + (minutes / 60.0f);
+    int    degree  = (int)(coordinate / 100.0);
+    double minutes = coordinate - degree * 100.0;
+    return degree + (minutes / 60.0);
+}
+
+/**
+ * @brief Convierte un string de tiempo NMEA "hhmmss.ss" en campo de tiempo gpsData.
+ */
+static void parseUtcTime(const char* timeStr)
+{
+    if (timeStr == NULL || timeStr[0] == '\0')
+    {
+        return;
+    }
+
+    char tmp[3] = {0};
+
+    tmp[0] = timeStr[0]; tmp[1] = timeStr[1];
+    gpsData.hours = (uint8_t)atoi(tmp);
+
+    tmp[0] = timeStr[2]; tmp[1] = timeStr[3];
+    gpsData.minutes = (uint8_t)atoi(tmp);
+
+    tmp[0] = timeStr[4]; tmp[1] = timeStr[5];
+    gpsData.seconds = (uint8_t)atoi(tmp);
+
+    if (timeStr[6] == '.' && timeStr[7] != '\0' && timeStr[8] != '\0')
+    {
+        tmp[0] = timeStr[7]; tmp[1] = timeStr[8];
+        gpsData.milliseconds = (uint16_t)(atoi(tmp) * 10);
+    }
+    else
+    {
+        gpsData.milliseconds = 0U;
+    }
 }
 
 /**
@@ -51,26 +85,39 @@ static float nmeaToDecimal(float coordinate)
  */
 static void gpsParse(char* strParse)
 {
-    float nmeaLat  = 0.0f;
-    float nmeaLong = 0.0f;
+    char   timeStr[12] = {0};
+    double nmeaLat     = 0.0;
+    double nmeaLong    = 0.0;
+    int    fixQ        = 0;
+    int    numSat      = 0;
 
     if (!strncmp(strParse, "$GPGGA", 6))
     {
-        sscanf(strParse, "$GPGGA,%f,%f,%c,%f,%c",
-               &gpsData.utcTime, &nmeaLat, &gpsData.northSouth,
-               &nmeaLong, &gpsData.eastWest);
+        sscanf(strParse, "$GPGGA,%11[^,],%lf,%c,%lf,%c,%d,%d,%*f,%f",
+               timeStr, &nmeaLat, &gpsData.northSouth,
+               &nmeaLong, &gpsData.eastWest,
+               &fixQ, &numSat, &gpsData.altitude);
+
+        gpsData.fixQuality    = (uint8_t)fixQ;
+        gpsData.numSatellites = (uint8_t)numSat;
+        parseUtcTime(timeStr);
     }
     else if (!strncmp(strParse, "$GPGLL", 6))
     {
-        sscanf(strParse, "$GPGLL,%f,%c,%f,%c,%f",
-               &nmeaLat, &gpsData.northSouth, &nmeaLong,
-               &gpsData.eastWest, &gpsData.utcTime);
+        sscanf(strParse, "$GPGLL,%lf,%c,%lf,%c,%11[^,]",
+               &nmeaLat, &gpsData.northSouth,
+               &nmeaLong, &gpsData.eastWest, timeStr);
+
+        parseUtcTime(timeStr);
     }
     else if (!strncmp(strParse, "$GPRMC", 6))
     {
-        sscanf(strParse, "$GPRMC,%f,%c,%f,%c,%f,%c",
-               &gpsData.utcTime, &gpsData.posStatus, &nmeaLat,
-               &gpsData.northSouth, &nmeaLong, &gpsData.eastWest);
+        sscanf(strParse, "$GPRMC,%11[^,],%c,%lf,%c,%lf,%c",
+               timeStr, &gpsData.posStatus,
+               &nmeaLat, &gpsData.northSouth,
+               &nmeaLong, &gpsData.eastWest);
+
+        parseUtcTime(timeStr);
     }
     else
     {

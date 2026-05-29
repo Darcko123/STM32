@@ -55,10 +55,16 @@ typedef enum {
 typedef struct {
     float latitude;     /**< Latitud en grados decimales          */
     float longitude;    /**< Longitud en grados decimales         */
-    float utcTime;      /**< Hora UTC en formato hhmmss.ss        */
-    char  northSouth;   /**< Indicador de hemisferio: 'N' o 'S'  */
-    char  eastWest;     /**< Indicador de hemisferio: 'E' o 'W'  */
+    char  northSouth;   /**< Indicador de hemisferio: 'N' o 'S'   */
+    char  eastWest;     /**< Indicador de hemisferio: 'E' o 'W'   */
+    uint8_t  hours;     /**< Hora UTC del fix (GPGGA/GPRMC)       */
+    uint8_t  minutes;   /**< Minutos UTC del fix (GPGGA/GPRMC)    */
+    uint8_t  seconds;   /**< Segundos UTC del fix (GPGGA/GPRMC)   */
+    uint16_t milliseconds; /**< Milisegundos UTC del fix (GPGGA/GPRMC) */
     char  posStatus;    /**< Estado de posición (GPRMC): 'A' = válido, 'V' = vacío */
+    float    altitude;  /**< Altitud en metros (GPGGA)            */
+    uint8_t fixQuality; /**< Calidad del fix (GPGGA)              */
+    uint8_t numSatellites; /**< Número de satélites en vista (GPGGA) */
 } NEO6M_GPS_Data_t;
 
 // ============================================================================
