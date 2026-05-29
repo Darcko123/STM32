@@ -7,7 +7,7 @@
  * @version 0.1.0
  */
 
-#include "NEO6M_GPS.h"
+#include "NEO_6M.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -126,10 +126,12 @@ static int gpsValidate(char* nmea)
 
 NEO6M_GPS_Status_t NEO6M_GPS_Init(UART_HandleTypeDef* huart)
 {
-    if (config == NULL || config->huart == NULL)
+    if (huart == NULL)
+    {
         return NEO6M_GPS_INVALID_PARAM;
+    }
 
-    NEO6M_GPS_huart = config->huart;
+    NEO6M_GPS_huart = huart;
 
     rxIndex = 0U;
     memset(rxBuffer, 0, sizeof(rxBuffer));
@@ -150,13 +152,17 @@ NEO6M_GPS_Status_t NEO6M_GPS_DeInit(void)
     return NEO6M_GPS_OK;
 }
 
-NEO6M_GPS_Status_t NEO6M_GPS_GetData(NEO6M_GPS_Data_t* data)
+NEO6M_GPS_Status_t NEO6M_GPS_Get(NEO6M_GPS_Data_t* data)
 {
     if (data == NULL)
+    {
         return NEO6M_GPS_INVALID_PARAM;
+    }
 
     if (NEO6M_GPS_Initialized != 1U)
-        return NEO6M_GPS_NOT_INITIALIZED;
+    {
+    	return NEO6M_GPS_NOT_INITIALIZED;
+    }
 
     *data = gpsData;
 
@@ -165,7 +171,7 @@ NEO6M_GPS_Status_t NEO6M_GPS_GetData(NEO6M_GPS_Data_t* data)
 
 void NEO6M_GPS_UART_RxCpltCallback(UART_HandleTypeDef* huart)
 {
-    if (NEO6M_GPS_huart == NULL || huart->Instance != NEO6M_GPS_huart->Instance)
+    if (NEO6M_GPS_huart == NULL || huart != NEO6M_GPS_huart)
         return;
 
     if (rxData != '\n' && rxIndex < sizeof(rxBuffer))

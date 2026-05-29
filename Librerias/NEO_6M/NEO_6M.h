@@ -5,7 +5,7 @@
  * @details Recibe sentencias NMEA ($GPGGA, $GPGLL, $GPRMC) a través de UART mediante
  * recepción controlada por interrupciones. Valida la suma de comprobación y convierte
  * las coordenadas del formato NMEA (DDmm.mmmm) a grados decimales.
- * 
+ *
  * Protocolo: UART a 9600 baudios, 8N1.
  *
  * @author Daniel Ruiz
@@ -13,8 +13,8 @@
  * @version 0.1.0
  */
 
-#ifndef NEO6M_GPS_H
-#define NEO6M_GPS_H
+#ifndef NEO_6M_H
+#define NEO_6M_H
 
 // ============================================================================
 // INCLUDES
