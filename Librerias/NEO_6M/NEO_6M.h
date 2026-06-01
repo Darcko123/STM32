@@ -22,6 +22,9 @@
 
 #include "main.h"
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -53,8 +56,8 @@ typedef enum {
  * @brief Estructura de datos que almacena el último fix GPS parseado.
  */
 typedef struct {
-    float latitude;     /**< Latitud en grados decimales          */
-    float longitude;    /**< Longitud en grados decimales         */
+    double latitude;    /**< Latitud en grados decimales          */
+    double longitude;   /**< Longitud en grados decimales         */
     char  northSouth;   /**< Indicador de hemisferio: 'N' o 'S'   */
     char  eastWest;     /**< Indicador de hemisferio: 'E' o 'W'   */
     uint8_t  hours;     /**< Hora UTC del fix (GPGGA/GPRMC)       */
