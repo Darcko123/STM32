@@ -8,9 +8,6 @@
  */
 
 #include "NEO_6M.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
 // ============================================================================
 // VARIABLES PRIVADAS
@@ -239,6 +236,29 @@ NEO6M_GPS_Status_t NEO6M_GPS_Get(NEO6M_GPS_Data_t* data)
     __disable_irq();
     *data = gpsData;
     __enable_irq();
+
+    return NEO6M_GPS_OK;
+}
+
+/**
+ * @brief Convierte latitud/longitud decimal a DMS (Grados, Minutos, Segundos)
+ */
+NEO6M_GPS_Status_t NEO6M_GPS_DecimalToDMS(double decimalDegrees, NEO6M_GPS_DMS_t* dms)
+{
+    if (dms == NULL)
+    {
+        return NEO6M_GPS_INVALID_PARAM;
+    }
+
+    double absDegrees    = fabs(decimalDegrees);
+    dms->degrees         = (uint8_t)absDegrees;
+
+    double fractional    = absDegrees - dms->degrees;
+    double minutesFloat  = fractional * 60.0;
+    dms->minutes         = (uint8_t)minutesFloat;
+    dms->seconds         = (uint8_t)((minutesFloat - dms->minutes) * 60.0);
+
+    dms->hemisphere = '\0';
 
     return NEO6M_GPS_OK;
 }

@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -71,6 +72,13 @@ typedef struct {
     uint8_t numSatellites; /**< Número de satélites en vista (GPGGA) */
 } NEO6M_GPS_Data_t;
 
+typedef struct {
+    uint8_t degrees;
+    uint8_t minutes;
+    uint8_t seconds;
+    char    hemisphere;  // 'N','S','E','W'
+} NEO6M_GPS_DMS_t;
+
 // ============================================================================
 // PROTOTIPOS DE FUNCIONES PÚBLICAS
 // ============================================================================
@@ -102,6 +110,11 @@ NEO6M_GPS_Status_t NEO6M_GPS_DeInit(void);
  *         - NEO6M_GPS_INVALID_PARAM   si @p data es NULL.
  */
 NEO6M_GPS_Status_t NEO6M_GPS_Get(NEO6M_GPS_Data_t* data);
+
+/**
+ * @brief Convierte latitud/longitud decimal a DMS (Grados, Minutos, Segundos)
+ */
+NEO6M_GPS_Status_t NEO6M_GPS_DecimalToDMS(double decimalDegrees, NEO6M_GPS_DMS_t* dms);
 
 /**
  * @brief Manejador de recepción UART completa — llamar desde HAL_UART_RxCpltCallback.
