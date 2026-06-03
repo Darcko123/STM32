@@ -31,6 +31,7 @@ static NEO6M_GPS_Data_t gpsData = {0};
 
 static double nmeaToDecimal(double coordinate);
 static void   parseUtcTime(const char* timeStr);
+static void   UTCtoLocalTime(NEO6M_GPS_Data_t* data);
 static void   gpsParse(char* strParse);
 static int    gpsValidate(char* nmea);
 
@@ -80,6 +81,26 @@ static void parseUtcTime(const char* timeStr)
     }
 }
 
+static void UTCtoLocalTime(NEO6M_GPS_Data_t* data)
+{
+    if (data == NULL)
+    {
+        return;
+    }
+
+    int husoHorario = (int)(data->longitude / 15.0);
+    if (data->eastWest == 'W') husoHorario = -husoHorario;
+
+    int localHour = (data->hours + husoHorario) % 24;
+
+    if (localHour < 0)
+    {
+        localHour += 24;
+    }
+
+    data->localHour = (uint8_t)localHour;
+}
+
 /**
  * @brief Parsea una sentencia NMEA validada y actualiza gpsData.
  */
@@ -126,6 +147,8 @@ static void gpsParse(char* strParse)
 
     gpsData.latitude  = nmeaToDecimal(nmeaLat);
     gpsData.longitude = nmeaToDecimal(nmeaLong);
+
+    UTCtoLocalTime(&gpsData);
 }
 
 /**

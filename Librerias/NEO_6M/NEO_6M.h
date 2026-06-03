@@ -64,6 +64,7 @@ typedef struct {
     uint8_t  minutes;   /**< Minutos UTC del fix (GPGGA/GPRMC)    */
     uint8_t  seconds;   /**< Segundos UTC del fix (GPGGA/GPRMC)   */
     uint16_t milliseconds; /**< Milisegundos UTC del fix (GPGGA/GPRMC) */
+    uint8_t  localHour; /**< Hora local calculada a partir de UTC y longitud */
     char  posStatus;    /**< Estado de posición (GPRMC): 'A' = válido, 'V' = vacío */
     float    altitude;  /**< Altitud en metros (GPGGA)            */
     uint8_t fixQuality; /**< Calidad del fix (GPGGA)              */
