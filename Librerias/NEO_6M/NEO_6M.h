@@ -79,6 +79,13 @@ typedef struct {
     char    hemisphere;  // 'N','S','E','W'
 } NEO6M_GPS_DMS_t;
 
+typedef struct {
+    uint32_t easting;    // metros
+    uint32_t northing;   // metros
+    char     zone;       // zona UTM (ej: 'T')
+    uint16_t zoneNumber; // número de zona (ej: 30)
+} NEO6M_GPS_UTM_t;
+
 // ============================================================================
 // PROTOTIPOS DE FUNCIONES PÚBLICAS
 // ============================================================================
@@ -115,6 +122,12 @@ NEO6M_GPS_Status_t NEO6M_GPS_Get(NEO6M_GPS_Data_t* data);
  * @brief Convierte latitud/longitud decimal a DMS (Grados, Minutos, Segundos)
  */
 NEO6M_GPS_Status_t NEO6M_GPS_DecimalToDMS(double decimalDegrees, NEO6M_GPS_DMS_t* dms);
+
+/**
+ * @brief Convierte latitud/longitud decimal a UTM (proyección Universal Transversa de Mercator)
+ * @warning Requiere matemática de punto flotante y trigonometría.
+ */
+NEO6M_GPS_Status_t NEO6M_GPS_DecimalToUTM(double latitude, double longitude, NEO6M_GPS_UTM_t* utm);
 
 /**
  * @brief Manejador de recepción UART completa — llamar desde HAL_UART_RxCpltCallback.

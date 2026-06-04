@@ -263,6 +263,91 @@ NEO6M_GPS_Status_t NEO6M_GPS_DecimalToDMS(double decimalDegrees, NEO6M_GPS_DMS_t
     return NEO6M_GPS_OK;
 }
 
+/**
+ * @brief Convierte latitud/longitud decimal a UTM (proyección Universal Transversa de Mercator)
+ * @warning Requiere matemática de punto flotante y trigonometría.
+ */
+NEO6M_GPS_Status_t NEO6M_GPS_DecimalToUTM(double latitude, double longitude, NEO6M_GPS_UTM_t* utm)
+{
+    if (utm == NULL || latitude < -80.0 || latitude > 84.0 ||
+        longitude < -180.0 || longitude > 180.0)
+    {
+        return NEO6M_GPS_INVALID_PARAM;
+    }
+
+    /* WGS84 ellipsoid */
+    const double a   = 6378137.0;
+    const double e2  = 0.00669437999014;
+    const double e4  = e2 * e2;
+    const double e6  = e4 * e2;
+    const double ep2 = e2 / (1.0 - e2);
+    const double k0  = 0.9996;
+
+    int zoneNum = (int)((longitude + 180.0) / 6.0) + 1;
+
+    /* Excepciones de zona: Noruega y Svalbard (estándar UTM) */
+    if (latitude >= 56.0 && latitude < 64.0 && longitude >= 3.0 && longitude < 12.0)
+        zoneNum = 32;
+    if (latitude >= 72.0 && latitude < 84.0)
+    {
+        if      (longitude >= 0.0  && longitude <  9.0) zoneNum = 31;
+        else if (longitude >= 9.0  && longitude < 21.0) zoneNum = 33;
+        else if (longitude >= 21.0 && longitude < 33.0) zoneNum = 35;
+        else if (longitude >= 33.0 && longitude < 42.0) zoneNum = 37;
+    }
+
+    double lonOrigin = (double)((zoneNum - 1) * 6 - 180 + 3);
+    double latRad    = latitude  * (M_PI / 180.0);
+    double lonDiff   = (longitude - lonOrigin) * (M_PI / 180.0);
+
+    double sinLat  = sin(latRad);
+    double cosLat  = cos(latRad);
+    double tanLat  = tan(latRad);
+    double sin2Lat = sinLat * sinLat;
+
+    double N  = a / sqrt(1.0 - e2 * sin2Lat);
+    double T  = tanLat * tanLat;
+    double C  = ep2 * cosLat * cosLat;
+    double A  = cosLat * lonDiff;
+    double A2 = A * A;
+    double A3 = A2 * A;
+    double A4 = A3 * A;
+    double A5 = A4 * A;
+    double A6 = A5 * A;
+
+    double M = a * (
+        (1.0 - e2/4.0   - 3.0*e4/64.0   - 5.0*e6/256.0)   * latRad
+      - (3.0*e2/8.0 + 3.0*e4/32.0 + 45.0*e6/1024.0)        * sin(2.0 * latRad)
+      + (15.0*e4/256.0 + 45.0*e6/1024.0)                    * sin(4.0 * latRad)
+      - (35.0*e6/3072.0)                                     * sin(6.0 * latRad));
+
+    double easting = k0 * N * (A
+        + (1.0 - T + C)                           * A3 / 6.0
+        + (5.0 - 18.0*T + T*T + 72.0*C - 58.0*ep2) * A5 / 120.0)
+        + 500000.0;
+
+    double northing = k0 * (M + N * tanLat * (A2 / 2.0
+        + (5.0 - T + 9.0*C + 4.0*C*C)              * A4 / 24.0
+        + (61.0 - 58.0*T + T*T + 600.0*C - 330.0*ep2) * A6 / 720.0));
+
+    if (latitude < 0.0)
+        northing += 10000000.0;   /* desplazamiento falso para hemisferio sur */
+
+    /* Letra de banda de latitud (C…X, sin I ni O) */
+    const char bands[] = "CDEFGHJKLMNPQRSTUVWX";
+    int idx = (int)((latitude + 80.0) / 8.0);
+    if (idx < 0)  idx = 0;
+    if (idx > 19) idx = 19;
+
+    utm->easting    = (uint32_t)(easting  + 0.5);
+    utm->northing   = (uint32_t)(northing + 0.5);
+    utm->zone       = bands[idx];
+    utm->zoneNumber = (uint16_t)zoneNum;
+
+    return NEO6M_GPS_OK;
+}
+
+
 void NEO6M_GPS_UART_RxCpltCallback(UART_HandleTypeDef* huart)
 {
     if (NEO6M_GPS_huart == NULL || huart != NEO6M_GPS_huart)
