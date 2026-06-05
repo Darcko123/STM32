@@ -97,7 +97,7 @@ static void UTCtoLocalTime(NEO6M_GPS_Data_t* data)
     }
 
     int husoHorario = (int)(fabs(data->longitude) / 15.0);
-    if (data->eastWest == 'W') husoHorario = -husoHorario;
+    if (data->longitude < 0.0) husoHorario = -husoHorario;
 
     int localHour = (data->hours + husoHorario) % 24;
 
@@ -157,6 +157,9 @@ static void gpsParse(char* strParse)
 
     gpsData.latitude  = nmeaToDecimal(nmeaLat);
     gpsData.longitude = nmeaToDecimal(nmeaLong);
+
+    if (gpsData.northSouth == 'S') gpsData.latitude  = -gpsData.latitude;
+    if (gpsData.eastWest   == 'W') gpsData.longitude = -gpsData.longitude;
 
     UTCtoLocalTime(&gpsData);
 }
