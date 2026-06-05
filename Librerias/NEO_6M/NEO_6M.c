@@ -48,8 +48,8 @@ static double nmeaToDecimal(double coordinate)
 
 /**
  * @brief Convierte un string de tiempo NMEA "hhmmss.ss" en campo de tiempo gpsData.
- * 
- * @param timeStr 
+ *
+ * @param timeStr
  */
 static void parseUtcTime(const char* timeStr)
 {
@@ -96,7 +96,7 @@ static void UTCtoLocalTime(NEO6M_GPS_Data_t* data)
         return;
     }
 
-    int husoHorario = (int)(data->longitude / 15.0);
+    int husoHorario = (int)(fabs(data->longitude) / 15.0);
     if (data->eastWest == 'W') husoHorario = -husoHorario;
 
     int localHour = (data->hours + husoHorario) % 24;
@@ -111,8 +111,8 @@ static void UTCtoLocalTime(NEO6M_GPS_Data_t* data)
 
 /**
  * @brief Parsea una sentencia NMEA validada y actualiza gpsData.
- * 
- * @param strParse 
+ *
+ * @param strParse
  */
 static void gpsParse(char* strParse)
 {
@@ -163,8 +163,8 @@ static void gpsParse(char* strParse)
 
 /**
  * @brief Valida el checksum NMEA (XOR de los bytes entre '$' y '*').
- * 
- * @param nmea 
+ *
+ * @param nmea
  * @return int 1 si el checksum coincide, 0 en caso contrario.
  */
 static int gpsValidate(char* nmea)
@@ -289,7 +289,7 @@ NEO6M_GPS_Status_t NEO6M_GPS_Get(NEO6M_GPS_Data_t* data)
  *         - NEO6M_GPS_OK            si la conversión fue exitosa.
  *         - NEO6M_GPS_INVALID_PARAM si @p dms es NULL.
  */
-NEO6M_GPS_Status_t NEO6M_GPS_DecimalToDMS(double decimalDegrees, NEO6M_GPS_DMS_t* dms)
+NEO6M_GPS_Status_t NEO6M_GPS_DecimalToDMS(double decimalDegrees, char hemisphere, NEO6M_GPS_DMS_t* dms)
 {
     if (dms == NULL)
     {
@@ -303,8 +303,7 @@ NEO6M_GPS_Status_t NEO6M_GPS_DecimalToDMS(double decimalDegrees, NEO6M_GPS_DMS_t
     double minutesFloat  = fractional * 60.0;
     dms->minutes         = (uint8_t)minutesFloat;
     dms->seconds         = (uint8_t)((minutesFloat - dms->minutes) * 60.0);
-
-    dms->hemisphere = '\0';
+    dms->hemisphere      = hemisphere;
 
     return NEO6M_GPS_OK;
 }

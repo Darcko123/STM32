@@ -130,12 +130,13 @@ NEO6M_GPS_Status_t NEO6M_GPS_Get(NEO6M_GPS_Data_t* data);
  *        (Grados, Minutos, Segundos).
  *
  * @param[in]  decimalDegrees Coordenada en grados decimales.
+ * @param[in]  hemisphere     Hemisferio de la coordenada: 'N', 'S', 'E' o 'W'.
  * @param[out] dms            Puntero a la estructura NEO6M_GPS_DMS_t a rellenar.
  * @return NEO6M_GPS_Status_t
  *         - NEO6M_GPS_OK            si la conversión fue exitosa.
  *         - NEO6M_GPS_INVALID_PARAM si @p dms es NULL.
  */
-NEO6M_GPS_Status_t NEO6M_GPS_DecimalToDMS(double decimalDegrees, NEO6M_GPS_DMS_t* dms);
+NEO6M_GPS_Status_t NEO6M_GPS_DecimalToDMS(double decimalDegrees, char hemisphere, NEO6M_GPS_DMS_t* dms);
 
 /**
  * @brief Convierte latitud/longitud decimal a UTM
