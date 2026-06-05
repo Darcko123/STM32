@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![STM32](https://img.shields.io/badge/Platform-STM32F411-black)](https://www.st.com/en/microcontrollers-microprocessors/stm32f4-series.html)
-[![Version](https://img.shields.io/badge/Version-1.0.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/NEO_6M)
+[![Version](https://img.shields.io/badge/Version-1.1.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/NEO_6M)
 [![Protocol](https://img.shields.io/badge/Protocol-UART-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/NEO_6M)
 
 ---
@@ -18,21 +18,31 @@
   - [Instalación](#instalación)
   - [Uso Básico](#uso-básico)
     - [1. Inicialización](#1-inicialización)
-    - [2. Obtener Datos GPS](#2-obtener-datos-gps)
-    - [3. Integrar el Callback UART](#3-integrar-el-callback-uart)
+    - [2. Integrar el Callback UART](#2-integrar-el-callback-uart)
+    - [3. Obtener Datos GPS](#3-obtener-datos-gps)
+    - [4. Convertir a DMS](#4-convertir-a-dms)
+    - [5. Convertir a UTM](#5-convertir-a-utm)
   - [API Reference](#api-reference)
     - [1. Tipos de Datos](#1-tipos-de-datos)
       - [`NEO6M_GPS_Status_t` - Estados de Retorno](#neo6m_gps_status_t---estados-de-retorno)
       - [`NEO6M_GPS_Data_t` - Estructura de Datos](#neo6m_gps_data_t---estructura-de-datos)
+      - [`NEO6M_GPS_DMS_t` - Coordenadas en Formato DMS](#neo6m_gps_dms_t---coordenadas-en-formato-dms)
+      - [`NEO6M_GPS_UTM_t` - Coordenadas en Formato UTM](#neo6m_gps_utm_t---coordenadas-en-formato-utm)
     - [2. Funciones Públicas](#2-funciones-públicas)
       - [`NEO6M_GPS_Init()` - Inicialización del Driver](#neo6m_gps_init---inicialización-del-driver)
       - [`NEO6M_GPS_DeInit()` - Desinicialización del Driver](#neo6m_gps_deinit---desinicialización-del-driver)
       - [`NEO6M_GPS_Get()` - Lectura de Datos GPS](#neo6m_gps_get---lectura-de-datos-gps)
+      - [`NEO6M_GPS_DecimalToDMS()` - Conversión a Grados/Minutos/Segundos](#neo6m_gps_decimaltodms---conversión-a-gradosminutossegundos)
+      - [`NEO6M_GPS_DecimalToUTM()` - Conversión a Proyección UTM](#neo6m_gps_decimaltoutm---conversión-a-proyección-utm)
       - [`NEO6M_GPS_UART_RxCpltCallback()` - Callback de Recepción UART](#neo6m_gps_uart_rxcpltcallback---callback-de-recepción-uart)
   - [Licencia](#licencia)
   - [Changelog](#changelog)
-    - [\[1.0.0\] - 01-06-2026](#100---01-06-2026)
+    - [\[1.1.0\] - 05-06-2026](#110---05-06-2026)
       - [Added](#added)
+      - [Fixed](#fixed)
+      - [Changed](#changed)
+    - [\[1.0.0\] - 01-06-2026](#100---01-06-2026)
+      - [Added](#added-1)
 
 ---
 
@@ -49,8 +59,11 @@ Ideal para aplicaciones de geolocalización, rastreo GPS, drones y sistemas de n
 - **Comunicación UART por interrupciones**: Recepción byte a byte sin bloquear el CPU, controlada por interrupciones HAL.
 - **Soporte de sentencias NMEA**: Parseo de `$GPGGA` (fix, satélites, altitud, hora), `$GPGLL` (posición y hora) y `$GPRMC` (posición, estado y hora).
 - **Validación de checksum**: Verificación XOR del checksum NMEA antes de procesar cualquier sentencia, descartando datos corruptos.
-- **Conversión automática de coordenadas**: Convierte del formato NMEA (DDmm.mmmm) a grados decimales listos para usar.
+- **Conversión automática de coordenadas**: Convierte del formato NMEA (DDmm.mmmm) a grados decimales con signo (negativo para hemisferios S y W).
 - **Datos UTC completos**: Extrae hora, minutos, segundos y milisegundos del campo de tiempo NMEA.
+- **Hora local estimada**: Calcula automáticamente la hora local (`localHour`) a partir de la hora UTC y la longitud GPS.
+- **Conversión a DMS**: Convierte coordenadas decimales al formato Grados/Minutos/Segundos (`NEO6M_GPS_DecimalToDMS()`).
+- **Conversión a UTM**: Proyección Universal Transversa de Mercator completa con soporte de excepciones de zona Noruega/Svalbard (`NEO6M_GPS_DecimalToUTM()`).
 - **Manejo robusto de errores**: Códigos de retorno específicos para parámetro inválido, timeout o módulo no inicializado (`NEO6M_GPS_Status_t`).
 - **Portabilidad**: Compatible con múltiples familias STM32 mediante la capa HAL. Solo requiere cambiar el `#include` del encabezado HAL en `NEO_6M.h`.
 - **Instancia única**: El driver gestiona un único módulo NEO-6M por proyecto.
@@ -119,24 +132,7 @@ if (status != NEO6M_GPS_OK) {
 }
 ```
 
-### 2. Obtener Datos GPS
-
-```c
-NEO6M_GPS_Data_t gps;
-
-if (NEO6M_GPS_Get(&gps) == NEO6M_GPS_OK) {
-    // Coordenadas en grados decimales
-    // gps.latitude  / gps.northSouth  →  ej. 19.4326, 'N'
-    // gps.longitude / gps.eastWest    →  ej. 99.1332, 'W'
-    // gps.altitude                    →  ej. 2240.0 m
-    // gps.hours / gps.minutes / gps.seconds / gps.milliseconds → hora UTC
-    // gps.fixQuality                  →  0 = sin fix, 1 = GPS fix, 2 = DGPS
-    // gps.numSatellites               →  número de satélites en vista
-    // gps.posStatus                   →  'A' = válido, 'V' = vacío (GPRMC)
-}
-```
-
-### 3. Integrar el Callback UART
+### 2. Integrar el Callback UART
 
 Dentro del bloque `/* USER CODE BEGIN 4 */` en `main.c`, implementa:
 
@@ -154,6 +150,48 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 
 > [!NOTE]
 > La librería rearma automáticamente la interrupción UART byte a byte dentro de `NEO6M_GPS_UART_RxCpltCallback()`. No es necesario volver a llamar a `HAL_UART_Receive_IT()` manualmente.
+
+### 3. Obtener Datos GPS
+
+```c
+NEO6M_GPS_Data_t gps;
+
+if (NEO6M_GPS_Get(&gps) == NEO6M_GPS_OK) {
+    // Coordenadas en grados decimales con signo
+    // gps.latitude  / gps.northSouth  →  ej. -19.4326, 'S'  (negativo si hemisferio S)
+    // gps.longitude / gps.eastWest    →  ej. -99.1332, 'W'  (negativo si hemisferio W)
+    // gps.altitude                    →  ej. 2240.0 m
+    // gps.hours / gps.minutes / gps.seconds / gps.milliseconds → hora UTC
+    // gps.localHour                   →  hora local estimada por longitud
+    // gps.fixQuality                  →  0 = sin fix, 1 = GPS fix, 2 = DGPS
+    // gps.numSatellites               →  número de satélites en vista
+    // gps.posStatus                   →  'A' = válido, 'V' = vacío (GPRMC)
+}
+```
+
+### 4. Convertir a DMS
+
+```c
+NEO6M_GPS_DMS_t dmsLat, dmsLon;
+
+NEO6M_GPS_DecimalToDMS(gps.latitude,  gps.northSouth, &dmsLat);
+NEO6M_GPS_DecimalToDMS(gps.longitude, gps.eastWest,   &dmsLon);
+// dmsLat  →  ej. 19° 25' 57" N
+// dmsLon  →  ej. 99° 7' 59" W
+```
+
+### 5. Convertir a UTM
+
+```c
+NEO6M_GPS_UTM_t utm;
+
+if (NEO6M_GPS_DecimalToUTM(gps.latitude, gps.longitude, &utm) == NEO6M_GPS_OK) {
+    // utm.zoneNumber  →  ej. 14
+    // utm.zone        →  ej. 'Q'
+    // utm.easting     →  ej. 486239 m
+    // utm.northing    →  ej. 2150619 m
+}
+```
 
 ---
 
@@ -191,35 +229,81 @@ Estructura para almacenar el último fix GPS parseado.
 
 ```c
 typedef struct {
-    double   latitude;        /**< Latitud en grados decimales         */
-    double   longitude;       /**< Longitud en grados decimales        */
-    char     northSouth;      /**< Hemisferio: 'N' o 'S'               */
-    char     eastWest;        /**< Hemisferio: 'E' o 'W'               */
-    uint8_t  hours;           /**< Hora UTC (GPGGA/GPRMC)              */
-    uint8_t  minutes;         /**< Minutos UTC (GPGGA/GPRMC)           */
-    uint8_t  seconds;         /**< Segundos UTC (GPGGA/GPRMC)          */
-    uint16_t milliseconds;    /**< Milisegundos UTC (GPGGA/GPRMC)      */
+    double   latitude;        /**< Latitud en grados decimales con signo   */
+    double   longitude;       /**< Longitud en grados decimales con signo  */
+    char     northSouth;      /**< Hemisferio: 'N' o 'S'                   */
+    char     eastWest;        /**< Hemisferio: 'E' o 'W'                   */
+    uint8_t  hours;           /**< Hora UTC (GPGGA/GPRMC)                  */
+    uint8_t  minutes;         /**< Minutos UTC (GPGGA/GPRMC)               */
+    uint8_t  seconds;         /**< Segundos UTC (GPGGA/GPRMC)              */
+    uint16_t milliseconds;    /**< Milisegundos UTC (GPGGA/GPRMC)          */
+    uint8_t  localHour;       /**< Hora local estimada a partir de UTC y longitud */
     char     posStatus;       /**< Estado GPRMC: 'A' = válido, 'V' = vacío */
-    float    altitude;        /**< Altitud en metros (GPGGA)           */
-    uint8_t  fixQuality;      /**< Calidad del fix (GPGGA)             */
-    uint8_t  numSatellites;   /**< Número de satélites en vista (GPGGA) */
+    float    altitude;        /**< Altitud en metros (GPGGA)               */
+    uint8_t  fixQuality;      /**< Calidad del fix (GPGGA)                 */
+    uint8_t  numSatellites;   /**< Número de satélites en vista (GPGGA)    */
 } NEO6M_GPS_Data_t;
 ```
 
 | Campo | Tipo | Rango | Unidad | Descripción |
 |-------|------|-------|--------|-------------|
-| `latitude` | `double` | 0.0 – 90.0 | ° | Latitud en grados decimales |
-| `longitude` | `double` | 0.0 – 180.0 | ° | Longitud en grados decimales |
+| `latitude` | `double` | -90.0 – +90.0 | ° | Latitud en grados decimales (negativo = Sur) |
+| `longitude` | `double` | -180.0 – +180.0 | ° | Longitud en grados decimales (negativo = Oeste) |
 | `northSouth` | `char` | 'N' / 'S' | — | Hemisferio norte o sur |
 | `eastWest` | `char` | 'E' / 'W' | — | Hemisferio este u oeste |
 | `hours` | `uint8_t` | 0 – 23 | h | Hora UTC |
 | `minutes` | `uint8_t` | 0 – 59 | min | Minutos UTC |
 | `seconds` | `uint8_t` | 0 – 59 | s | Segundos UTC |
 | `milliseconds` | `uint16_t` | 0 – 990 | ms | Milisegundos UTC (resolución 10 ms) |
+| `localHour` | `uint8_t` | 0 – 23 | h | Hora local estimada por longitud (huso ≈ longitud / 15°) |
 | `posStatus` | `char` | 'A' / 'V' | — | Estado de posición GPRMC |
 | `altitude` | `float` | -500 – +9000 | m | Altitud sobre el nivel del mar (GPGGA) |
 | `fixQuality` | `uint8_t` | 0 – 2 | — | 0 = sin fix, 1 = GPS fix, 2 = DGPS (GPGGA) |
 | `numSatellites` | `uint8_t` | 0 – 12 | — | Número de satélites en vista (GPGGA) |
+
+---
+
+#### `NEO6M_GPS_DMS_t` - Coordenadas en Formato DMS
+
+Estructura para almacenar una coordenada en formato Grados, Minutos y Segundos.
+
+```c
+typedef struct {
+    uint8_t degrees;    /**< Grados enteros de la coordenada                */
+    uint8_t minutes;    /**< Minutos enteros de la coordenada               */
+    uint8_t seconds;    /**< Segundos enteros de la coordenada              */
+    char    hemisphere; /**< Hemisferio: 'N', 'S', 'E' o 'W'               */
+} NEO6M_GPS_DMS_t;
+```
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `degrees` | `uint8_t` | Grados enteros |
+| `minutes` | `uint8_t` | Minutos enteros (0 – 59) |
+| `seconds` | `uint8_t` | Segundos enteros (0 – 59) |
+| `hemisphere` | `char` | Hemisferio: `'N'`, `'S'`, `'E'` o `'W'` |
+
+---
+
+#### `NEO6M_GPS_UTM_t` - Coordenadas en Formato UTM
+
+Estructura para almacenar una coordenada en la proyección Universal Transversa de Mercator.
+
+```c
+typedef struct {
+    uint32_t easting;    /**< Coordenada Este en metros                     */
+    uint32_t northing;   /**< Coordenada Norte en metros                    */
+    char     zone;       /**< Letra de banda de latitud UTM (ej: 'T')       */
+    uint16_t zoneNumber; /**< Número de zona UTM (ej: 30)                   */
+} NEO6M_GPS_UTM_t;
+```
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `easting` | `uint32_t` | Coordenada Este en metros (incluye falso este de 500 000 m) |
+| `northing` | `uint32_t` | Coordenada Norte en metros (incluye falso norte de 10 000 000 m en hemisferio sur) |
+| `zone` | `char` | Letra de banda de latitud (C – X, sin I ni O) |
+| `zoneNumber` | `uint16_t` | Número de zona UTM (1 – 60) |
 
 ---
 
@@ -276,6 +360,45 @@ NEO6M_GPS_Status_t NEO6M_GPS_Get(NEO6M_GPS_Data_t* data);
 
 ---
 
+#### `NEO6M_GPS_DecimalToDMS()` - Conversión a Grados/Minutos/Segundos
+
+Convierte una coordenada en grados decimales al formato DMS (Grados, Minutos, Segundos).
+
+```c
+NEO6M_GPS_Status_t NEO6M_GPS_DecimalToDMS(double decimalDegrees, char hemisphere, NEO6M_GPS_DMS_t* dms);
+```
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `decimalDegrees` | `double` | Coordenada en grados decimales |
+| `hemisphere` | `char` | Hemisferio de la coordenada: `'N'`, `'S'`, `'E'` o `'W'` |
+| `dms` | `NEO6M_GPS_DMS_t*` | Puntero a la estructura donde se escribirá el resultado |
+
+**Retorna**: `NEO6M_GPS_OK` si la conversión fue exitosa, `NEO6M_GPS_INVALID_PARAM` si `dms` es NULL.
+
+---
+
+#### `NEO6M_GPS_DecimalToUTM()` - Conversión a Proyección UTM
+
+Convierte latitud y longitud en grados decimales a la proyección Universal Transversa de Mercator (UTM) usando el elipsoide WGS84. Incluye las excepciones de zona para Noruega y Svalbard.
+
+```c
+NEO6M_GPS_Status_t NEO6M_GPS_DecimalToUTM(double latitude, double longitude, NEO6M_GPS_UTM_t* utm);
+```
+
+| Parámetro | Tipo | Descripción | Rango |
+|-----------|------|-------------|-------|
+| `latitude` | `double` | Latitud en grados decimales | -80.0 – +84.0 |
+| `longitude` | `double` | Longitud en grados decimales | -180.0 – +180.0 |
+| `utm` | `NEO6M_GPS_UTM_t*` | Puntero a la estructura donde se escribirá el resultado | N/A |
+
+**Retorna**: `NEO6M_GPS_OK` si la conversión fue exitosa, `NEO6M_GPS_INVALID_PARAM` si `utm` es NULL o las coordenadas están fuera de rango.
+
+> [!NOTE]
+> Requiere que el proyecto esté enlazado con la biblioteca matemática (`-lm`). En STM32CubeIDE esto es habitual; si se usa un Makefile personalizado, añadir la flag al linker.
+
+---
+
 #### `NEO6M_GPS_UART_RxCpltCallback()` - Callback de Recepción UART
 
 Manejador de recepción UART — debe llamarse desde `HAL_UART_RxCpltCallback()` en `main.c`. Acumula bytes en el buffer interno hasta detectar un salto de línea (`\n`), momento en que valida el checksum NMEA y, si es correcto, parsea la sentencia para actualizar la estructura `NEO6M_GPS_Data_t`. Rearma la interrupción automáticamente.
@@ -303,6 +426,29 @@ Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](../../LI
 
 Todos los cambios notables de esta librería se documentan en esta sección.  
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
+
+---
+
+### [1.1.0] - 05-06-2026
+
+#### Added
+
+- Nuevo campo `localHour` en `NEO6M_GPS_Data_t`: hora local estimada automáticamente a partir de la hora UTC y la longitud GPS (huso horario ≈ longitud / 15°).
+- Nueva estructura `NEO6M_GPS_DMS_t` para almacenar coordenadas en formato Grados/Minutos/Segundos.
+- Nueva estructura `NEO6M_GPS_UTM_t` para almacenar coordenadas en la proyección Universal Transversa de Mercator (WGS84).
+- Nueva función pública `NEO6M_GPS_DecimalToDMS()`: convierte grados decimales a formato DMS con hemisferio.
+- Nueva función pública `NEO6M_GPS_DecimalToUTM()`: convierte latitud/longitud a UTM con soporte de excepciones de zona Noruega/Svalbard.
+- Documentación Doxygen completa (`@brief`, `@param`, `@return`, `@details`) en todas las funciones públicas y privadas.
+
+#### Fixed
+
+- Las coordenadas `latitude` y `longitude` ahora llevan signo: negativo para hemisferios Sur (`'S'`) y Oeste (`'W'`), positivo para Norte (`'N'`) y Este (`'E'`).
+- Corrección del cálculo de huso horario en `UTCtoLocalTime()`: se usa el valor con signo de `longitude` para determinar el desfase correcto en ambos hemisferios.
+
+#### Changed
+
+- Los includes `<stdio.h>`, `<stdlib.h>` y `<string.h>` se movieron de `NEO_6M.c` a `NEO_6M.h`.
+- Se añadió `<math.h>` en `NEO_6M.h` para soporte de `fabs()`, `sin()`, `cos()`, `tan()` y `sqrt()` requeridos por las nuevas funciones de conversión.
 
 ---
 

@@ -9,8 +9,8 @@
  * Protocolo: UART a 9600 baudios, 8N1.
  *
  * @author Daniel Ruiz
- * @date Jun 1, 2026
- * @version 1.0.0
+ * @date Jun 5, 2026
+ * @version 1.1.0
  */
 
 #ifndef NEO_6M_H
@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -64,11 +65,33 @@ typedef struct {
     uint8_t  minutes;   /**< Minutos UTC del fix (GPGGA/GPRMC)    */
     uint8_t  seconds;   /**< Segundos UTC del fix (GPGGA/GPRMC)   */
     uint16_t milliseconds; /**< Milisegundos UTC del fix (GPGGA/GPRMC) */
+    uint8_t  localHour; /**< Hora local calculada a partir de UTC y longitud */
     char  posStatus;    /**< Estado de posición (GPRMC): 'A' = válido, 'V' = vacío */
     float    altitude;  /**< Altitud en metros (GPGGA)            */
     uint8_t fixQuality; /**< Calidad del fix (GPGGA)              */
     uint8_t numSatellites; /**< Número de satélites en vista (GPGGA) */
 } NEO6M_GPS_Data_t;
+
+/**
+ * @brief Estructura que almacena una coordenada en formato DMS (Grados, Minutos, Segundos).
+ */
+typedef struct {
+    uint8_t degrees;    /**< Grados enteros de la coordenada                */
+    uint8_t minutes;    /**< Minutos enteros de la coordenada               */
+    uint8_t seconds;    /**< Segundos enteros de la coordenada              */
+    char    hemisphere; /**< Hemisferio de la coordenada: 'N', 'S', 'E' o 'W' */
+} NEO6M_GPS_DMS_t;
+
+/**
+ * @brief Estructura que almacena una coordenada en formato UTM
+ *        (proyección Universal Transversa de Mercator).
+ */
+typedef struct {
+    uint32_t easting;    /**< Coordenada Este en metros                     */
+    uint32_t northing;   /**< Coordenada Norte en metros                    */
+    char     zone;       /**< Letra de banda de latitud UTM (ej: 'T')       */
+    uint16_t zoneNumber; /**< Número de zona UTM (ej: 30)                   */
+} NEO6M_GPS_UTM_t;
 
 // ============================================================================
 // PROTOTIPOS DE FUNCIONES PÚBLICAS
@@ -101,6 +124,34 @@ NEO6M_GPS_Status_t NEO6M_GPS_DeInit(void);
  *         - NEO6M_GPS_INVALID_PARAM   si @p data es NULL.
  */
 NEO6M_GPS_Status_t NEO6M_GPS_Get(NEO6M_GPS_Data_t* data);
+
+/**
+ * @brief Convierte una coordenada en grados decimales a formato DMS
+ *        (Grados, Minutos, Segundos).
+ *
+ * @param[in]  decimalDegrees Coordenada en grados decimales.
+ * @param[in]  hemisphere     Hemisferio de la coordenada: 'N', 'S', 'E' o 'W'.
+ * @param[out] dms            Puntero a la estructura NEO6M_GPS_DMS_t a rellenar.
+ * @return NEO6M_GPS_Status_t
+ *         - NEO6M_GPS_OK            si la conversión fue exitosa.
+ *         - NEO6M_GPS_INVALID_PARAM si @p dms es NULL.
+ */
+NEO6M_GPS_Status_t NEO6M_GPS_DecimalToDMS(double decimalDegrees, char hemisphere, NEO6M_GPS_DMS_t* dms);
+
+/**
+ * @brief Convierte latitud/longitud decimal a UTM
+ *        (proyección Universal Transversa de Mercator).
+ *
+ * @warning Requiere matemática de punto flotante y trigonometría.
+ *
+ * @param[in]  latitude  Latitud en grados decimales (rango válido: -80.0 a 84.0).
+ * @param[in]  longitude Longitud en grados decimales (rango válido: -180.0 a 180.0).
+ * @param[out] utm       Puntero a la estructura NEO6M_GPS_UTM_t a rellenar.
+ * @return NEO6M_GPS_Status_t
+ *         - NEO6M_GPS_OK            si la conversión fue exitosa.
+ *         - NEO6M_GPS_INVALID_PARAM si @p utm es NULL o las coordenadas están fuera de rango.
+ */
+NEO6M_GPS_Status_t NEO6M_GPS_DecimalToUTM(double latitude, double longitude, NEO6M_GPS_UTM_t* utm);
 
 /**
  * @brief Manejador de recepción UART completa — llamar desde HAL_UART_RxCpltCallback.
