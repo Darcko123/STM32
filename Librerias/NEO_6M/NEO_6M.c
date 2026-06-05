@@ -3,8 +3,8 @@
  * @brief Implementación de la librería NEO6M_GPS.
  *
  * @author Daniel Ruiz
- * @date Jun 1, 2026
- * @version 1.0.0
+ * @date Jun 5, 2026
+ * @version 1.1.0
  */
 
 #include "NEO_6M.h"
