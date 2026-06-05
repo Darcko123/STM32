@@ -72,18 +72,25 @@ typedef struct {
     uint8_t numSatellites; /**< Número de satélites en vista (GPGGA) */
 } NEO6M_GPS_Data_t;
 
+/**
+ * @brief Estructura que almacena una coordenada en formato DMS (Grados, Minutos, Segundos).
+ */
 typedef struct {
-    uint8_t degrees;
-    uint8_t minutes;
-    uint8_t seconds;
-    char    hemisphere;  // 'N','S','E','W'
+    uint8_t degrees;    /**< Grados enteros de la coordenada                */
+    uint8_t minutes;    /**< Minutos enteros de la coordenada               */
+    uint8_t seconds;    /**< Segundos enteros de la coordenada              */
+    char    hemisphere; /**< Hemisferio de la coordenada: 'N', 'S', 'E' o 'W' */
 } NEO6M_GPS_DMS_t;
 
+/**
+ * @brief Estructura que almacena una coordenada en formato UTM
+ *        (proyección Universal Transversa de Mercator).
+ */
 typedef struct {
-    uint32_t easting;    // metros
-    uint32_t northing;   // metros
-    char     zone;       // zona UTM (ej: 'T')
-    uint16_t zoneNumber; // número de zona (ej: 30)
+    uint32_t easting;    /**< Coordenada Este en metros                     */
+    uint32_t northing;   /**< Coordenada Norte en metros                    */
+    char     zone;       /**< Letra de banda de latitud UTM (ej: 'T')       */
+    uint16_t zoneNumber; /**< Número de zona UTM (ej: 30)                   */
 } NEO6M_GPS_UTM_t;
 
 // ============================================================================
@@ -119,13 +126,29 @@ NEO6M_GPS_Status_t NEO6M_GPS_DeInit(void);
 NEO6M_GPS_Status_t NEO6M_GPS_Get(NEO6M_GPS_Data_t* data);
 
 /**
- * @brief Convierte latitud/longitud decimal a DMS (Grados, Minutos, Segundos)
+ * @brief Convierte una coordenada en grados decimales a formato DMS
+ *        (Grados, Minutos, Segundos).
+ *
+ * @param[in]  decimalDegrees Coordenada en grados decimales.
+ * @param[out] dms            Puntero a la estructura NEO6M_GPS_DMS_t a rellenar.
+ * @return NEO6M_GPS_Status_t
+ *         - NEO6M_GPS_OK            si la conversión fue exitosa.
+ *         - NEO6M_GPS_INVALID_PARAM si @p dms es NULL.
  */
 NEO6M_GPS_Status_t NEO6M_GPS_DecimalToDMS(double decimalDegrees, NEO6M_GPS_DMS_t* dms);
 
 /**
- * @brief Convierte latitud/longitud decimal a UTM (proyección Universal Transversa de Mercator)
+ * @brief Convierte latitud/longitud decimal a UTM
+ *        (proyección Universal Transversa de Mercator).
+ *
  * @warning Requiere matemática de punto flotante y trigonometría.
+ *
+ * @param[in]  latitude  Latitud en grados decimales (rango válido: -80.0 a 84.0).
+ * @param[in]  longitude Longitud en grados decimales (rango válido: -180.0 a 180.0).
+ * @param[out] utm       Puntero a la estructura NEO6M_GPS_UTM_t a rellenar.
+ * @return NEO6M_GPS_Status_t
+ *         - NEO6M_GPS_OK            si la conversión fue exitosa.
+ *         - NEO6M_GPS_INVALID_PARAM si @p utm es NULL o las coordenadas están fuera de rango.
  */
 NEO6M_GPS_Status_t NEO6M_GPS_DecimalToUTM(double latitude, double longitude, NEO6M_GPS_UTM_t* utm);
 

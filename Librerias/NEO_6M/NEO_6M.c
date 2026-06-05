@@ -48,6 +48,8 @@ static double nmeaToDecimal(double coordinate)
 
 /**
  * @brief Convierte un string de tiempo NMEA "hhmmss.ss" en campo de tiempo gpsData.
+ * 
+ * @param timeStr 
  */
 static void parseUtcTime(const char* timeStr)
 {
@@ -78,6 +80,15 @@ static void parseUtcTime(const char* timeStr)
     }
 }
 
+/**
+ * @brief Calcula la hora local a partir de la hora UTC y la longitud GPS.
+ *
+ * @details Estima el huso horario dividiendo la longitud entre 15°. El resultado
+ *          es una aproximación válida en ausencia de datos de zona horaria civil.
+ *
+ * @param[in,out] data Puntero a la estructura GPS. Se leen los campos @c longitude,
+ *                     @c eastWest y @c hours, y se escribe el campo @c localHour.
+ */
 static void UTCtoLocalTime(NEO6M_GPS_Data_t* data)
 {
     if (data == NULL)
@@ -100,6 +111,8 @@ static void UTCtoLocalTime(NEO6M_GPS_Data_t* data)
 
 /**
  * @brief Parsea una sentencia NMEA validada y actualiza gpsData.
+ * 
+ * @param strParse 
  */
 static void gpsParse(char* strParse)
 {
@@ -150,8 +163,9 @@ static void gpsParse(char* strParse)
 
 /**
  * @brief Valida el checksum NMEA (XOR de los bytes entre '$' y '*').
- *
- * @return 1 si el checksum coincide, 0 en caso contrario.
+ * 
+ * @param nmea 
+ * @return int 1 si el checksum coincide, 0 en caso contrario.
  */
 static int gpsValidate(char* nmea)
 {
@@ -191,6 +205,14 @@ static int gpsValidate(char* nmea)
 // FUNCIONES PÚBLICAS
 // ============================================================================
 
+/**
+ * @brief Inicializa el driver NEO6M_GPS e inicia la recepción por interrupciones UART.
+ *
+ * @param[in] huart Handle UART de HAL utilizado para comunicarse con el módulo GPS.
+ * @return NEO6M_GPS_Status_t
+ *         - NEO6M_GPS_OK            si la inicialización fue exitosa.
+ *         - NEO6M_GPS_INVALID_PARAM si @p huart es NULL.
+ */
 NEO6M_GPS_Status_t NEO6M_GPS_Init(UART_HandleTypeDef* huart)
 {
     if (huart == NULL)
@@ -211,6 +233,11 @@ NEO6M_GPS_Status_t NEO6M_GPS_Init(UART_HandleTypeDef* huart)
     return NEO6M_GPS_OK;
 }
 
+/**
+ * @brief Desinicializa el driver NEO6M_GPS, aborta la recepción UART y libera los recursos.
+ *
+ * @return NEO6M_GPS_Status_t Siempre retorna NEO6M_GPS_OK.
+ */
 NEO6M_GPS_Status_t NEO6M_GPS_DeInit(void)
 {
     HAL_UART_AbortReceive_IT(NEO6M_GPS_huart);
@@ -221,6 +248,18 @@ NEO6M_GPS_Status_t NEO6M_GPS_DeInit(void)
     return NEO6M_GPS_OK;
 }
 
+/**
+ * @brief Copia los últimos datos GPS parseados en la estructura del llamador.
+ *
+ * @details La copia se realiza con interrupciones deshabilitadas para garantizar
+ *          coherencia frente a actualizaciones concurrentes desde el ISR de UART.
+ *
+ * @param[out] data Puntero a una estructura NEO6M_GPS_Data_t a rellenar.
+ * @return NEO6M_GPS_Status_t
+ *         - NEO6M_GPS_OK              si los datos fueron copiados correctamente.
+ *         - NEO6M_GPS_NOT_INITIALIZED si el driver no está inicializado.
+ *         - NEO6M_GPS_INVALID_PARAM   si @p data es NULL.
+ */
 NEO6M_GPS_Status_t NEO6M_GPS_Get(NEO6M_GPS_Data_t* data)
 {
     if (data == NULL)
@@ -241,7 +280,14 @@ NEO6M_GPS_Status_t NEO6M_GPS_Get(NEO6M_GPS_Data_t* data)
 }
 
 /**
- * @brief Convierte latitud/longitud decimal a DMS (Grados, Minutos, Segundos)
+ * @brief Convierte una coordenada en grados decimales a formato DMS
+ *        (Grados, Minutos, Segundos).
+ *
+ * @param[in]  decimalDegrees Coordenada en grados decimales.
+ * @param[out] dms            Puntero a la estructura NEO6M_GPS_DMS_t a rellenar.
+ * @return NEO6M_GPS_Status_t
+ *         - NEO6M_GPS_OK            si la conversión fue exitosa.
+ *         - NEO6M_GPS_INVALID_PARAM si @p dms es NULL.
  */
 NEO6M_GPS_Status_t NEO6M_GPS_DecimalToDMS(double decimalDegrees, NEO6M_GPS_DMS_t* dms)
 {
@@ -264,8 +310,17 @@ NEO6M_GPS_Status_t NEO6M_GPS_DecimalToDMS(double decimalDegrees, NEO6M_GPS_DMS_t
 }
 
 /**
- * @brief Convierte latitud/longitud decimal a UTM (proyección Universal Transversa de Mercator)
+ * @brief Convierte latitud/longitud decimal a UTM
+ *        (proyección Universal Transversa de Mercator).
+ *
  * @warning Requiere matemática de punto flotante y trigonometría.
+ *
+ * @param[in]  latitude  Latitud en grados decimales (rango válido: -80.0 a 84.0).
+ * @param[in]  longitude Longitud en grados decimales (rango válido: -180.0 a 180.0).
+ * @param[out] utm       Puntero a la estructura NEO6M_GPS_UTM_t a rellenar.
+ * @return NEO6M_GPS_Status_t
+ *         - NEO6M_GPS_OK            si la conversión fue exitosa.
+ *         - NEO6M_GPS_INVALID_PARAM si @p utm es NULL o las coordenadas están fuera de rango.
  */
 NEO6M_GPS_Status_t NEO6M_GPS_DecimalToUTM(double latitude, double longitude, NEO6M_GPS_UTM_t* utm)
 {
@@ -347,7 +402,15 @@ NEO6M_GPS_Status_t NEO6M_GPS_DecimalToUTM(double latitude, double longitude, NEO
     return NEO6M_GPS_OK;
 }
 
-
+/**
+ * @brief Manejador de recepción UART completa — llamar desde HAL_UART_RxCpltCallback.
+ *
+ * @details Acumula bytes en @c rxBuffer hasta encontrar un salto de línea ('\\n').
+ *          Al completar una sentencia, valida el checksum NMEA y, si es correcto,
+ *          invoca @c gpsParse. Rearma automáticamente la interrupción de recepción.
+ *
+ * @param[in] huart Handle UART de HAL pasado por el callback de HAL.
+ */
 void NEO6M_GPS_UART_RxCpltCallback(UART_HandleTypeDef* huart)
 {
     if (NEO6M_GPS_huart == NULL || huart != NEO6M_GPS_huart)
