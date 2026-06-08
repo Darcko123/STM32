@@ -1,6 +1,7 @@
 /**
  * @file ILI9341_Disc1.c
- * @brief Implementation of the ILI9341 LCD driver for the STM32F429-Discovery board.
+ * @brief Implementación del driver del controlador LCD ILI9341 para la placa
+ * STM32F429-Discovery.
  *
  * @author Dr. Luis Antonio Raygoza Pérez & Ing. Daniel Ruiz
  * @date June 08, 2026
@@ -13,13 +14,13 @@
 // VARIABLES PRIVADAS
 // ============================================================================
 
-/* Internal orientation tag — not exposed to the user */
+/* Etiqueta de orientación interna — no expuesta al usuario */
 typedef enum {
     LCD_ILI9341_Landscape,
     LCD_ILI9341_Portrait
 } LCD_ILI9341_Orientation;
 
-/* Active display geometry updated by LCD_ILI9341_Rotate() */
+/* Geometría de pantalla activa actualizada por LCD_ILI9341_Rotate() */
 typedef struct {
     uint16_t width;
     uint16_t height;
@@ -34,7 +35,7 @@ static uint16_t              ILI9341_x           = 0U;
 static uint16_t              ILI9341_y           = 0U;
 static LCD_ILI9341_Options_t ILI9341_Opts;
 
-/* Temporaries used inside LCD_ILI9341_DisplayImage() */
+/* Variables temporales usadas dentro de LCD_ILI9341_DisplayImage() */
 static uint32_t Timeout   = 5000U;
 static uint32_t pix       = 0U;
 static uint8_t  aux8      = 0U;
@@ -350,10 +351,10 @@ ILI9341_Status_t LCD_ILI9341_DrawRectangle(uint16_t x0, uint16_t y0, uint16_t x1
 {
     ILI9341_Status_t st;
     if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
-    st  = LCD_ILI9341_DrawLine(x0, y0, x1, y0, color); /* Top    */
-    st  = st ? st : LCD_ILI9341_DrawLine(x0, y0, x0, y1, color); /* Left   */
-    st  = st ? st : LCD_ILI9341_DrawLine(x1, y0, x1, y1, color); /* Right  */
-    st  = st ? st : LCD_ILI9341_DrawLine(x0, y1, x1, y1, color); /* Bottom */
+    st  = LCD_ILI9341_DrawLine(x0, y0, x1, y0, color); /* Superior  */
+    st  = st ? st : LCD_ILI9341_DrawLine(x0, y0, x0, y1, color); /* Izquierda */
+    st  = st ? st : LCD_ILI9341_DrawLine(x1, y0, x1, y1, color); /* Derecha   */
+    st  = st ? st : LCD_ILI9341_DrawLine(x0, y1, x1, y1, color); /* Inferior  */
     return st;
 }
 
@@ -559,7 +560,7 @@ ILI9341_Status_t LCD_ILI9341_DisplayImage(uint32_t image[ILI9341_PIXEL])
     {
         pix = image[k];
 
-        /* First pixel (low word) — high byte */
+        /* Primer píxel (word bajo) — byte alto */
         aux8 = (uint8_t)(pix >> 8);
         ILI9341_hspi->Instance->DR = aux8;
         tickstart = HAL_GetTick();
@@ -581,7 +582,7 @@ ILI9341_Status_t LCD_ILI9341_DisplayImage(uint32_t image[ILI9341_PIXEL])
             }
         }
 
-        /* First pixel (low word) — low byte */
+        /* Primer píxel (word bajo) — byte bajo */
         aux8 = (uint8_t)(pix & 0x000000FFU);
         ILI9341_hspi->Instance->DR = aux8;
         tickstart = HAL_GetTick();
@@ -603,7 +604,7 @@ ILI9341_Status_t LCD_ILI9341_DisplayImage(uint32_t image[ILI9341_PIXEL])
             }
         }
 
-        /* Second pixel (high word) — high byte */
+        /* Segundo píxel (word alto) — byte alto */
         aux8 = (uint8_t)(pix >> 24);
         ILI9341_hspi->Instance->DR = aux8;
         tickstart = HAL_GetTick();
@@ -625,7 +626,7 @@ ILI9341_Status_t LCD_ILI9341_DisplayImage(uint32_t image[ILI9341_PIXEL])
             }
         }
 
-        /* Second pixel (high word) — low byte */
+        /* Segundo píxel (word alto) — byte bajo */
         aux8 = (uint8_t)(pix >> 16);
         ILI9341_hspi->Instance->DR = aux8;
         tickstart = HAL_GetTick();
@@ -813,10 +814,10 @@ void LCD_ILI9341_DrawLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uin
 
 void LCD_ILI9341_DrawRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[ILI9341_PIXEL])
 {
-    LCD_ILI9341_DrawLine_ImageBuffer(x0, y0, x1, y0, color, image); /* Top    */
-    LCD_ILI9341_DrawLine_ImageBuffer(x0, y0, x0, y1, color, image); /* Left   */
-    LCD_ILI9341_DrawLine_ImageBuffer(x1, y0, x1, y1, color, image); /* Right  */
-    LCD_ILI9341_DrawLine_ImageBuffer(x0, y1, x1, y1, color, image); /* Bottom */
+    LCD_ILI9341_DrawLine_ImageBuffer(x0, y0, x1, y0, color, image); /* Superior  */
+    LCD_ILI9341_DrawLine_ImageBuffer(x0, y0, x0, y1, color, image); /* Izquierda */
+    LCD_ILI9341_DrawLine_ImageBuffer(x1, y0, x1, y1, color, image); /* Derecha   */
+    LCD_ILI9341_DrawLine_ImageBuffer(x0, y1, x1, y1, color, image); /* Inferior  */
 }
 
 void LCD_ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[ILI9341_PIXEL])
