@@ -916,8 +916,8 @@ void LCD_ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint1
 
 ILI9341_Status_t LCD_ILI9341_Flush(void)
 {
-    if (!ILI9341_Initialized)       { return ILI9341_NOT_INITIALIZED; }
-    if (ILI9341_framebuffer == NULL) { return ILI9341_INVALID_PARAM;   }
+    if (!ILI9341_Initialized)   { return ILI9341_NOT_INITIALIZED; }
+    if (ILI9341_hsdram == NULL) { return ILI9341_INVALID_PARAM;   }
     return LCD_ILI9341_DisplayImage(ILI9341_framebuffer);
 }
 
@@ -928,6 +928,27 @@ uint32_t* LCD_ILI9341_GetFrameBuffer(void)
 }
 
 #endif /* HAL_SDRAM_MODULE_ENABLED */
+
+ILI9341_Status_t LCD_ILI9341_DeInit(void)
+{
+    if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
+
+    ILI9341_Initialized = 0U;
+
+#ifdef HAL_SDRAM_MODULE_ENABLED
+    if (ILI9341_hsdram != NULL)
+    {
+        HAL_SDRAM_DeInit(ILI9341_hsdram);
+        ILI9341_hsdram      = NULL;
+        ILI9341_framebuffer = NULL;
+    }
+#endif
+
+    ILI9341_hspi = NULL;
+    ILI9341_hi2c = NULL;
+
+    return ILI9341_OK;
+}
 
 // ============================================================================
 // FUNCIONES PÚBLICAS — Touch panel (STMPE811)
