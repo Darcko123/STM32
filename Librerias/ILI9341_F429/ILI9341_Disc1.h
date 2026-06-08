@@ -248,6 +248,7 @@ extern "C" {
  * @return ILI9341_Status_t
  *         - ILI9341_OK            if initialization succeeded.
  *         - ILI9341_INVALID_PARAM if @p config or any handle inside it is NULL.
+ *         - ILI9341_ERROR         if an SPI transmission failed during init.
  */
 ILI9341_Status_t LCD_ILI9341_Init(const ILI9341_Config_t* config);
 
@@ -264,15 +265,23 @@ void LCD_ILI9341_Delay(volatile unsigned int delay);
  * @brief Send a command byte to the LCD over SPI.
  *
  * @param[in] data Command byte.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK            on success.
+ *         - ILI9341_INVALID_PARAM if the SPI handle is NULL.
+ *         - ILI9341_ERROR         on SPI transmission failure.
  */
-void LCD_ILI9341_SendCommand(uint8_t data);
+ILI9341_Status_t LCD_ILI9341_SendCommand(uint8_t data);
 
 /**
  * @brief Send a data byte to the LCD over SPI.
  *
  * @param[in] data Data byte.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK            on success.
+ *         - ILI9341_INVALID_PARAM if the SPI handle is NULL.
+ *         - ILI9341_ERROR         on SPI transmission failure.
  */
-void LCD_ILI9341_SendData(uint8_t data);
+ILI9341_Status_t LCD_ILI9341_SendData(uint8_t data);
 
 /**
  * @brief Set the active drawing window on the LCD (COLUMN_ADDR + PAGE_ADDR).
@@ -281,8 +290,12 @@ void LCD_ILI9341_SendData(uint8_t data);
  * @param[in] y1 Top row of the window.
  * @param[in] x2 Right column of the window.
  * @param[in] y2 Bottom row of the window.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              on success.
+ *         - ILI9341_NOT_INITIALIZED if the driver has not been initialized.
+ *         - ILI9341_ERROR           on SPI transmission failure.
  */
-void LCD_ILI9341_SetCursorPosition(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2);
+ILI9341_Status_t LCD_ILI9341_SetCursorPosition(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2);
 
 /* --- Dibujo en pantalla --------------------------------------------------- */
 
@@ -290,15 +303,25 @@ void LCD_ILI9341_SetCursorPosition(uint16_t x1, uint16_t y1, uint16_t x2, uint16
  * @brief Fill the entire LCD with a solid color.
  *
  * @param[in] color RGB565 fill color.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              on success.
+ *         - ILI9341_NOT_INITIALIZED if the driver has not been initialized.
+ *         - ILI9341_ERROR           on SPI transmission failure.
  */
-void LCD_ILI9341_Fill(uint16_t color);
+ILI9341_Status_t LCD_ILI9341_Fill(uint16_t color);
 
 /**
  * @brief Rotate the display and update internal width/height.
  *
+ * @note The internal geometry is only updated if the SPI command succeeds.
+ *
  * @param[in] orientation Desired orientation (LCD_ILI9341_Orientation_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              on success.
+ *         - ILI9341_NOT_INITIALIZED if the driver has not been initialized.
+ *         - ILI9341_ERROR           on SPI transmission failure.
  */
-void LCD_ILI9341_Rotate(LCD_ILI9341_Orientation_t orientation);
+ILI9341_Status_t LCD_ILI9341_Rotate(LCD_ILI9341_Orientation_t orientation);
 
 /**
  * @brief Draw a single pixel on the LCD.
@@ -306,8 +329,12 @@ void LCD_ILI9341_Rotate(LCD_ILI9341_Orientation_t orientation);
  * @param[in] x     Pixel X coordinate.
  * @param[in] y     Pixel Y coordinate.
  * @param[in] color RGB565 pixel color.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              on success.
+ *         - ILI9341_NOT_INITIALIZED if the driver has not been initialized.
+ *         - ILI9341_ERROR           on SPI transmission failure.
  */
-void LCD_ILI9341_DrawPixel(uint16_t x, uint16_t y, uint16_t color);
+ILI9341_Status_t LCD_ILI9341_DrawPixel(uint16_t x, uint16_t y, uint16_t color);
 
 /**
  * @brief Draw a line on the LCD using Bresenham's algorithm.
@@ -317,8 +344,12 @@ void LCD_ILI9341_DrawPixel(uint16_t x, uint16_t y, uint16_t color);
  * @param[in] x1    End X coordinate.
  * @param[in] y1    End Y coordinate.
  * @param[in] color RGB565 line color.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              on success.
+ *         - ILI9341_NOT_INITIALIZED if the driver has not been initialized.
+ *         - ILI9341_ERROR           on SPI transmission failure.
  */
-void LCD_ILI9341_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color);
+ILI9341_Status_t LCD_ILI9341_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color);
 
 /**
  * @brief Draw a rectangle outline on the LCD.
@@ -328,8 +359,12 @@ void LCD_ILI9341_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, ui
  * @param[in] x1    Bottom-right X coordinate.
  * @param[in] y1    Bottom-right Y coordinate.
  * @param[in] color RGB565 line color.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              on success.
+ *         - ILI9341_NOT_INITIALIZED if the driver has not been initialized.
+ *         - ILI9341_ERROR           on SPI transmission failure.
  */
-void LCD_ILI9341_DrawRectangle(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color);
+ILI9341_Status_t LCD_ILI9341_DrawRectangle(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color);
 
 /**
  * @brief Draw a filled rectangle on the LCD.
@@ -339,8 +374,12 @@ void LCD_ILI9341_DrawRectangle(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y
  * @param[in] x1    Bottom-right X coordinate.
  * @param[in] y1    Bottom-right Y coordinate.
  * @param[in] color RGB565 fill color.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              on success.
+ *         - ILI9341_NOT_INITIALIZED if the driver has not been initialized.
+ *         - ILI9341_ERROR           on SPI transmission failure.
  */
-void LCD_ILI9341_DrawFilledRectangle(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color);
+ILI9341_Status_t LCD_ILI9341_DrawFilledRectangle(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color);
 
 /**
  * @brief Draw a circle outline on the LCD.
@@ -349,8 +388,12 @@ void LCD_ILI9341_DrawFilledRectangle(uint16_t x0, uint16_t y0, uint16_t x1, uint
  * @param[in] y0    Center Y coordinate.
  * @param[in] r     Radius in pixels.
  * @param[in] color RGB565 line color.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              on success.
+ *         - ILI9341_NOT_INITIALIZED if the driver has not been initialized.
+ *         - ILI9341_ERROR           on SPI transmission failure.
  */
-void LCD_ILI9341_DrawCircle(int16_t x0, int16_t y0, int16_t r, uint16_t color);
+ILI9341_Status_t LCD_ILI9341_DrawCircle(int16_t x0, int16_t y0, int16_t r, uint16_t color);
 
 /**
  * @brief Draw a filled circle on the LCD.
@@ -359,8 +402,12 @@ void LCD_ILI9341_DrawCircle(int16_t x0, int16_t y0, int16_t r, uint16_t color);
  * @param[in] y0    Center Y coordinate.
  * @param[in] r     Radius in pixels.
  * @param[in] color RGB565 fill color.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              on success.
+ *         - ILI9341_NOT_INITIALIZED if the driver has not been initialized.
+ *         - ILI9341_ERROR           on SPI transmission failure.
  */
-void LCD_ILI9341_DrawFilledCircle(int16_t x0, int16_t y0, int16_t r, uint16_t color);
+ILI9341_Status_t LCD_ILI9341_DrawFilledCircle(int16_t x0, int16_t y0, int16_t r, uint16_t color);
 
 /* --- Texto en pantalla ---------------------------------------------------- */
 
@@ -373,8 +420,12 @@ void LCD_ILI9341_DrawFilledCircle(int16_t x0, int16_t y0, int16_t r, uint16_t co
  * @param[in] font       Pointer to the font definition.
  * @param[in] foreground RGB565 foreground color.
  * @param[in] background RGB565 background color.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              on success.
+ *         - ILI9341_NOT_INITIALIZED if the driver has not been initialized.
+ *         - ILI9341_ERROR           on SPI transmission failure.
  */
-void LCD_ILI9341_Putc(uint16_t x, uint16_t y, char c, LCD_FontDef_t* font, uint16_t foreground, uint16_t background);
+ILI9341_Status_t LCD_ILI9341_Putc(uint16_t x, uint16_t y, char c, LCD_FontDef_t* font, uint16_t foreground, uint16_t background);
 
 /**
  * @brief Render a null-terminated string on the LCD.
@@ -385,8 +436,12 @@ void LCD_ILI9341_Putc(uint16_t x, uint16_t y, char c, LCD_FontDef_t* font, uint1
  * @param[in] font       Pointer to the font definition.
  * @param[in] foreground RGB565 foreground color.
  * @param[in] background RGB565 background color.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              on success.
+ *         - ILI9341_NOT_INITIALIZED if the driver has not been initialized.
+ *         - ILI9341_ERROR           on SPI transmission failure.
  */
-void LCD_ILI9341_Puts(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* font, uint16_t foreground, uint16_t background);
+ILI9341_Status_t LCD_ILI9341_Puts(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* font, uint16_t foreground, uint16_t background);
 
 /**
  * @brief Compute the pixel bounding-box of a string for a given font.
@@ -405,9 +460,10 @@ void LCD_ILI9341_GetStringSize(char* str, LCD_FontDef_t* font, uint16_t* width, 
  *
  * @param[in] image Array of IMG_TOTAL_BUF32 uint32_t words (two RGB565 pixels per word).
  * @return ILI9341_Status_t
- *         - ILI9341_OK      if all pixels were sent.
- *         - ILI9341_TIMEOUT if the SPI bus stalled.
- *         - ILI9341_ERROR   if the SPI peripheral was busy.
+ *         - ILI9341_OK              if all pixels were sent.
+ *         - ILI9341_NOT_INITIALIZED if the driver has not been initialized.
+ *         - ILI9341_TIMEOUT         if the SPI bus stalled.
+ *         - ILI9341_ERROR           if the SPI peripheral was busy.
  */
 ILI9341_Status_t LCD_ILI9341_DisplayImage(uint32_t image[ILI9341_PIXEL]);
 
@@ -489,43 +545,47 @@ void LCD_ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint1
  * @brief Configure the STMPE811 touch-panel controller.
  *
  * @return ILI9341_Status_t
- *         - ILI9341_OK    if the device was detected and configured.
- *         - ILI9341_ERROR if the chip ID did not match STMPE811_ID.
+ *         - ILI9341_OK              if the device was detected and configured.
+ *         - ILI9341_NOT_INITIALIZED if the driver has not been initialized.
+ *         - ILI9341_ERROR           if the chip ID did not match STMPE811_ID.
  */
 ILI9341_Status_t TP_Config(void);
 
 /**
  * @brief Read the current touch-panel state (coordinates and touch detection).
  *
- * @return Pointer to the internal TP_STATE structure with updated values.
+ * @return Pointer to the internal TP_STATE structure with updated values,
+ *         or NULL if the driver has not been initialized.
  */
 TP_STATE* TP_GetState(void);
 
 /**
  * @brief Read the calibrated X coordinate of the active touch point.
  *
- * @return X coordinate in the range [0, 239].
+ * @return X coordinate in the range [0, 239], or 0 if not initialized.
  */
 uint16_t TP_Read_X(void);
 
 /**
  * @brief Read the calibrated Y coordinate of the active touch point.
  *
- * @return Y coordinate in the range [0, 319].
+ * @return Y coordinate in the range [0, 319], or 0 if not initialized.
  */
 uint16_t TP_Read_Y(void);
 
 /**
  * @brief Read the Z (pressure) value of the active touch point.
  *
- * @return Pressure index (raw ADC value).
+ * @return Pressure index (raw ADC value), or 0 if not initialized.
  */
 uint16_t TP_Read_Z(void);
 
 /**
  * @brief Reset the STMPE811 via the SYS_CTRL1 software-reset bit.
  *
- * @return ILI9341_Status_t ILI9341_OK always.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              always, once initialized.
+ *         - ILI9341_NOT_INITIALIZED if the driver has not been initialized.
  */
 ILI9341_Status_t TP_Reset(void);
 
@@ -534,7 +594,9 @@ ILI9341_Status_t TP_Reset(void);
  *
  * @param[in] Fct      Function mask: TP_ADC_FCT, TP_TP_FCT, or TP_IO_FCT.
  * @param[in] NewState ENABLE or DISABLE.
- * @return ILI9341_Status_t ILI9341_OK always.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              always, once initialized.
+ *         - ILI9341_NOT_INITIALIZED if the driver has not been initialized.
  */
 ILI9341_Status_t TP_FnctCmd(uint8_t Fct, FunctionalState NewState);
 
@@ -543,7 +605,9 @@ ILI9341_Status_t TP_FnctCmd(uint8_t Fct, FunctionalState NewState);
  *
  * @param[in] IO_Pin   Pin mask (IO_Pin_x values).
  * @param[in] NewState ENABLE or DISABLE.
- * @return ILI9341_Status_t ILI9341_OK always.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              always, once initialized.
+ *         - ILI9341_NOT_INITIALIZED if the driver has not been initialized.
  */
 ILI9341_Status_t TP_IOAFConfig(uint8_t IO_Pin, FunctionalState NewState);
 
@@ -551,7 +615,7 @@ ILI9341_Status_t TP_IOAFConfig(uint8_t IO_Pin, FunctionalState NewState);
  * @brief Read one byte from a STMPE811 register over I2C.
  *
  * @param[in] RegisterAddr Register address (0x00–0x59).
- * @return Register value, or 0xAA on I2C error.
+ * @return Register value, or 0xAA on I2C error or if not initialized.
  */
 uint8_t TP_ReadDeviceRegister(uint8_t RegisterAddr);
 
@@ -561,8 +625,9 @@ uint8_t TP_ReadDeviceRegister(uint8_t RegisterAddr);
  * @param[in] RegisterAddr  Register address.
  * @param[in] RegisterValue Byte to write.
  * @return ILI9341_Status_t
- *         - ILI9341_OK    on success.
- *         - ILI9341_ERROR on I2C failure.
+ *         - ILI9341_OK              on success.
+ *         - ILI9341_NOT_INITIALIZED if the driver has not been initialized.
+ *         - ILI9341_ERROR           on I2C failure.
  */
 ILI9341_Status_t TP_WriteDeviceRegister(uint8_t RegisterAddr, uint8_t RegisterValue);
 
@@ -570,7 +635,7 @@ ILI9341_Status_t TP_WriteDeviceRegister(uint8_t RegisterAddr, uint8_t RegisterVa
  * @brief Read two bytes from a STMPE811 register (used for X/Y/Z ADC data).
  *
  * @param[in] RegisterAddr Register address.
- * @return 16-bit reconstructed value, or 0xAA on I2C error.
+ * @return 16-bit reconstructed value, or 0xAA on I2C error or if not initialized.
  */
 uint16_t TP_ReadDataBuffer(uint32_t RegisterAddr);
 
