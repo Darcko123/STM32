@@ -46,6 +46,10 @@ static TP_STATE TP_State;
 #ifdef HAL_SDRAM_MODULE_ENABLED
 static SDRAM_HandleTypeDef* ILI9341_hsdram       = NULL;
 static uint32_t*            ILI9341_framebuffer  = NULL;
+
+/* Verificación en tiempo de compilación: el frame buffer debe caber en el chip SDRAM.
+ * Genera un error "array size is negative" si la condición no se cumple. */
+typedef char ILI9341_sdram_fb_size_check[(ILI9341_SDRAM_FB_SIZE <= IS42S16400J_SIZE) ? 1 : -1];
 #endif
 
 // ============================================================================
@@ -98,27 +102,29 @@ static void SDRAM_Initialization_Sequence(SDRAM_HandleTypeDef* hsdram, FMC_SDRAM
     HAL_SDRAM_SendCommand(hsdram, Command, 0x1000);
 
 
-    // Step 4 : Configurar el comando de auto-refresco
+    /* Paso 4: Configurar el comando de auto-refresco.
+     * El datasheet del IS42S16400J exige un mínimo de 2 ciclos de auto-refresh
+     * durante la inicialización (§3.4). Se usan 4 para mayor margen de seguridad. */
     Command->CommandMode            = FMC_SDRAM_CMD_AUTOREFRESH_MODE;
     Command->CommandTarget          = FMC_SDRAM_CMD_TARGET_BANK2;
     Command->AutoRefreshNumber      = 4;
     Command->ModeRegisterDefinition = 0;
     HAL_SDRAM_SendCommand(hsdram, Command, 0x1000);
 
-    /** Paso 7: Programar la memoria externa en modo registro */
+    /** Paso 5: Programar la memoria externa en modo registro */
     tmpmrd = (uint32_t)SDRAM_MODEREG_BURST_LENGTH_2             |
                        SDRAM_MODEREG_BURST_TYPE_SEQUENTIAL      |
                        SDRAM_MODEREG_CAS_LATENCY_3              |
                        SDRAM_MODEREG_OPERATING_MODE_STANDARD    |
                        SDRAM_MODEREG_WRITEBURST_MODE_SINGLE;
 
-                       Command->CommandMode   = FMC_SDRAM_CMD_LOAD_MODE;
-                       Command->CommandTarget = FMC_SDRAM_CMD_TARGET_BANK2;
-                       Command->AutoRefreshNumber = 1;
-                       Command->ModeRegisterDefinition = tmpmrd;
-                       HAL_SDRAM_SendCommand(hsdram, Command, 0x1000);
+    Command->CommandMode   = FMC_SDRAM_CMD_LOAD_MODE;
+    Command->CommandTarget = FMC_SDRAM_CMD_TARGET_BANK2;
+    Command->AutoRefreshNumber = 1;
+    Command->ModeRegisterDefinition = tmpmrd;
+    HAL_SDRAM_SendCommand(hsdram, Command, 0x1000);
     
-    /* Paso 8: configurar tasa de refresco */
+    /* Paso 6: configurar tasa de refresco */
     HAL_SDRAM_ProgramRefreshRate(hsdram, REFRESH_COUNT);
 }
 #endif /* HAL_SDRAM_MODULE_ENABLED */
@@ -794,10 +800,15 @@ void LCD_ILI9341_DrawPixel_ImageBuffer(uint16_t x, uint16_t y, uint16_t color, u
 {
     uint32_t buf, dir16, dir32, aux, aux2;
 
+    if (x >= ILI9341_WIDTH || y >= ILI9341_HEIGHT) { return; }
+
     dir16 = (uint32_t)y;
     aux   = (uint32_t)x;
     dir16 = ILI9341_HEIGHT * dir16 + aux;
     dir32 = dir16 / 2U;
+
+    if (dir32 >= IMG_TOTAL_BUF32) { return; }
+
     aux2  = dir16 - dir32 * 2U;
     buf   = image[dir32];
     aux   = (uint32_t)color;
