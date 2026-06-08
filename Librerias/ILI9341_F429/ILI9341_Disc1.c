@@ -70,17 +70,17 @@ static void SPI_LCD_BaudRateUp(void)
 // FUNCIONES PÚBLICAS
 // ============================================================================
 
-ILI9341_Status_t LCD_ILI9341_Init(const ILI9341_Config_t* config)
+ILI9341_Status_t LCD_ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c)
 {
     ILI9341_Status_t st;
 
-    if (config == NULL || config->hspi == NULL || config->hi2c == NULL)
+    if (hspi == NULL || hi2c == NULL)
     {
         return ILI9341_INVALID_PARAM;
     }
 
-    ILI9341_hspi        = config->hspi;
-    ILI9341_hi2c        = config->hi2c;
+    ILI9341_hspi        = hspi;
+    ILI9341_hi2c        = hi2c;
     ILI9341_Initialized = 0U;
 
     ILI9341_CS_SET;

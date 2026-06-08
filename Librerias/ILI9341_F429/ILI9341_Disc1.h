@@ -204,14 +204,6 @@ typedef enum {
 } ILI9341_Status_t;
 
 /**
- * @brief Configuration structure passed to LCD_ILI9341_Init().
- */
-typedef struct {
-    SPI_HandleTypeDef* hspi;    /**< HAL SPI handle (SPI5 on Discovery board)              */
-    I2C_HandleTypeDef* hi2c;    /**< HAL I2C handle for the STMPE811 touch-panel controller */
-} ILI9341_Config_t;
-
-/**
  * @brief Display orientation options passed to LCD_ILI9341_Rotate().
  */
 typedef enum {
@@ -244,13 +236,14 @@ extern "C" {
 /**
  * @brief Initialize the ILI9341 LCD and the STMPE811 touch controller.
  *
- * @param[in] config Pointer to a populated ILI9341_Config_t structure.
+ * @param[in] hspi Pointer to the HAL SPI handle.
+ * @param[in] hi2c Pointer to the HAL I2C handle.
  * @return ILI9341_Status_t
  *         - ILI9341_OK            if initialization succeeded.
- *         - ILI9341_INVALID_PARAM if @p config or any handle inside it is NULL.
+ *         - ILI9341_INVALID_PARAM if @p hspi or @p hi2c is NULL.
  *         - ILI9341_ERROR         if an SPI transmission failed during init.
  */
-ILI9341_Status_t LCD_ILI9341_Init(const ILI9341_Config_t* config);
+ILI9341_Status_t LCD_ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c);
 
 /* --- Primitivas de bajo nivel -------------------------------------------- */
 
