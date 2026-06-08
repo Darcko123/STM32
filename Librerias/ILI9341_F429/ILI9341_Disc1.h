@@ -54,6 +54,43 @@
 /* -- Tamaño del buffer de imagen -- */
 #define IMG_TOTAL_BUF32     (ILI9341_PIXEL / 2U)       /**< Tamaño del frame-buffer en palabras de 32 bits (2 píxeles por palabra) */
 
+/* -- SDRAM (frame buffer opcional) -- */
+#ifdef HAL_SDRAM_MODULE_ENABLED
+
+#ifndef ILI9341_SDRAM_BASE
+#define ILI9341_SDRAM_BASE               0xD0000000U    /**< Dirección base del banco 2 del FMC en la STM32F429-Discovery */
+#endif
+#define ILI9341_SDRAM_FB_SIZE            (IMG_TOTAL_BUF32 * 4U) /**< Tamaño del frame-buffer en SDRAM en bytes (153 600 B) */
+
+/* Tamaño total del chip IS42S16400J (4 MB) */
+#define IS42S16400J_SIZE                 0x400000U
+
+/* Longitud de ráfaga */
+#define SDRAM_MODEREG_BURST_LENGTH_1             ((uint16_t)0x0000U)
+#define SDRAM_MODEREG_BURST_LENGTH_2             ((uint16_t)0x0001U)
+#define SDRAM_MODEREG_BURST_LENGTH_4             ((uint16_t)0x0002U)
+#define SDRAM_MODEREG_BURST_LENGTH_8             ((uint16_t)0x0004U)
+
+/* Tipo de ráfaga */
+#define SDRAM_MODEREG_BURST_TYPE_SEQUENTIAL      ((uint16_t)0x0000U)
+#define SDRAM_MODEREG_BURST_TYPE_INTERLEAVED     ((uint16_t)0x0008U)
+
+/* Latencia CAS */
+#define SDRAM_MODEREG_CAS_LATENCY_2              ((uint16_t)0x0020U)
+#define SDRAM_MODEREG_CAS_LATENCY_3              ((uint16_t)0x0030U)
+
+/* Modo de operación */
+#define SDRAM_MODEREG_OPERATING_MODE_STANDARD    ((uint16_t)0x0000U)
+
+/* Modo de escritura en ráfaga */
+#define SDRAM_MODEREG_WRITEBURST_MODE_PROGRAMMED ((uint16_t)0x0000U)
+#define SDRAM_MODEREG_WRITEBURST_MODE_SINGLE     ((uint16_t)0x0200U)
+
+/* Contador de refresco para reloj SDRAM a 90 MHz */
+#define REFRESH_COUNT                            ((uint32_t)0x056AU)
+
+#endif /* HAL_SDRAM_MODULE_ENABLED */
+
 /* -- Colores predefinidos (RGB565) -- */
 #define ILI9341_COLOR_WHITE     0xFFFFU
 #define ILI9341_COLOR_BLACK     0x0000U
@@ -236,14 +273,22 @@ extern "C" {
 /**
  * @brief Inicializa la pantalla LCD ILI9341 y el controlador táctil STMPE811.
  *
- * @param[in] hspi Puntero al handle SPI de HAL.
- * @param[in] hi2c Puntero al handle I2C de HAL.
+ * @param[in] hspi   Puntero al handle SPI de HAL.
+ * @param[in] hi2c   Puntero al handle I2C de HAL.
+ * @param[in] hsdram (Solo con HAL_SDRAM_MODULE_ENABLED) Puntero al handle SDRAM de HAL
+ *                   generado por STM32CubeMX. Pasar NULL deshabilita el frame buffer en SDRAM.
+ *                   Cuando no es NULL, la librería reserva los primeros ILI9341_SDRAM_FB_SIZE
+ *                   bytes de ILI9341_SDRAM_BASE como frame buffer interno (153 600 B).
  * @return ILI9341_Status_t
  *         - ILI9341_OK            si la inicialización fue exitosa.
  *         - ILI9341_INVALID_PARAM si @p hspi o @p hi2c es NULL.
  *         - ILI9341_ERROR         si una transmisión SPI falló durante la inicialización.
  */
+#ifdef HAL_SDRAM_MODULE_ENABLED
+ILI9341_Status_t LCD_ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c, SDRAM_HandleTypeDef* hsdram);
+#else
 ILI9341_Status_t LCD_ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c);
+#endif
 
 /* --- Primitivas de bajo nivel -------------------------------------------- */
 
@@ -531,6 +576,40 @@ void LCD_ILI9341_DrawRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1
  * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
  */
 void LCD_ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[ILI9341_PIXEL]);
+
+/* --- Frame buffer SDRAM --------------------------------------------------- */
+
+#ifdef HAL_SDRAM_MODULE_ENABLED
+
+/**
+ * @brief Transfiere el frame buffer interno (SDRAM) a la pantalla LCD mediante SPI.
+ *
+ * @details Equivalente a llamar LCD_ILI9341_DisplayImage() con el puntero interno
+ *          al frame buffer en SDRAM. Requiere que LCD_ILI9341_Init() haya sido
+ *          invocado con un handle SDRAM válido.
+ *
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              si la transferencia fue exitosa.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si el frame buffer SDRAM no está habilitado (hsdram era NULL).
+ *         - ILI9341_TIMEOUT         si el bus SPI se bloqueó.
+ *         - ILI9341_ERROR           si el periférico SPI estaba ocupado.
+ */
+ILI9341_Status_t LCD_ILI9341_Flush(void);
+
+/**
+ * @brief Retorna el puntero al frame buffer interno ubicado en SDRAM.
+ *
+ * @details El buffer tiene formato IMG_TOTAL_BUF32 palabras uint32_t (dos píxeles
+ *          RGB565 empaquetados por palabra), compatible con todas las funciones
+ *          LCD_ILI9341_*_ImageBuffer(). Retorna NULL si SDRAM no fue habilitada
+ *          o si el driver no ha sido inicializado.
+ *
+ * @return Puntero al frame buffer en SDRAM, o NULL si no está disponible.
+ */
+uint32_t* LCD_ILI9341_GetFrameBuffer(void);
+
+#endif /* HAL_SDRAM_MODULE_ENABLED */
 
 /* --- Touch panel (STMPE811) ---------------------------------------------- */
 

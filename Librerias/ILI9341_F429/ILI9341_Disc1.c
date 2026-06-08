@@ -43,12 +43,20 @@ static uint32_t tickstart = 0U;
 
 static TP_STATE TP_State;
 
+#ifdef HAL_SDRAM_MODULE_ENABLED
+static SDRAM_HandleTypeDef* ILI9341_hsdram       = NULL;
+static uint32_t*            ILI9341_framebuffer  = NULL;
+#endif
+
 // ============================================================================
 // PROTOTIPOS DE FUNCIONES PRIVADAS
 // ============================================================================
 
 static ILI9341_Status_t SPI_LCD_Send(uint8_t* data, uint16_t size);
 static void SPI_LCD_BaudRateUp(void);
+#ifdef HAL_SDRAM_MODULE_ENABLED
+static void SDRAM_Initialization_Sequence(SDRAM_HandleTypeDef* hsdram, FMC_SDRAM_CommandTypeDef* Command);
+#endif
 
 // ============================================================================
 // FUNCIONES PRIVADAS
@@ -67,11 +75,63 @@ static void SPI_LCD_BaudRateUp(void)
     HAL_SPI_Init(ILI9341_hspi);
 }
 
+#ifdef HAL_SDRAM_MODULE_ENABLED
+static void SDRAM_Initialization_Sequence(SDRAM_HandleTypeDef* hsdram, FMC_SDRAM_CommandTypeDef* Command)
+{
+    __IO uint32_t tmpmrd =0;
+
+    /* Paso 1: habilitar reloj */
+    Command->CommandMode            = FMC_SDRAM_CMD_CLK_ENABLE;
+    Command->CommandTarget          = FMC_SDRAM_CMD_TARGET_BANK2;
+    Command->AutoRefreshNumber      = 1;
+    Command->ModeRegisterDefinition = 0;
+    HAL_SDRAM_SendCommand(hsdram, Command, 0x1000U);
+
+    /* Paso 2: esperar al menos 100 µs */
+    HAL_Delay(1U);
+
+    /* Paso 3: precargar todos los bancos (PALL) */
+    Command->CommandMode            = FMC_SDRAM_CMD_PALL;
+    Command->CommandTarget          = FMC_SDRAM_CMD_TARGET_BANK2;
+    Command->AutoRefreshNumber      = 1;
+    Command->ModeRegisterDefinition = 0;
+    HAL_SDRAM_SendCommand(hsdram, Command, 0x1000);
+
+
+    // Step 4 : Configurar el comando de auto-refresco
+    Command->CommandMode            = FMC_SDRAM_CMD_AUTOREFRESH_MODE;
+    Command->CommandTarget          = FMC_SDRAM_CMD_TARGET_BANK2;
+    Command->AutoRefreshNumber      = 4;
+    Command->ModeRegisterDefinition = 0;
+    HAL_SDRAM_SendCommand(hsdram, Command, 0x1000);
+
+    /** Paso 7: Programar la memoria externa en modo registro */
+    tmpmrd = (uint32_t)SDRAM_MODEREG_BURST_LENGTH_2             |
+                       SDRAM_MODEREG_BURST_TYPE_SEQUENTIAL      |
+                       SDRAM_MODEREG_CAS_LATENCY_3              |
+                       SDRAM_MODEREG_OPERATING_MODE_STANDARD    |
+                       SDRAM_MODEREG_WRITEBURST_MODE_SINGLE;
+
+                       Command->CommandMode   = FMC_SDRAM_CMD_LOAD_MODE;
+                       Command->CommandTarget = FMC_SDRAM_CMD_TARGET_BANK2;
+                       Command->AutoRefreshNumber = 1;
+                       Command->ModeRegisterDefinition = tmpmrd;
+                       HAL_SDRAM_SendCommand(hsdram, Command, 0x1000);
+    
+    /* Paso 8: configurar tasa de refresco */
+    HAL_SDRAM_ProgramRefreshRate(hsdram, REFRESH_COUNT);
+}
+#endif /* HAL_SDRAM_MODULE_ENABLED */
+
 // ============================================================================
 // FUNCIONES PÚBLICAS
 // ============================================================================
 
+#ifdef HAL_SDRAM_MODULE_ENABLED
+ILI9341_Status_t LCD_ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c, SDRAM_HandleTypeDef* hsdram)
+#else
 ILI9341_Status_t LCD_ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c)
+#endif
 {
     ILI9341_Status_t st;
 
@@ -83,6 +143,11 @@ ILI9341_Status_t LCD_ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi
     ILI9341_hspi        = hspi;
     ILI9341_hi2c        = hi2c;
     ILI9341_Initialized = 0U;
+
+#ifdef HAL_SDRAM_MODULE_ENABLED
+    ILI9341_hsdram     = NULL;
+    ILI9341_framebuffer = NULL;
+#endif
 
     ILI9341_CS_SET;
     ILI9341_RST_SET;
@@ -200,6 +265,21 @@ ILI9341_Status_t LCD_ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi
     ILI9341_Opts.orientation = LCD_ILI9341_Portrait;
 
     SPI_LCD_BaudRateUp();
+
+#ifdef HAL_SDRAM_MODULE_ENABLED
+    ILI9341_hsdram = hsdram;
+    if (hsdram != NULL)
+    {
+        FMC_SDRAM_CommandTypeDef sdramCmd = {0};
+        SDRAM_Initialization_Sequence(hsdram, &sdramCmd);
+        ILI9341_framebuffer = (uint32_t*)ILI9341_SDRAM_BASE;
+    }
+    else
+    {
+        ILI9341_framebuffer = NULL;
+    }
+#endif
+
     ILI9341_Initialized = 1U;
 
     return ILI9341_OK;
@@ -827,6 +907,27 @@ void LCD_ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint1
         LCD_ILI9341_DrawLine_ImageBuffer(x0, y0, x0, y1, color, image);
     }
 }
+
+// ============================================================================
+// FUNCIONES PÚBLICAS — Frame buffer SDRAM
+// ============================================================================
+
+#ifdef HAL_SDRAM_MODULE_ENABLED
+
+ILI9341_Status_t LCD_ILI9341_Flush(void)
+{
+    if (!ILI9341_Initialized)       { return ILI9341_NOT_INITIALIZED; }
+    if (ILI9341_framebuffer == NULL) { return ILI9341_INVALID_PARAM;   }
+    return LCD_ILI9341_DisplayImage(ILI9341_framebuffer);
+}
+
+uint32_t* LCD_ILI9341_GetFrameBuffer(void)
+{
+    if (!ILI9341_Initialized) { return NULL; }
+    return ILI9341_framebuffer;
+}
+
+#endif /* HAL_SDRAM_MODULE_ENABLED */
 
 // ============================================================================
 // FUNCIONES PÚBLICAS — Touch panel (STMPE811)
