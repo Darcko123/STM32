@@ -1036,6 +1036,8 @@ uint16_t TP_Read_X(void)
     if      (xr <= 0)  { xr = 0;   }
     else if (xr > 240) { xr = 239; }
 
+    xr = 239 - xr;
+
     return (uint16_t)xr;
 }
 
