@@ -35,12 +35,6 @@ static uint16_t              ILI9341_x           = 0U;
 static uint16_t              ILI9341_y           = 0U;
 static LCD_ILI9341_Options_t ILI9341_Opts;
 
-/* Variables temporales usadas dentro de LCD_ILI9341_DisplayImage() */
-static uint32_t Timeout   = 5000U;
-static uint32_t pix       = 0U;
-static uint8_t  aux8      = 0U;
-static uint32_t tickstart = 0U;
-
 static TP_STATE TP_State;
 
 #ifdef HAL_SDRAM_MODULE_ENABLED
@@ -99,7 +93,7 @@ static void SDRAM_Initialization_Sequence(SDRAM_HandleTypeDef* hsdram, FMC_SDRAM
     Command->CommandTarget          = FMC_SDRAM_CMD_TARGET_BANK2;
     Command->AutoRefreshNumber      = 1;
     Command->ModeRegisterDefinition = 0;
-    HAL_SDRAM_SendCommand(hsdram, Command, 0x1000);
+    HAL_SDRAM_SendCommand(hsdram, Command, 0x1000U);
 
 
     /* Paso 4: Configurar el comando de auto-refresco.
@@ -122,7 +116,7 @@ static void SDRAM_Initialization_Sequence(SDRAM_HandleTypeDef* hsdram, FMC_SDRAM
     Command->CommandTarget = FMC_SDRAM_CMD_TARGET_BANK2;
     Command->AutoRefreshNumber = 1;
     Command->ModeRegisterDefinition = tmpmrd;
-    HAL_SDRAM_SendCommand(hsdram, Command, 0x1000);
+    HAL_SDRAM_SendCommand(hsdram, Command, 0x1000U);
     
     /* Paso 6: configurar tasa de refresco */
     HAL_SDRAM_ProgramRefreshRate(hsdram, REFRESH_COUNT);
@@ -279,6 +273,7 @@ ILI9341_Status_t LCD_ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi
         FMC_SDRAM_CommandTypeDef sdramCmd = {0};
         SDRAM_Initialization_Sequence(hsdram, &sdramCmd);
         ILI9341_framebuffer = (uint32_t*)ILI9341_SDRAM_BASE;
+        memset(ILI9341_framebuffer, 0, ILI9341_SDRAM_FB_SIZE);
     }
     else
     {
@@ -604,8 +599,13 @@ void LCD_ILI9341_GetStringSize(char* str, LCD_FontDef_t* font, uint16_t* width, 
     *width = w;
 }
 
-ILI9341_Status_t LCD_ILI9341_DisplayImage(uint32_t image[ILI9341_PIXEL])
+ILI9341_Status_t LCD_ILI9341_DisplayImage(uint32_t image[IMG_TOTAL_BUF32])
 {
+    const uint32_t Timeout   = 5000U;
+    uint32_t       pix;
+    uint8_t        aux8;
+    uint32_t       tickstart;
+
     if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
 
     LCD_ILI9341_SetCursorPosition(0U, 0U, ILI9341_Opts.width - 1U, ILI9341_Opts.height - 1U);
@@ -796,7 +796,7 @@ ILI9341_Status_t LCD_ILI9341_DisplayImage(uint32_t image[ILI9341_PIXEL])
     return ILI9341_OK;
 }
 
-void LCD_ILI9341_DrawPixel_ImageBuffer(uint16_t x, uint16_t y, uint16_t color, uint32_t image[ILI9341_PIXEL])
+void LCD_ILI9341_DrawPixel_ImageBuffer(uint16_t x, uint16_t y, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
 {
     uint32_t buf, dir16, dir32, aux, aux2;
 
@@ -804,7 +804,7 @@ void LCD_ILI9341_DrawPixel_ImageBuffer(uint16_t x, uint16_t y, uint16_t color, u
 
     dir16 = (uint32_t)y;
     aux   = (uint32_t)x;
-    dir16 = ILI9341_HEIGHT * dir16 + aux;
+    dir16 = ILI9341_WIDTH * dir16 + aux;
     dir32 = dir16 / 2U;
 
     if (dir32 >= IMG_TOTAL_BUF32) { return; }
@@ -819,13 +819,13 @@ void LCD_ILI9341_DrawPixel_ImageBuffer(uint16_t x, uint16_t y, uint16_t color, u
     image[dir32] = buf;
 }
 
-void LCD_ILI9341_Putc_ImageBuffer(uint16_t x, uint16_t y, char c, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[ILI9341_PIXEL])
+void LCD_ILI9341_Putc_ImageBuffer(uint16_t x, uint16_t y, char c, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32])
 {
     uint32_t i, b, j;
 
     ILI9341_x = x;
     ILI9341_y = y;
-    if ((ILI9341_x + font->FontWidth) > ILI9341_Opts.width)
+    if ((ILI9341_x + font->FontWidth) > ILI9341_WIDTH)
     {
         ILI9341_y += font->FontHeight;
         ILI9341_x  = 0U;
@@ -845,7 +845,7 @@ void LCD_ILI9341_Putc_ImageBuffer(uint16_t x, uint16_t y, char c, LCD_FontDef_t*
     ILI9341_x += font->FontWidth;
 }
 
-void LCD_ILI9341_Puts_ImageBuffer(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[ILI9341_PIXEL])
+void LCD_ILI9341_Puts_ImageBuffer(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32])
 {
     uint16_t startX = x;
 
@@ -878,14 +878,14 @@ void LCD_ILI9341_Puts_ImageBuffer(uint16_t x, uint16_t y, char* str, LCD_FontDef
     }
 }
 
-void LCD_ILI9341_DrawLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[ILI9341_PIXEL])
+void LCD_ILI9341_DrawLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
 {
     int16_t dx, dy, sx, sy, err, e2;
 
-    if (x0 >= ILI9341_Opts.width)  { x0 = ILI9341_Opts.width  - 1U; }
-    if (x1 >= ILI9341_Opts.width)  { x1 = ILI9341_Opts.width  - 1U; }
-    if (y0 >= ILI9341_Opts.height) { y0 = ILI9341_Opts.height - 1U; }
-    if (y1 >= ILI9341_Opts.height) { y1 = ILI9341_Opts.height - 1U; }
+    if (x0 >= ILI9341_WIDTH)  { x0 = ILI9341_WIDTH  - 1U; }
+    if (x1 >= ILI9341_WIDTH)  { x1 = ILI9341_WIDTH  - 1U; }
+    if (y0 >= ILI9341_HEIGHT) { y0 = ILI9341_HEIGHT - 1U; }
+    if (y1 >= ILI9341_HEIGHT) { y1 = ILI9341_HEIGHT - 1U; }
 
     dx  = (x0 < x1) ? (x1 - x0) : (x0 - x1);
     dy  = (y0 < y1) ? (y1 - y0) : (y0 - y1);
@@ -903,7 +903,7 @@ void LCD_ILI9341_DrawLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uin
     }
 }
 
-void LCD_ILI9341_DrawRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[ILI9341_PIXEL])
+void LCD_ILI9341_DrawRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
 {
     LCD_ILI9341_DrawLine_ImageBuffer(x0, y0, x1, y0, color, image); /* Superior  */
     LCD_ILI9341_DrawLine_ImageBuffer(x0, y0, x0, y1, color, image); /* Izquierda */
@@ -911,7 +911,7 @@ void LCD_ILI9341_DrawRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1
     LCD_ILI9341_DrawLine_ImageBuffer(x0, y1, x1, y1, color, image); /* Inferior  */
 }
 
-void LCD_ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[ILI9341_PIXEL])
+void LCD_ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
 {
     for (; x0 < x1; x0++)
     {

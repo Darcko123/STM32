@@ -33,6 +33,7 @@
 
 #include "main.h"
 #include "lcd_fonts.h"
+#include <string.h>
 
 // ============================================================================
 // MACROS Y CONSTANTES [ILI9341]
@@ -503,7 +504,7 @@ void LCD_ILI9341_GetStringSize(char* str, LCD_FontDef_t* font, uint16_t* width, 
  *         - ILI9341_TIMEOUT         si el bus SPI se bloqueó.
  *         - ILI9341_ERROR           si el periférico SPI estaba ocupado.
  */
-ILI9341_Status_t LCD_ILI9341_DisplayImage(uint32_t image[ILI9341_PIXEL]);
+ILI9341_Status_t LCD_ILI9341_DisplayImage(uint32_t image[IMG_TOTAL_BUF32]);
 
 /* --- Frame buffer (escritura fuera de pantalla) --------------------------- */
 
@@ -515,7 +516,7 @@ ILI9341_Status_t LCD_ILI9341_DisplayImage(uint32_t image[ILI9341_PIXEL]);
  * @param[in]     color  Color del píxel en formato RGB565.
  * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
  */
-void LCD_ILI9341_DrawPixel_ImageBuffer(uint16_t x, uint16_t y, uint16_t color, uint32_t image[ILI9341_PIXEL]);
+void LCD_ILI9341_DrawPixel_ImageBuffer(uint16_t x, uint16_t y, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
 
 /**
  * @brief Renderiza un carácter en un frame buffer fuera de pantalla.
@@ -527,7 +528,7 @@ void LCD_ILI9341_DrawPixel_ImageBuffer(uint16_t x, uint16_t y, uint16_t color, u
  * @param[in]     foreground Color de primer plano en formato RGB565.
  * @param[in,out] image      Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
  */
-void LCD_ILI9341_Putc_ImageBuffer(uint16_t x, uint16_t y, char c, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[ILI9341_PIXEL]);
+void LCD_ILI9341_Putc_ImageBuffer(uint16_t x, uint16_t y, char c, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32]);
 
 /**
  * @brief Renderiza una cadena terminada en nulo en un frame buffer fuera de pantalla.
@@ -539,7 +540,7 @@ void LCD_ILI9341_Putc_ImageBuffer(uint16_t x, uint16_t y, char c, LCD_FontDef_t*
  * @param[in]     foreground Color de primer plano en formato RGB565.
  * @param[in,out] image      Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
  */
-void LCD_ILI9341_Puts_ImageBuffer(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[ILI9341_PIXEL]);
+void LCD_ILI9341_Puts_ImageBuffer(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32]);
 
 /**
  * @brief Dibuja una línea en un frame buffer fuera de pantalla.
@@ -551,7 +552,7 @@ void LCD_ILI9341_Puts_ImageBuffer(uint16_t x, uint16_t y, char* str, LCD_FontDef
  * @param[in]     color  Color de la línea en formato RGB565.
  * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
  */
-void LCD_ILI9341_DrawLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[ILI9341_PIXEL]);
+void LCD_ILI9341_DrawLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
 
 /**
  * @brief Dibuja el contorno de un rectángulo en un frame buffer fuera de pantalla.
@@ -563,7 +564,7 @@ void LCD_ILI9341_DrawLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uin
  * @param[in]     color  Color de la línea en formato RGB565.
  * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
  */
-void LCD_ILI9341_DrawRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[ILI9341_PIXEL]);
+void LCD_ILI9341_DrawRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
 
 /**
  * @brief Dibuja un rectángulo relleno en un frame buffer fuera de pantalla.
@@ -575,7 +576,7 @@ void LCD_ILI9341_DrawRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1
  * @param[in]     color  Color de relleno en formato RGB565.
  * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
  */
-void LCD_ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[ILI9341_PIXEL]);
+void LCD_ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
 
 /* --- Frame buffer SDRAM --------------------------------------------------- */
 
