@@ -28,14 +28,18 @@ typedef struct {
 } ILI9341_Options_t;
 
 static SPI_HandleTypeDef*    ILI9341_hspi        = NULL; /**< Handle SPI usado para la comunicación con el ILI9341      */
+#ifdef HAL_I2C_MODULE_ENABLED
 static I2C_HandleTypeDef*    ILI9341_hi2c        = NULL; /**< Handle I2C usado para la comunicación con el STMPE811     */
+#endif
 static uint8_t               ILI9341_Initialized = 0U;   /**< Bandera de inicialización: 1 = driver listo, 0 = no listo */
 
 static uint16_t              ILI9341_x           = 0U;   /**< Columna del cursor de texto activo                        */
 static uint16_t              ILI9341_y           = 0U;   /**< Fila    del cursor de texto activo                        */
 static ILI9341_Options_t ILI9341_Opts;                   /**< Geometría y orientación actuales de la pantalla           */
 
+#ifdef HAL_I2C_MODULE_ENABLED
 static TP_STATE TP_State; /**< Estado interno del panel táctil (actualizado en ILI9341_TP_GetState()) */
+#endif
 
 #ifdef HAL_SDRAM_MODULE_ENABLED
 static SDRAM_HandleTypeDef* ILI9341_hsdram       = NULL; /**< Handle SDRAM; NULL si la SDRAM no fue habilitada en Init  */
@@ -59,6 +63,7 @@ static ILI9341_Status_t ILI9341_SendCommand(uint8_t data);
 static ILI9341_Status_t ILI9341_SendData(uint8_t data);
 static void ILI9341_Delay(volatile unsigned int delay);
 static ILI9341_Status_t ILI9341_SetCursorPosition(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2);
+#ifdef HAL_I2C_MODULE_ENABLED
 static uint8_t ILI9341_TP_ReadDeviceRegister(uint8_t RegisterAddr);
 static ILI9341_Status_t ILI9341_TP_WriteDeviceRegister(uint8_t RegisterAddr, uint8_t RegisterValue);
 static uint16_t ILI9341_TP_ReadDataBuffer(uint32_t RegisterAddr);
@@ -68,6 +73,7 @@ static ILI9341_Status_t ILI9341_TP_Reset(void);
 static uint16_t ILI9341_TP_Read_X(void);
 static uint16_t ILI9341_TP_Read_Y(void);
 static uint16_t ILI9341_TP_Read_Z(void);
+#endif /* HAL_I2C_MODULE_ENABLED */
 
 // ============================================================================
 // FUNCIONES PRIVADAS
@@ -244,6 +250,7 @@ static ILI9341_Status_t ILI9341_SetCursorPosition(uint16_t x1, uint16_t y1, uint
     return st;
 }
 
+#ifdef HAL_I2C_MODULE_ENABLED
 /**
  * @brief Lee un byte de un registro del STMPE811 por I2C.
  *
@@ -456,14 +463,15 @@ static uint16_t ILI9341_TP_Read_Z(void)
     if (!ILI9341_Initialized) { return 0U; }
     return (uint16_t)ILI9341_TP_ReadDataBuffer(TP_REG_TP_DATA_Z);
 }
+#endif /* HAL_I2C_MODULE_ENABLED */
 
 // ============================================================================
 // FUNCIONES PÚBLICAS
 // ============================================================================
 
-#ifdef HAL_SDRAM_MODULE_ENABLED
+#if defined(HAL_SDRAM_MODULE_ENABLED) && defined(HAL_I2C_MODULE_ENABLED)
 /**
- * @brief Inicializa la pantalla LCD ILI9341 y el controlador táctil STMPE811.
+ * @brief Inicializa la pantalla LCD ILI9341, la memoria SDRAM IS42S16400 y el controlador táctil STMPE811.
  *
  * @param[in] hspi   Puntero al handle SPI de HAL.
  * @param[in] hi2c   Puntero al handle I2C de HAL.
@@ -477,30 +485,58 @@ static uint16_t ILI9341_TP_Read_Z(void)
  *         - ILI9341_ERROR         si una transmisión SPI falló durante la inicialización.
  */
 ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c, SDRAM_HandleTypeDef* hsdram)
-#else
+#elif defined(HAL_SDRAM_MODULE_ENABLED)
+/**
+ * @brief Inicializa la pantalla LCD ILI9341, la memoria SDRAM IS42S16400.
+ *
+ * @param[in] hspi   Puntero al handle SPI de HAL.
+ * @param[in] hsdram (Solo con HAL_SDRAM_MODULE_ENABLED) Puntero al handle SDRAM de HAL
+ *                   generado por STM32CubeMX. Pasar NULL deshabilita el frame buffer en SDRAM.
+ *                   Cuando no es NULL, la librería reserva los primeros ILI9341_SDRAM_FB_SIZE
+ *                   bytes de ILI9341_SDRAM_BASE como frame buffer interno (153 600 B).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK            si la inicialización fue exitosa.
+ *         - ILI9341_INVALID_PARAM si @p hspi o @p hi2c es NULL.
+ *         - ILI9341_ERROR         si una transmisión SPI falló durante la inicialización.
+ */
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, SDRAM_HandleTypeDef* hsdram)
+#elif defined(HAL_I2C_MODULE_ENABLED)
 /**
  * @brief Inicializa la pantalla LCD ILI9341 y el controlador táctil STMPE811.
  *
  * @param[in] hspi   Puntero al handle SPI de HAL.
  * @param[in] hi2c   Puntero al handle I2C de HAL.
- *
  * @return ILI9341_Status_t
  *         - ILI9341_OK            si la inicialización fue exitosa.
  *         - ILI9341_INVALID_PARAM si @p hspi o @p hi2c es NULL.
  *         - ILI9341_ERROR         si una transmisión SPI falló durante la inicialización.
  */
 ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c)
+#else
+/**
+ * @brief Inicializa la pantalla LCD ILI9341.
+ *
+ * @param[in] hspi   Puntero al handle SPI de HAL.
+ * 
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK            si la inicialización fue exitosa.
+ *         - ILI9341_INVALID_PARAM si @p hspi o @p hi2c es NULL.
+ *         - ILI9341_ERROR         si una transmisión SPI falló durante la inicialización.
+ */
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi)
 #endif
 {
     ILI9341_Status_t st;
 
-    if (hspi == NULL || hi2c == NULL)
-    {
-        return ILI9341_INVALID_PARAM;
-    }
+    if (hspi == NULL) { return ILI9341_INVALID_PARAM; }
+#ifdef HAL_I2C_MODULE_ENABLED
+    if (hi2c == NULL) { return ILI9341_INVALID_PARAM; }
+#endif
 
     ILI9341_hspi        = hspi;
+#ifdef HAL_I2C_MODULE_ENABLED
     ILI9341_hi2c        = hi2c;
+#endif
     ILI9341_Initialized = 0U;
 
 #ifdef HAL_SDRAM_MODULE_ENABLED
@@ -1506,7 +1542,9 @@ ILI9341_Status_t ILI9341_DeInit(void)
 #endif
 
     ILI9341_hspi = NULL;
+#ifdef HAL_I2C_MODULE_ENABLED
     ILI9341_hi2c = NULL;
+#endif
 
     return ILI9341_OK;
 }
@@ -1515,6 +1553,7 @@ ILI9341_Status_t ILI9341_DeInit(void)
 // FUNCIONES PÚBLICAS — Touch panel (STMPE811)
 // ============================================================================
 
+#ifdef HAL_I2C_MODULE_ENABLED
 /**
  * @brief Configura el controlador del panel táctil STMPE811.
  *
@@ -1587,3 +1626,4 @@ TP_STATE* ILI9341_TP_GetState(void)
 
     return &TP_State;
 }
+#endif /* HAL_I2C_MODULE_ENABLED */
