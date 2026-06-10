@@ -290,51 +290,6 @@ ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c, 
 ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c);
 #endif
 
-/* --- Primitivas de bajo nivel -------------------------------------------- */
-
-/**
- * @brief Bucle de retardo por software (espera activa, no milisegundos).
- *
- * @param[in] delay Número de iteraciones del bucle.
- */
-void ILI9341_Delay(volatile unsigned int delay);
-
-/**
- * @brief Envía un byte de comando a la pantalla LCD por SPI.
- *
- * @param[in] data Byte de comando.
- * @return ILI9341_Status_t
- *         - ILI9341_OK            en caso de éxito.
- *         - ILI9341_INVALID_PARAM si el handle SPI es NULL.
- *         - ILI9341_ERROR         si falla la transmisión SPI.
- */
-ILI9341_Status_t ILI9341_SendCommand(uint8_t data);
-
-/**
- * @brief Envía un byte de datos a la pantalla LCD por SPI.
- *
- * @param[in] data Byte de datos.
- * @return ILI9341_Status_t
- *         - ILI9341_OK            en caso de éxito.
- *         - ILI9341_INVALID_PARAM si el handle SPI es NULL.
- *         - ILI9341_ERROR         si falla la transmisión SPI.
- */
-ILI9341_Status_t ILI9341_SendData(uint8_t data);
-
-/**
- * @brief Establece la ventana de dibujo activa en la pantalla LCD (COLUMN_ADDR + PAGE_ADDR).
- *
- * @param[in] x1 Columna izquierda de la ventana.
- * @param[in] y1 Fila superior de la ventana.
- * @param[in] x2 Columna derecha de la ventana.
- * @param[in] y2 Fila inferior de la ventana.
- * @return ILI9341_Status_t
- *         - ILI9341_OK              en caso de éxito.
- *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
- *         - ILI9341_ERROR           si falla la transmisión SPI.
- */
-ILI9341_Status_t ILI9341_SetCursorPosition(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2);
-
 /* --- Dibujo en pantalla --------------------------------------------------- */
 
 /**
@@ -645,86 +600,6 @@ ILI9341_Status_t ILI9341_TP_Config(void);
  *         o NULL si el driver no ha sido inicializado.
  */
 TP_STATE* ILI9341_TP_GetState(void);
-
-/**
- * @brief Lee la coordenada X calibrada del punto de toque activo.
- *
- * @return Coordenada X en el rango [0, 239], o 0 si no está inicializado.
- */
-uint16_t ILI9341_TP_Read_X(void);
-
-/**
- * @brief Lee la coordenada Y calibrada del punto de toque activo.
- *
- * @return Coordenada Y en el rango [0, 319], o 0 si no está inicializado.
- */
-uint16_t ILI9341_TP_Read_Y(void);
-
-/**
- * @brief Lee el valor Z (presión) del punto de toque activo.
- *
- * @return Índice de presión (valor ADC crudo), o 0 si no está inicializado.
- */
-uint16_t ILI9341_TP_Read_Z(void);
-
-/**
- * @brief Reinicia el STMPE811 mediante el bit de reset por software SYS_CTRL1.
- *
- * @return ILI9341_Status_t
- *         - ILI9341_OK              siempre, una vez inicializado.
- *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
- */
-ILI9341_Status_t ILI9341_TP_Reset(void);
-
-/**
- * @brief Habilita o deshabilita bloques funcionales del STMPE811 (ADC, panel táctil, GPIO).
- *
- * @param[in] Fct      Máscara de función: TP_ADC_FCT, TP_TP_FCT, o TP_IO_FCT.
- * @param[in] NewState ENABLE o DISABLE.
- * @return ILI9341_Status_t
- *         - ILI9341_OK              siempre, una vez inicializado.
- *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
- */
-ILI9341_Status_t ILI9341_TP_FnctCmd(uint8_t Fct, FunctionalState NewState);
-
-/**
- * @brief Configura el modo de función alternativa para los pines GPIO del STMPE811.
- *
- * @param[in] IO_Pin   Máscara de pin (valores IO_Pin_x).
- * @param[in] NewState ENABLE o DISABLE.
- * @return ILI9341_Status_t
- *         - ILI9341_OK              siempre, una vez inicializado.
- *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
- */
-ILI9341_Status_t ILI9341_TP_IOAFConfig(uint8_t IO_Pin, FunctionalState NewState);
-
-/**
- * @brief Lee un byte de un registro del STMPE811 por I2C.
- *
- * @param[in] RegisterAddr Dirección del registro (0x00–0x59).
- * @return Valor del registro, o 0xAA si hay error I2C o no está inicializado.
- */
-uint8_t ILI9341_TP_ReadDeviceRegister(uint8_t RegisterAddr);
-
-/**
- * @brief Escribe un byte en un registro del STMPE811 por I2C.
- *
- * @param[in] RegisterAddr  Dirección del registro.
- * @param[in] RegisterValue Byte a escribir.
- * @return ILI9341_Status_t
- *         - ILI9341_OK              en caso de éxito.
- *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
- *         - ILI9341_ERROR           si falla la comunicación I2C.
- */
-ILI9341_Status_t ILI9341_TP_WriteDeviceRegister(uint8_t RegisterAddr, uint8_t RegisterValue);
-
-/**
- * @brief Lee dos bytes de un registro del STMPE811 (usado para datos ADC de X/Y/Z).
- *
- * @param[in] RegisterAddr Dirección del registro.
- * @return Valor reconstruido de 16 bits, o 0xAA si hay error I2C o no está inicializado.
- */
-uint16_t ILI9341_TP_ReadDataBuffer(uint32_t RegisterAddr);
 
 #ifdef __cplusplus
 }
