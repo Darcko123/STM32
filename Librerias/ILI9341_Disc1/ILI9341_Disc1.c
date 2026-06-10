@@ -14,32 +14,32 @@
 // VARIABLES PRIVADAS
 // ============================================================================
 
-/* Etiqueta de orientación interna — no expuesta al usuario */
+/** @brief Orientación física de la pantalla — uso exclusivo interno del driver. */
 typedef enum {
-    ILI9341_Landscape,
-    ILI9341_Portrait
+    ILI9341_Landscape, /**< Modo horizontal (width > height) */
+    ILI9341_Portrait   /**< Modo vertical   (height > width) */
 } ILI9341_Orientation;
 
-/* Geometría de pantalla activa actualizada por ILI9341_Rotate() */
+/** @brief Geometría de pantalla activa; actualizada por ILI9341_Rotate(). */
 typedef struct {
-    uint16_t width;
-    uint16_t height;
-    ILI9341_Orientation orientation;
+    uint16_t width;              /**< Ancho activo en píxeles  */
+    uint16_t height;             /**< Alto  activo en píxeles  */
+    ILI9341_Orientation orientation; /**< Orientación actual    */
 } ILI9341_Options_t;
 
-static SPI_HandleTypeDef*    ILI9341_hspi        = NULL;
-static I2C_HandleTypeDef*    ILI9341_hi2c        = NULL;
-static uint8_t               ILI9341_Initialized = 0U;
+static SPI_HandleTypeDef*    ILI9341_hspi        = NULL; /**< Handle SPI usado para la comunicación con el ILI9341      */
+static I2C_HandleTypeDef*    ILI9341_hi2c        = NULL; /**< Handle I2C usado para la comunicación con el STMPE811     */
+static uint8_t               ILI9341_Initialized = 0U;   /**< Bandera de inicialización: 1 = driver listo, 0 = no listo */
 
-static uint16_t              ILI9341_x           = 0U;
-static uint16_t              ILI9341_y           = 0U;
-static ILI9341_Options_t ILI9341_Opts;
+static uint16_t              ILI9341_x           = 0U;   /**< Columna del cursor de texto activo                        */
+static uint16_t              ILI9341_y           = 0U;   /**< Fila    del cursor de texto activo                        */
+static ILI9341_Options_t ILI9341_Opts;                   /**< Geometría y orientación actuales de la pantalla           */
 
-static TP_STATE TP_State;
+static TP_STATE TP_State; /**< Estado interno del panel táctil (actualizado en ILI9341_TP_GetState()) */
 
 #ifdef HAL_SDRAM_MODULE_ENABLED
-static SDRAM_HandleTypeDef* ILI9341_hsdram       = NULL;
-static uint32_t*            ILI9341_framebuffer  = NULL;
+static SDRAM_HandleTypeDef* ILI9341_hsdram       = NULL; /**< Handle SDRAM; NULL si la SDRAM no fue habilitada en Init  */
+static uint32_t*            ILI9341_framebuffer  = NULL; /**< Puntero al frame buffer en SDRAM; NULL si no disponible   */
 
 /* Verificación en tiempo de compilación: el frame buffer debe caber en el chip SDRAM.
  * Genera un error "array size is negative" si la condición no se cumple. */
@@ -60,12 +60,26 @@ static void SDRAM_Initialization_Sequence(SDRAM_HandleTypeDef* hsdram, FMC_SDRAM
 // FUNCIONES PRIVADAS
 // ============================================================================
 
+/**
+ * @brief Transmite un bloque de bytes al ILI9341 por el periférico SPI configurado.
+ *
+ * @param[in] data  Puntero al buffer de bytes a transmitir.
+ * @param[in] size  Número de bytes a transmitir.
+ * @return ILI9341_OK si HAL_SPI_Transmit devuelve HAL_OK; ILI9341_ERROR en caso contrario.
+ */
 static ILI9341_Status_t SPI_ILI9341_Send(uint8_t* data, uint16_t size)
 {
     return (HAL_SPI_Transmit(ILI9341_hspi, data, size, 5000U) == HAL_OK)
            ? ILI9341_OK : ILI9341_ERROR;
 }
 
+/**
+ * @brief Re-inicializa el periférico SPI con el preescalador mínimo (máxima velocidad).
+ *
+ * @details Tras la secuencia de inicialización del ILI9341 — que requiere una velocidad
+ *          conservadora — eleva la tasa de bits a ~45 Mbit/s estableciendo
+ *          @c SPI_BAUDRATEPRESCALER_2 en el campo @c Init.BaudRatePrescaler del handle SPI.
+ */
 static void SPI_ILI9341_BaudRateUp(void)
 {
     HAL_SPI_DeInit(ILI9341_hspi);
@@ -74,6 +88,21 @@ static void SPI_ILI9341_BaudRateUp(void)
 }
 
 #ifdef HAL_SDRAM_MODULE_ENABLED
+/**
+ * @brief Ejecuta la secuencia de inicialización requerida por el IS42S16400J.
+ *
+ * @details Sigue los pasos del §3.4 del datasheet del IS42S16400J:
+ *          -# Habilitar el reloj SDRAM (FMC_SDRAM_CMD_CLK_ENABLE).
+ *          -# Esperar al menos 100 µs (se usa HAL_Delay de 1 ms para mayor margen).
+ *          -# Precargar todos los bancos (FMC_SDRAM_CMD_PALL).
+ *          -# Cuatro ciclos de auto-refresco (mínimo 2 según datasheet).
+ *          -# Programar el registro de modo: burst de 2, tipo secuencial,
+ *             latencia CAS 3, modo estándar, escritura en ráfaga simple.
+ *          -# Programar la tasa de refresco (REFRESH_COUNT).
+ *
+ * @param[in,out] hsdram  Handle SDRAM de HAL.
+ * @param[out]    Command Estructura de comando FMC reutilizada en cada paso de la secuencia.
+ */
 static void SDRAM_Initialization_Sequence(SDRAM_HandleTypeDef* hsdram, FMC_SDRAM_CommandTypeDef* Command)
 {
     __IO uint32_t tmpmrd =0;
@@ -128,8 +157,33 @@ static void SDRAM_Initialization_Sequence(SDRAM_HandleTypeDef* hsdram, FMC_SDRAM
 // ============================================================================
 
 #ifdef HAL_SDRAM_MODULE_ENABLED
+/**
+ * @brief Inicializa la pantalla LCD ILI9341 y el controlador táctil STMPE811.
+ *
+ * @param[in] hspi   Puntero al handle SPI de HAL.
+ * @param[in] hi2c   Puntero al handle I2C de HAL.
+ * @param[in] hsdram (Solo con HAL_SDRAM_MODULE_ENABLED) Puntero al handle SDRAM de HAL
+ *                   generado por STM32CubeMX. Pasar NULL deshabilita el frame buffer en SDRAM.
+ *                   Cuando no es NULL, la librería reserva los primeros ILI9341_SDRAM_FB_SIZE
+ *                   bytes de ILI9341_SDRAM_BASE como frame buffer interno (153 600 B).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK            si la inicialización fue exitosa.
+ *         - ILI9341_INVALID_PARAM si @p hspi o @p hi2c es NULL.
+ *         - ILI9341_ERROR         si una transmisión SPI falló durante la inicialización.
+ */
 ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c, SDRAM_HandleTypeDef* hsdram)
 #else
+/**
+ * @brief Inicializa la pantalla LCD ILI9341 y el controlador táctil STMPE811.
+ *
+ * @param[in] hspi   Puntero al handle SPI de HAL.
+ * @param[in] hi2c   Puntero al handle I2C de HAL.
+ *
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK            si la inicialización fue exitosa.
+ *         - ILI9341_INVALID_PARAM si @p hspi o @p hi2c es NULL.
+ *         - ILI9341_ERROR         si una transmisión SPI falló durante la inicialización.
+ */
 ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c)
 #endif
 {
@@ -286,11 +340,25 @@ ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c)
     return ILI9341_OK;
 }
 
+/**
+ * @brief Bucle de retardo por software (espera activa, no milisegundos).
+ *
+ * @param[in] delay Número de iteraciones del bucle.
+ */
 void ILI9341_Delay(volatile unsigned int delay)
 {
     for (; delay != 0U; delay--);
 }
 
+/**
+ * @brief Envía un byte de comando a la pantalla LCD por SPI.
+ *
+ * @param[in] data Byte de comando.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK            en caso de éxito.
+ *         - ILI9341_INVALID_PARAM si el handle SPI es NULL.
+ *         - ILI9341_ERROR         si falla la transmisión SPI.
+ */
 ILI9341_Status_t ILI9341_SendCommand(uint8_t data)
 {
     ILI9341_Status_t st;
@@ -302,6 +370,15 @@ ILI9341_Status_t ILI9341_SendCommand(uint8_t data)
     return st;
 }
 
+/**
+ * @brief Envía un byte de datos a la pantalla LCD por SPI.
+ *
+ * @param[in] data Byte de datos.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK            en caso de éxito.
+ *         - ILI9341_INVALID_PARAM si el handle SPI es NULL.
+ *         - ILI9341_ERROR         si falla la transmisión SPI.
+ */
 ILI9341_Status_t ILI9341_SendData(uint8_t data)
 {
     ILI9341_Status_t st;
@@ -313,6 +390,18 @@ ILI9341_Status_t ILI9341_SendData(uint8_t data)
     return st;
 }
 
+/**
+ * @brief Establece la ventana de dibujo activa en la pantalla LCD (COLUMN_ADDR + PAGE_ADDR).
+ *
+ * @param[in] x1 Columna izquierda de la ventana.
+ * @param[in] y1 Fila superior de la ventana.
+ * @param[in] x2 Columna derecha de la ventana.
+ * @param[in] y2 Fila inferior de la ventana.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
 ILI9341_Status_t ILI9341_SetCursorPosition(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2)
 {
     ILI9341_Status_t st;
@@ -330,6 +419,15 @@ ILI9341_Status_t ILI9341_SetCursorPosition(uint16_t x1, uint16_t y1, uint16_t x2
     return st;
 }
 
+/**
+ * @brief Rellena toda la pantalla LCD con un color sólido.
+ *
+ * @param[in] color Color de relleno en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
 ILI9341_Status_t ILI9341_Fill(uint16_t color)
 {
     ILI9341_Status_t st;
@@ -353,6 +451,17 @@ ILI9341_Status_t ILI9341_Fill(uint16_t color)
     return ILI9341_OK;
 }
 
+/**
+ * @brief Rota la pantalla y actualiza el ancho/alto internos.
+ *
+ * @note La geometría interna solo se actualiza si el comando SPI es exitoso.
+ *
+ * @param[in] orientation Orientación deseada (ILI9341_Orientation_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
 ILI9341_Status_t ILI9341_Rotate(ILI9341_Orientation_t orientation)
 {
     ILI9341_Status_t st;
@@ -387,6 +496,17 @@ ILI9341_Status_t ILI9341_Rotate(ILI9341_Orientation_t orientation)
     return st;
 }
 
+/**
+ * @brief Dibuja un píxel en la pantalla LCD.
+ *
+ * @param[in] x     Coordenada X del píxel.
+ * @param[in] y     Coordenada Y del píxel.
+ * @param[in] color Color del píxel en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
 ILI9341_Status_t ILI9341_DrawPixel(uint16_t x, uint16_t y, uint16_t color)
 {
     ILI9341_Status_t st;
@@ -398,6 +518,19 @@ ILI9341_Status_t ILI9341_DrawPixel(uint16_t x, uint16_t y, uint16_t color)
     return st;
 }
 
+/**
+ * @brief Dibuja una línea en la pantalla LCD usando el algoritmo de Bresenham.
+ *
+ * @param[in] x0    Coordenada X de inicio.
+ * @param[in] y0    Coordenada Y de inicio.
+ * @param[in] x1    Coordenada X de fin.
+ * @param[in] y1    Coordenada Y de fin.
+ * @param[in] color Color de la línea en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
 ILI9341_Status_t ILI9341_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color)
 {
     ILI9341_Status_t st;
@@ -428,6 +561,19 @@ ILI9341_Status_t ILI9341_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_
     return ILI9341_OK;
 }
 
+/**
+ * @brief Dibuja el contorno de un rectángulo en la pantalla LCD.
+ *
+ * @param[in] x0    Coordenada X superior izquierda.
+ * @param[in] y0    Coordenada Y superior izquierda.
+ * @param[in] x1    Coordenada X inferior derecha.
+ * @param[in] y1    Coordenada Y inferior derecha.
+ * @param[in] color Color de la línea en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
 ILI9341_Status_t ILI9341_DrawRectangle(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color)
 {
     ILI9341_Status_t st;
@@ -439,6 +585,19 @@ ILI9341_Status_t ILI9341_DrawRectangle(uint16_t x0, uint16_t y0, uint16_t x1, ui
     return st;
 }
 
+/**
+ * @brief Dibuja un rectángulo relleno en la pantalla LCD.
+ *
+ * @param[in] x0    Coordenada X superior izquierda.
+ * @param[in] y0    Coordenada Y superior izquierda.
+ * @param[in] x1    Coordenada X inferior derecha.
+ * @param[in] y1    Coordenada Y inferior derecha.
+ * @param[in] color Color de relleno en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
 ILI9341_Status_t ILI9341_DrawFilledRectangle(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color)
 {
     ILI9341_Status_t st;
@@ -451,6 +610,18 @@ ILI9341_Status_t ILI9341_DrawFilledRectangle(uint16_t x0, uint16_t y0, uint16_t 
     return ILI9341_OK;
 }
 
+/**
+ * @brief Dibuja el contorno de un círculo en la pantalla LCD.
+ *
+ * @param[in] x0    Coordenada X del centro.
+ * @param[in] y0    Coordenada Y del centro.
+ * @param[in] r     Radio en píxeles.
+ * @param[in] color Color de la línea en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
 ILI9341_Status_t ILI9341_DrawCircle(int16_t x0, int16_t y0, int16_t r, uint16_t color)
 {
     ILI9341_Status_t st;
@@ -488,6 +659,18 @@ ILI9341_Status_t ILI9341_DrawCircle(int16_t x0, int16_t y0, int16_t r, uint16_t 
     return ILI9341_OK;
 }
 
+/**
+ * @brief Dibuja un círculo relleno en la pantalla LCD.
+ *
+ * @param[in] x0    Coordenada X del centro.
+ * @param[in] y0    Coordenada Y del centro.
+ * @param[in] r     Radio en píxeles.
+ * @param[in] color Color de relleno en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
 ILI9341_Status_t ILI9341_DrawFilledCircle(int16_t x0, int16_t y0, int16_t r, uint16_t color)
 {
     ILI9341_Status_t st;
@@ -522,6 +705,20 @@ ILI9341_Status_t ILI9341_DrawFilledCircle(int16_t x0, int16_t y0, int16_t r, uin
     return ILI9341_OK;
 }
 
+/**
+ * @brief Renderiza un carácter en la pantalla LCD.
+ *
+ * @param[in] x          Coordenada X superior izquierda de la celda del carácter.
+ * @param[in] y          Coordenada Y superior izquierda de la celda del carácter.
+ * @param[in] c          Carácter a mostrar.
+ * @param[in] font       Puntero a la definición de la fuente.
+ * @param[in] foreground Color de primer plano en formato RGB565.
+ * @param[in] background Color de fondo en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
 ILI9341_Status_t ILI9341_Putc(uint16_t x, uint16_t y, char c, LCD_FontDef_t* font, uint16_t foreground, uint16_t background)
 {
     ILI9341_Status_t st;
@@ -553,6 +750,20 @@ ILI9341_Status_t ILI9341_Putc(uint16_t x, uint16_t y, char c, LCD_FontDef_t* fon
     return ILI9341_OK;
 }
 
+/**
+ * @brief Renderiza una cadena terminada en nulo en la pantalla LCD.
+ *
+ * @param[in] x          Coordenada X superior izquierda del primer carácter.
+ * @param[in] y          Coordenada Y superior izquierda del primer carácter.
+ * @param[in] str        Puntero a la cadena terminada en nulo.
+ * @param[in] font       Puntero a la definición de la fuente.
+ * @param[in] foreground Color de primer plano en formato RGB565.
+ * @param[in] background Color de fondo en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
 ILI9341_Status_t ILI9341_Puts(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* font, uint16_t foreground, uint16_t background)
 {
     ILI9341_Status_t st;
@@ -591,6 +802,14 @@ ILI9341_Status_t ILI9341_Puts(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* 
     return ILI9341_OK;
 }
 
+/**
+ * @brief Calcula el bounding-box en píxeles de una cadena para una fuente dada.
+ *
+ * @param[in]  str    Puntero a la cadena terminada en nulo.
+ * @param[in]  font   Puntero a la definición de la fuente.
+ * @param[out] width  Ancho total en píxeles.
+ * @param[out] height Alto total en píxeles.
+ */
 void ILI9341_GetStringSize(char* str, LCD_FontDef_t* font, uint16_t* width, uint16_t* height)
 {
     uint16_t w = 0U;
@@ -599,6 +818,16 @@ void ILI9341_GetStringSize(char* str, LCD_FontDef_t* font, uint16_t* width, uint
     *width = w;
 }
 
+/**
+ * @brief Transfiere un frame buffer RGB565 de pantalla completa a la LCD mediante SPI optimizado.
+ *
+ * @param[in] image Arreglo de IMG_TOTAL_BUF32 palabras uint32_t (dos píxeles RGB565 por palabra).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              si todos los píxeles fueron enviados.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_TIMEOUT         si el bus SPI se bloqueó.
+ *         - ILI9341_ERROR           si el periférico SPI estaba ocupado.
+ */
 ILI9341_Status_t ILI9341_DisplayImage(uint32_t image[IMG_TOTAL_BUF32])
 {
     const uint32_t Timeout   = 5000U;
@@ -796,6 +1025,14 @@ ILI9341_Status_t ILI9341_DisplayImage(uint32_t image[IMG_TOTAL_BUF32])
     return ILI9341_OK;
 }
 
+/**
+ * @brief Escribe un píxel en un frame buffer fuera de pantalla.
+ *
+ * @param[in]     x      Coordenada X del píxel.
+ * @param[in]     y      Coordenada Y del píxel.
+ * @param[in]     color  Color del píxel en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ */
 void ILI9341_DrawPixel_ImageBuffer(uint16_t x, uint16_t y, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
 {
     uint32_t buf, dir16, dir32, aux, aux2;
@@ -819,6 +1056,16 @@ void ILI9341_DrawPixel_ImageBuffer(uint16_t x, uint16_t y, uint16_t color, uint3
     image[dir32] = buf;
 }
 
+/**
+ * @brief Renderiza un carácter en un frame buffer fuera de pantalla.
+ *
+ * @param[in]     x          Coordenada X superior izquierda de la celda del carácter.
+ * @param[in]     y          Coordenada Y superior izquierda de la celda del carácter.
+ * @param[in]     c          Carácter a mostrar.
+ * @param[in]     font       Puntero a la definición de la fuente.
+ * @param[in]     foreground Color de primer plano en formato RGB565.
+ * @param[in,out] image      Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ */
 void ILI9341_Putc_ImageBuffer(uint16_t x, uint16_t y, char c, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32])
 {
     uint32_t i, b, j;
@@ -845,6 +1092,16 @@ void ILI9341_Putc_ImageBuffer(uint16_t x, uint16_t y, char c, LCD_FontDef_t* fon
     ILI9341_x += font->FontWidth;
 }
 
+/**
+ * @brief Renderiza una cadena terminada en nulo en un frame buffer fuera de pantalla.
+ *
+ * @param[in]     x          Coordenada X superior izquierda del primer carácter.
+ * @param[in]     y          Coordenada Y superior izquierda del primer carácter.
+ * @param[in]     str        Puntero a la cadena terminada en nulo.
+ * @param[in]     font       Puntero a la definición de la fuente.
+ * @param[in]     foreground Color de primer plano en formato RGB565.
+ * @param[in,out] image      Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ */
 void ILI9341_Puts_ImageBuffer(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32])
 {
     uint16_t startX = x;
@@ -878,6 +1135,16 @@ void ILI9341_Puts_ImageBuffer(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* 
     }
 }
 
+/**
+ * @brief Dibuja una línea en un frame buffer fuera de pantalla.
+ *
+ * @param[in]     x0     Coordenada X de inicio.
+ * @param[in]     y0     Coordenada Y de inicio.
+ * @param[in]     x1     Coordenada X de fin.
+ * @param[in]     y1     Coordenada Y de fin.
+ * @param[in]     color  Color de la línea en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ */
 void ILI9341_DrawLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
 {
     int16_t dx, dy, sx, sy, err, e2;
@@ -903,6 +1170,16 @@ void ILI9341_DrawLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_
     }
 }
 
+/**
+ * @brief Dibuja el contorno de un rectángulo en un frame buffer fuera de pantalla.
+ *
+ * @param[in]     x0     Coordenada X superior izquierda.
+ * @param[in]     y0     Coordenada Y superior izquierda.
+ * @param[in]     x1     Coordenada X inferior derecha.
+ * @param[in]     y1     Coordenada Y inferior derecha.
+ * @param[in]     color  Color de la línea en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ */
 void ILI9341_DrawRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
 {
     ILI9341_DrawLine_ImageBuffer(x0, y0, x1, y0, color, image); /* Superior  */
@@ -911,6 +1188,16 @@ void ILI9341_DrawRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, ui
     ILI9341_DrawLine_ImageBuffer(x0, y1, x1, y1, color, image); /* Inferior  */
 }
 
+/**
+ * @brief Dibuja un rectángulo relleno en un frame buffer fuera de pantalla.
+ *
+ * @param[in]     x0     Coordenada X superior izquierda.
+ * @param[in]     y0     Coordenada Y superior izquierda.
+ * @param[in]     x1     Coordenada X inferior derecha.
+ * @param[in]     y1     Coordenada Y inferior derecha.
+ * @param[in]     color  Color de relleno en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ */
 void ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
 {
     for (; x0 < x1; x0++)
@@ -925,6 +1212,20 @@ void ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t 
 
 #ifdef HAL_SDRAM_MODULE_ENABLED
 
+/**
+ * @brief Transfiere el frame buffer interno (SDRAM) a la pantalla LCD mediante SPI.
+ *
+ * @details Equivalente a llamar ILI9341_DisplayImage() con el puntero interno
+ *          al frame buffer en SDRAM. Requiere que ILI9341_Init() haya sido
+ *          invocado con un handle SDRAM válido.
+ *
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              si la transferencia fue exitosa.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si el frame buffer SDRAM no está habilitado (hsdram era NULL).
+ *         - ILI9341_TIMEOUT         si el bus SPI se bloqueó.
+ *         - ILI9341_ERROR           si el periférico SPI estaba ocupado.
+ */
 ILI9341_Status_t ILI9341_Flush(void)
 {
     if (!ILI9341_Initialized)   { return ILI9341_NOT_INITIALIZED; }
@@ -932,6 +1233,16 @@ ILI9341_Status_t ILI9341_Flush(void)
     return ILI9341_DisplayImage(ILI9341_framebuffer);
 }
 
+/**
+ * @brief Retorna el puntero al frame buffer interno ubicado en SDRAM.
+ *
+ * @details El buffer tiene formato IMG_TOTAL_BUF32 palabras uint32_t (dos píxeles
+ *          RGB565 empaquetados por palabra), compatible con todas las funciones
+ *          ILI9341_*_ImageBuffer(). Retorna NULL si SDRAM no fue habilitada
+ *          o si el driver no ha sido inicializado.
+ *
+ * @return Puntero al frame buffer en SDRAM, o NULL si no está disponible.
+ */
 uint32_t* ILI9341_GetFrameBuffer(void)
 {
     if (!ILI9341_Initialized) { return NULL; }
@@ -940,6 +1251,19 @@ uint32_t* ILI9341_GetFrameBuffer(void)
 
 #endif /* HAL_SDRAM_MODULE_ENABLED */
 
+/**
+ * @brief Desinicializa el driver LCD y libera los recursos periféricos.
+ *
+ * @details Marca el driver como no inicializado y pone a NULL los handles
+ *          internos de SPI e I2C. Si HAL_SDRAM_MODULE_ENABLED está definido y
+ *          la SDRAM fue habilitada en Init(), también llama a HAL_SDRAM_DeInit()
+ *          y limpia el puntero al frame buffer. Tras esta llamada es necesario
+ *          invocar ILI9341_Init() antes de usar cualquier otra función.
+ *
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              si la desinicialización fue exitosa.
+ *         - ILI9341_NOT_INITIALIZED si el driver no estaba inicializado.
+ */
 ILI9341_Status_t ILI9341_DeInit(void)
 {
     if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
@@ -965,6 +1289,14 @@ ILI9341_Status_t ILI9341_DeInit(void)
 // FUNCIONES PÚBLICAS — Touch panel (STMPE811)
 // ============================================================================
 
+/**
+ * @brief Configura el controlador del panel táctil STMPE811.
+ *
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              si el dispositivo fue detectado y configurado.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si el ID del chip no coincidió con STMPE811_ID.
+ */
 ILI9341_Status_t ILI9341_TP_Config(void)
 {
     uint16_t tmp = 0U;
@@ -996,6 +1328,12 @@ ILI9341_Status_t ILI9341_TP_Config(void)
     return ILI9341_OK;
 }
 
+/**
+ * @brief Lee el estado actual del panel táctil (coordenadas y detección de toque).
+ *
+ * @return Puntero a la estructura TP_STATE interna con valores actualizados,
+ *         o NULL si el driver no ha sido inicializado.
+ */
 TP_STATE* ILI9341_TP_GetState(void)
 {
     uint32_t xDiff, yDiff, x, y;
@@ -1024,6 +1362,11 @@ TP_STATE* ILI9341_TP_GetState(void)
     return &TP_State;
 }
 
+/**
+ * @brief Lee la coordenada X calibrada del punto de toque activo.
+ *
+ * @return Coordenada X en el rango [0, 239], o 0 si no está inicializado.
+ */
 uint16_t ILI9341_TP_Read_X(void)
 {
     int32_t x, xr;
@@ -1041,6 +1384,11 @@ uint16_t ILI9341_TP_Read_X(void)
     return (uint16_t)xr;
 }
 
+/**
+ * @brief Lee la coordenada Y calibrada del punto de toque activo.
+ *
+ * @return Coordenada Y en el rango [0, 319], o 0 si no está inicializado.
+ */
 uint16_t ILI9341_TP_Read_Y(void)
 {
     int32_t y, yr;
@@ -1056,12 +1404,24 @@ uint16_t ILI9341_TP_Read_Y(void)
     return (uint16_t)yr;
 }
 
+/**
+ * @brief Lee el valor Z (presión) del punto de toque activo.
+ *
+ * @return Índice de presión (valor ADC crudo), o 0 si no está inicializado.
+ */
 uint16_t ILI9341_TP_Read_Z(void)
 {
     if (!ILI9341_Initialized) { return 0U; }
     return (uint16_t)ILI9341_TP_ReadDataBuffer(TP_REG_TP_DATA_Z);
 }
 
+/**
+ * @brief Reinicia el STMPE811 mediante el bit de reset por software SYS_CTRL1.
+ *
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              siempre, una vez inicializado.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ */
 ILI9341_Status_t ILI9341_TP_Reset(void)
 {
     if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
@@ -1071,6 +1431,15 @@ ILI9341_Status_t ILI9341_TP_Reset(void)
     return ILI9341_OK;
 }
 
+/**
+ * @brief Habilita o deshabilita bloques funcionales del STMPE811 (ADC, panel táctil, GPIO).
+ *
+ * @param[in] Fct      Máscara de función: TP_ADC_FCT, TP_TP_FCT, o TP_IO_FCT.
+ * @param[in] NewState ENABLE o DISABLE.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              siempre, una vez inicializado.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ */
 ILI9341_Status_t ILI9341_TP_FnctCmd(uint8_t Fct, FunctionalState NewState)
 {
     uint8_t tmp;
@@ -1082,6 +1451,15 @@ ILI9341_Status_t ILI9341_TP_FnctCmd(uint8_t Fct, FunctionalState NewState)
     return ILI9341_OK;
 }
 
+/**
+ * @brief Configura el modo de función alternativa para los pines GPIO del STMPE811.
+ *
+ * @param[in] IO_Pin   Máscara de pin (valores IO_Pin_x).
+ * @param[in] NewState ENABLE o DISABLE.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              siempre, una vez inicializado.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ */
 ILI9341_Status_t ILI9341_TP_IOAFConfig(uint8_t IO_Pin, FunctionalState NewState)
 {
     uint8_t tmp;
@@ -1093,6 +1471,12 @@ ILI9341_Status_t ILI9341_TP_IOAFConfig(uint8_t IO_Pin, FunctionalState NewState)
     return ILI9341_OK;
 }
 
+/**
+ * @brief Lee un byte de un registro del STMPE811 por I2C.
+ *
+ * @param[in] RegisterAddr Dirección del registro (0x00–0x59).
+ * @return Valor del registro, o 0xAA si hay error I2C o no está inicializado.
+ */
 uint8_t ILI9341_TP_ReadDeviceRegister(uint8_t RegisterAddr)
 {
     uint8_t tmp = 0U;
@@ -1122,6 +1506,16 @@ uint8_t ILI9341_TP_ReadDeviceRegister(uint8_t RegisterAddr)
     return tmp;
 }
 
+/**
+ * @brief Escribe un byte en un registro del STMPE811 por I2C.
+ *
+ * @param[in] RegisterAddr  Dirección del registro.
+ * @param[in] RegisterValue Byte a escribir.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la comunicación I2C.
+ */
 ILI9341_Status_t ILI9341_TP_WriteDeviceRegister(uint8_t RegisterAddr, uint8_t RegisterValue)
 {
     uint8_t Address;
@@ -1142,6 +1536,12 @@ ILI9341_Status_t ILI9341_TP_WriteDeviceRegister(uint8_t RegisterAddr, uint8_t Re
     return ILI9341_OK;
 }
 
+/**
+ * @brief Lee dos bytes de un registro del STMPE811 (usado para datos ADC de X/Y/Z).
+ *
+ * @param[in] RegisterAddr Dirección del registro.
+ * @return Valor reconstruido de 16 bits, o 0xAA si hay error I2C o no está inicializado.
+ */
 uint16_t ILI9341_TP_ReadDataBuffer(uint32_t RegisterAddr)
 {
     uint8_t Address;
