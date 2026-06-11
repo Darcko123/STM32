@@ -74,6 +74,8 @@ static uint16_t ILI9341_TP_Read_X(void);
 static uint16_t ILI9341_TP_Read_Y(void);
 static uint16_t ILI9341_TP_Read_Z(void);
 #endif /* HAL_I2C_MODULE_ENABLED */
+static ILI9341_Status_t DrawPixelClipped(int16_t x, int16_t y, uint16_t color);
+static ILI9341_Status_t DrawLineClipped(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint16_t color);
 
 // ============================================================================
 // FUNCIONES PRIVADAS
@@ -165,7 +167,7 @@ static void SDRAM_Initialization_Sequence(SDRAM_HandleTypeDef* hsdram, FMC_SDRAM
     Command->AutoRefreshNumber = 1;
     Command->ModeRegisterDefinition = tmpmrd;
     HAL_SDRAM_SendCommand(hsdram, Command, 0x1000U);
-    
+
     /* Paso 6: configurar tasa de refresco */
     HAL_SDRAM_ProgramRefreshRate(hsdram, REFRESH_COUNT);
 }
@@ -265,23 +267,19 @@ static uint8_t ILI9341_TP_ReadDeviceRegister(uint8_t RegisterAddr)
 
     if (!ILI9341_Initialized) { return 0xAAU; }
 
-    __disable_irq();
     Address  = TP_ADDR;
     Address &= (uint8_t)~((uint8_t)I2C_OAR1_ADD0);
     if (HAL_I2C_Master_Transmit(ILI9341_hi2c, Address, buf, 1U, 1000U) != HAL_OK)
     {
-        __enable_irq();
         return 0xAAU;
     }
     Address  = TP_ADDR;
     Address |= I2C_OAR1_ADD0;
     if (HAL_I2C_Master_Receive(ILI9341_hi2c, Address, &buf[0], 1U, 1000U) != HAL_OK)
     {
-        __enable_irq();
         return 0xAAU;
     }
     tmp = buf[0];
-    __enable_irq();
 
     return tmp;
 }
@@ -303,15 +301,12 @@ static ILI9341_Status_t ILI9341_TP_WriteDeviceRegister(uint8_t RegisterAddr, uin
 
     if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
 
-    __disable_irq();
     Address  = TP_ADDR;
     Address &= (uint8_t)~((uint8_t)I2C_OAR1_ADD0);
     if (HAL_I2C_Master_Transmit(ILI9341_hi2c, Address, buf, 2U, 1000U) != HAL_OK)
     {
-        __enable_irq();
         return ILI9341_ERROR;
     }
-    __enable_irq();
 
     return ILI9341_OK;
 }
@@ -325,34 +320,25 @@ static ILI9341_Status_t ILI9341_TP_WriteDeviceRegister(uint8_t RegisterAddr, uin
 static uint16_t ILI9341_TP_ReadDataBuffer(uint32_t RegisterAddr)
 {
     uint8_t Address;
-    uint8_t TP_BufferRX[2] = { (uint8_t)RegisterAddr, (uint8_t)RegisterAddr };
-    uint8_t buf[2]         = { (uint8_t)RegisterAddr, (uint8_t)RegisterAddr };
+    uint8_t TP_BufferRX[2] = { 0U, 0U };
+    uint8_t buf             = (uint8_t)RegisterAddr;
 
     if (!ILI9341_Initialized) { return 0xAAU; }
 
-    __disable_irq();
     Address  = TP_ADDR;
     Address &= (uint8_t)~((uint8_t)I2C_OAR1_ADD0);
-    if (HAL_I2C_Master_Transmit(ILI9341_hi2c, Address, buf, 1U, 1000U) != HAL_OK)
+    if (HAL_I2C_Master_Transmit(ILI9341_hi2c, Address, &buf, 1U, 1000U) != HAL_OK)
     {
-        __enable_irq();
         return 0xAAU;
     }
     Address  = TP_ADDR;
     Address |= I2C_OAR1_ADD0;
-    if (HAL_I2C_Master_Receive(ILI9341_hi2c, Address, &TP_BufferRX[1], 1U, 1000U) != HAL_OK)
+    if (HAL_I2C_Master_Receive(ILI9341_hi2c, Address, TP_BufferRX, 2U, 1000U) != HAL_OK)
     {
-        __enable_irq();
         return 0xAAU;
     }
-    if (HAL_I2C_Master_Receive(ILI9341_hi2c, Address, &TP_BufferRX[0], 1U, 1000U) != HAL_OK)
-    {
-        __enable_irq();
-        return 0xAAU;
-    }
-    __enable_irq();
 
-    return (uint16_t)TP_BufferRX[0] | ((uint16_t)TP_BufferRX[1] << 8);
+    return (uint16_t)TP_BufferRX[1] | ((uint16_t)TP_BufferRX[0] << 8);
 }
 
 /**
@@ -465,6 +451,42 @@ static uint16_t ILI9341_TP_Read_Z(void)
 }
 #endif /* HAL_I2C_MODULE_ENABLED */
 
+/**
+ * @brief Dibuja un píxel en (x, y) con el color dado, recortando a los límites de la pantalla.
+ *
+ * @param x Coordenada X del píxel (puede ser negativa o exceder el ancho de la pantalla).
+ * @param y Coordenada Y del píxel (puede ser negativa o exceder el alto de la pantalla).
+ * @param color Color del píxel en formato RGB565.
+ * @return ILI9341_Status_t
+ */
+static ILI9341_Status_t DrawPixelClipped(int16_t x, int16_t y, uint16_t color)
+{
+    if (x < 0 || y < 0 || (uint16_t)x >= ILI9341_Opts.width || (uint16_t)y >= ILI9341_Opts.height)
+        return ILI9341_OK;
+    return ILI9341_DrawPixel((uint16_t)x, (uint16_t)y, color);
+}
+
+/**
+ * @brief Dibuja una línea entre (x0, y0) y (x1, y1) con el color dado, recortando a los límites de la pantalla.
+ *
+ * @param x0 Coordenada X del primer punto (puede ser negativa o exceder el ancho de la pantalla).
+ * @param y0 Coordenada Y del primer punto (puede ser negativa o exceder el alto de la pantalla).
+ * @param x1 Coordenada X del segundo punto (puede ser negativa o exceder el ancho de la pantalla).
+ * @param y1 Coordenada Y del segundo punto (puede ser negativa o exceder el alto de la pantalla).
+ * @param color Color de la línea en formato RGB565.
+ * @return ILI9341_Status_t
+ */
+static ILI9341_Status_t DrawLineClipped(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint16_t color)
+{
+    if (y0 < 0 || (uint16_t)y0 >= ILI9341_Opts.height) return ILI9341_OK;
+    if (y1 < 0 || (uint16_t)y1 >= ILI9341_Opts.height) return ILI9341_OK;
+    if (x0 < 0) x0 = 0;
+    if (x1 < 0) x1 = 0;
+    if ((uint16_t)x0 >= ILI9341_Opts.width) x0 = (int16_t)(ILI9341_Opts.width - 1U);
+    if ((uint16_t)x1 >= ILI9341_Opts.width) x1 = (int16_t)(ILI9341_Opts.width - 1U);
+    return ILI9341_DrawLine((uint16_t)x0, (uint16_t)y0, (uint16_t)x1, (uint16_t)y1, color);
+}
+
 // ============================================================================
 // FUNCIONES PÚBLICAS
 // ============================================================================
@@ -517,7 +539,7 @@ ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c)
  * @brief Inicializa la pantalla LCD ILI9341.
  *
  * @param[in] hspi   Puntero al handle SPI de HAL.
- * 
+ *
  * @return ILI9341_Status_t
  *         - ILI9341_OK            si la inicialización fue exitosa.
  *         - ILI9341_INVALID_PARAM si @p hspi o @p hi2c es NULL.
@@ -895,10 +917,10 @@ ILI9341_Status_t ILI9341_DrawCircle(int16_t x0, int16_t y0, int16_t r, uint16_t 
 
     if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
 
-    st  = ILI9341_DrawPixel(x0,     y0 + r, color);
-    st  = st ? st : ILI9341_DrawPixel(x0,     y0 - r, color);
-    st  = st ? st : ILI9341_DrawPixel(x0 + r, y0,     color);
-    st  = st ? st : ILI9341_DrawPixel(x0 - r, y0,     color);
+    st  = DrawPixelClipped(x0,     y0 + r, color);
+    st  = st ? st : DrawPixelClipped(x0,     y0 - r, color);
+    st  = st ? st : DrawPixelClipped(x0 + r, y0,     color);
+    st  = st ? st : DrawPixelClipped(x0 - r, y0,     color);
     if (st != ILI9341_OK) { return st; }
 
     while (x < y)
@@ -908,14 +930,14 @@ ILI9341_Status_t ILI9341_DrawCircle(int16_t x0, int16_t y0, int16_t r, uint16_t 
         ddF_x += 2;
         f += ddF_x;
 
-        st  = ILI9341_DrawPixel(x0 + x, y0 + y, color);
-        st  = st ? st : ILI9341_DrawPixel(x0 - x, y0 + y, color);
-        st  = st ? st : ILI9341_DrawPixel(x0 + x, y0 - y, color);
-        st  = st ? st : ILI9341_DrawPixel(x0 - x, y0 - y, color);
-        st  = st ? st : ILI9341_DrawPixel(x0 + y, y0 + x, color);
-        st  = st ? st : ILI9341_DrawPixel(x0 - y, y0 + x, color);
-        st  = st ? st : ILI9341_DrawPixel(x0 + y, y0 - x, color);
-        st  = st ? st : ILI9341_DrawPixel(x0 - y, y0 - x, color);
+        st  = DrawPixelClipped(x0 + x, y0 + y, color);
+        st  = st ? st : DrawPixelClipped(x0 - x, y0 + y, color);
+        st  = st ? st : DrawPixelClipped(x0 + x, y0 - y, color);
+        st  = st ? st : DrawPixelClipped(x0 - x, y0 - y, color);
+        st  = st ? st : DrawPixelClipped(x0 + y, y0 + x, color);
+        st  = st ? st : DrawPixelClipped(x0 - y, y0 + x, color);
+        st  = st ? st : DrawPixelClipped(x0 + y, y0 - x, color);
+        st  = st ? st : DrawPixelClipped(x0 - y, y0 - x, color);
         if (st != ILI9341_OK) { return st; }
     }
     return ILI9341_OK;
@@ -944,11 +966,11 @@ ILI9341_Status_t ILI9341_DrawFilledCircle(int16_t x0, int16_t y0, int16_t r, uin
 
     if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
 
-    st  = ILI9341_DrawPixel(x0,     y0 + r, color);
-    st  = st ? st : ILI9341_DrawPixel(x0,     y0 - r, color);
-    st  = st ? st : ILI9341_DrawPixel(x0 + r, y0,     color);
-    st  = st ? st : ILI9341_DrawPixel(x0 - r, y0,     color);
-    st  = st ? st : ILI9341_DrawLine(x0 - r, y0, x0 + r, y0, color);
+    st  = DrawPixelClipped(x0,     y0 + r, color);
+    st  = st ? st : DrawPixelClipped(x0,     y0 - r, color);
+    st  = st ? st : DrawPixelClipped(x0 + r, y0,     color);
+    st  = st ? st : DrawPixelClipped(x0 - r, y0,     color);
+    st  = st ? st : DrawLineClipped(x0 - r, y0, x0 + r, y0, color);
     if (st != ILI9341_OK) { return st; }
 
     while (x < y)
@@ -958,10 +980,10 @@ ILI9341_Status_t ILI9341_DrawFilledCircle(int16_t x0, int16_t y0, int16_t r, uin
         ddF_x += 2;
         f += ddF_x;
 
-        st  = ILI9341_DrawLine(x0 - x, y0 + y, x0 + x, y0 + y, color);
-        st  = st ? st : ILI9341_DrawLine(x0 + x, y0 - y, x0 - x, y0 - y, color);
-        st  = st ? st : ILI9341_DrawLine(x0 + y, y0 + x, x0 - y, y0 + x, color);
-        st  = st ? st : ILI9341_DrawLine(x0 + y, y0 - x, x0 - y, y0 - x, color);
+        st  = DrawLineClipped(x0 - x, y0 + y, x0 + x, y0 + y, color);
+        st  = st ? st : DrawLineClipped(x0 + x, y0 - y, x0 - x, y0 - y, color);
+        st  = st ? st : DrawLineClipped(x0 + y, y0 + x, x0 - y, y0 + x, color);
+        st  = st ? st : DrawLineClipped(x0 + y, y0 - x, x0 - y, y0 - x, color);
         if (st != ILI9341_OK) { return st; }
     }
     return ILI9341_OK;
@@ -987,6 +1009,8 @@ ILI9341_Status_t ILI9341_Putc(uint16_t x, uint16_t y, char c, LCD_FontDef_t* fon
     uint32_t i, b, j;
 
     if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
+    if (font == NULL)         { return ILI9341_INVALID_PARAM;   }
+    if ((uint8_t)c < 32U || (uint8_t)c > 126U) { return ILI9341_OK; }
 
     ILI9341_x = x;
     ILI9341_y = y;
@@ -1032,6 +1056,7 @@ ILI9341_Status_t ILI9341_Puts(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* 
     uint16_t startX = x;
 
     if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
+    if (str == NULL || font == NULL) { return ILI9341_INVALID_PARAM; }
 
     ILI9341_x = x;
     ILI9341_y = y;
@@ -1075,6 +1100,7 @@ ILI9341_Status_t ILI9341_Puts(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* 
 void ILI9341_GetStringSize(char* str, LCD_FontDef_t* font, uint16_t* width, uint16_t* height)
 {
     uint16_t w = 0U;
+    if (str == NULL || font == NULL || width == NULL || height == NULL) { return; }
     *height = font->FontHeight;
     while (*str++) { w += font->FontWidth; }
     *width = w;
@@ -1226,9 +1252,6 @@ ILI9341_Status_t ILI9341_DisplayImage(uint32_t image[IMG_TOTAL_BUF32])
         }
     }
 
-    ILI9341_WRX_RESET;
-    ILI9341_CS_SET;
-
     if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE)
     {
         ILI9341_hspi->Instance->CR1 |= SPI_CR1_CRCNEXT;
@@ -1299,6 +1322,7 @@ void ILI9341_DrawPixel_ImageBuffer(uint16_t x, uint16_t y, uint16_t color, uint3
 {
     uint32_t buf, dir16, dir32, aux, aux2;
 
+    if (image == NULL)                             { return; }
     if (x >= ILI9341_WIDTH || y >= ILI9341_HEIGHT) { return; }
 
     dir16 = (uint32_t)y;
@@ -1331,6 +1355,9 @@ void ILI9341_DrawPixel_ImageBuffer(uint16_t x, uint16_t y, uint16_t color, uint3
 void ILI9341_Putc_ImageBuffer(uint16_t x, uint16_t y, char c, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32])
 {
     uint32_t i, b, j;
+
+    if (font == NULL || image == NULL) { return; }
+    if ((uint8_t)c < 32U || (uint8_t)c > 126U) { return; }
 
     ILI9341_x = x;
     ILI9341_y = y;
@@ -1368,6 +1395,7 @@ void ILI9341_Puts_ImageBuffer(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* 
 {
     uint16_t startX = x;
 
+    if (str == NULL || font == NULL || image == NULL) { return; }
     ILI9341_x = x;
     ILI9341_y = y;
 
