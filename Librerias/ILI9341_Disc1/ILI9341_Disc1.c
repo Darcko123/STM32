@@ -57,7 +57,7 @@ typedef char ILI9341_sdram_fb_size_check[(ILI9341_SDRAM_FB_SIZE <= IS42S16400J_S
 static ILI9341_Status_t SPI_ILI9341_Send(uint8_t* data, uint16_t size);
 static ILI9341_Status_t SPI_ILI9341_BaudRateUp(void);
 #ifdef HAL_SDRAM_MODULE_ENABLED
-static void SDRAM_Initialization_Sequence(SDRAM_HandleTypeDef* hsdram, FMC_SDRAM_CommandTypeDef* Command);
+static HAL_StatusTypeDef SDRAM_Initialization_Sequence(SDRAM_HandleTypeDef* hsdram, FMC_SDRAM_CommandTypeDef* Command);
 #endif
 static ILI9341_Status_t ILI9341_SendCommand(uint8_t data);
 static ILI9341_Status_t ILI9341_SendData(uint8_t data);
@@ -124,16 +124,18 @@ static ILI9341_Status_t SPI_ILI9341_BaudRateUp(void)
  * @param[in,out] hsdram  Handle SDRAM de HAL.
  * @param[out]    Command Estructura de comando FMC reutilizada en cada paso de la secuencia.
  */
-static void SDRAM_Initialization_Sequence(SDRAM_HandleTypeDef* hsdram, FMC_SDRAM_CommandTypeDef* Command)
+static HAL_StatusTypeDef SDRAM_Initialization_Sequence(SDRAM_HandleTypeDef* hsdram, FMC_SDRAM_CommandTypeDef* Command)
 {
-    __IO uint32_t tmpmrd =0;
+    __IO uint32_t tmpmrd = 0;
+    HAL_StatusTypeDef st;
 
     /* Paso 1: habilitar reloj */
     Command->CommandMode            = FMC_SDRAM_CMD_CLK_ENABLE;
     Command->CommandTarget          = FMC_SDRAM_CMD_TARGET_BANK2;
     Command->AutoRefreshNumber      = 1;
     Command->ModeRegisterDefinition = 0;
-    HAL_SDRAM_SendCommand(hsdram, Command, 0x1000U);
+    st = HAL_SDRAM_SendCommand(hsdram, Command, 0x1000U);
+    if (st != HAL_OK) { return st; }
 
     /* Paso 2: esperar al menos 100 µs */
     HAL_Delay(1U);
@@ -143,8 +145,8 @@ static void SDRAM_Initialization_Sequence(SDRAM_HandleTypeDef* hsdram, FMC_SDRAM
     Command->CommandTarget          = FMC_SDRAM_CMD_TARGET_BANK2;
     Command->AutoRefreshNumber      = 1;
     Command->ModeRegisterDefinition = 0;
-    HAL_SDRAM_SendCommand(hsdram, Command, 0x1000U);
-
+    st = HAL_SDRAM_SendCommand(hsdram, Command, 0x1000U);
+    if (st != HAL_OK) { return st; }
 
     /* Paso 4: Configurar el comando de auto-refresco.
      * El datasheet del IS42S16400J exige un mínimo de 2 ciclos de auto-refresh
@@ -153,7 +155,8 @@ static void SDRAM_Initialization_Sequence(SDRAM_HandleTypeDef* hsdram, FMC_SDRAM
     Command->CommandTarget          = FMC_SDRAM_CMD_TARGET_BANK2;
     Command->AutoRefreshNumber      = 4;
     Command->ModeRegisterDefinition = 0;
-    HAL_SDRAM_SendCommand(hsdram, Command, 0x1000);
+    st = HAL_SDRAM_SendCommand(hsdram, Command, 0x1000U);
+    if (st != HAL_OK) { return st; }
 
     /** Paso 5: Programar la memoria externa en modo registro */
     tmpmrd = (uint32_t)SDRAM_MODEREG_BURST_LENGTH_1             |
@@ -162,14 +165,15 @@ static void SDRAM_Initialization_Sequence(SDRAM_HandleTypeDef* hsdram, FMC_SDRAM
                        SDRAM_MODEREG_OPERATING_MODE_STANDARD    |
                        SDRAM_MODEREG_WRITEBURST_MODE_SINGLE;
 
-    Command->CommandMode   = FMC_SDRAM_CMD_LOAD_MODE;
-    Command->CommandTarget = FMC_SDRAM_CMD_TARGET_BANK2;
-    Command->AutoRefreshNumber = 1;
+    Command->CommandMode            = FMC_SDRAM_CMD_LOAD_MODE;
+    Command->CommandTarget          = FMC_SDRAM_CMD_TARGET_BANK2;
+    Command->AutoRefreshNumber      = 1;
     Command->ModeRegisterDefinition = tmpmrd;
-    HAL_SDRAM_SendCommand(hsdram, Command, 0x1000U);
+    st = HAL_SDRAM_SendCommand(hsdram, Command, 0x1000U);
+    if (st != HAL_OK) { return st; }
 
     /* Paso 6: configurar tasa de refresco */
-    HAL_SDRAM_ProgramRefreshRate(hsdram, REFRESH_COUNT);
+    return HAL_SDRAM_ProgramRefreshRate(hsdram, REFRESH_COUNT);
 }
 #endif /* HAL_SDRAM_MODULE_ENABLED */
 
@@ -689,7 +693,7 @@ ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi)
     if (hsdram != NULL)
     {
         FMC_SDRAM_CommandTypeDef sdramCmd = {0};
-        SDRAM_Initialization_Sequence(hsdram, &sdramCmd);
+        if (SDRAM_Initialization_Sequence(hsdram, &sdramCmd) != HAL_OK) { return ILI9341_ERROR; }
         ILI9341_framebuffer = (uint32_t*)ILI9341_SDRAM_BASE;
         memset(ILI9341_framebuffer, 0, ILI9341_SDRAM_FB_SIZE);
     }
