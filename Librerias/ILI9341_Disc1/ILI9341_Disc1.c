@@ -55,7 +55,7 @@ typedef char ILI9341_sdram_fb_size_check[(ILI9341_SDRAM_FB_SIZE <= IS42S16400J_S
 // ============================================================================
 
 static ILI9341_Status_t SPI_ILI9341_Send(uint8_t* data, uint16_t size);
-static void SPI_ILI9341_BaudRateUp(void);
+static ILI9341_Status_t SPI_ILI9341_BaudRateUp(void);
 #ifdef HAL_SDRAM_MODULE_ENABLED
 static void SDRAM_Initialization_Sequence(SDRAM_HandleTypeDef* hsdram, FMC_SDRAM_CommandTypeDef* Command);
 #endif
@@ -101,11 +101,11 @@ static ILI9341_Status_t SPI_ILI9341_Send(uint8_t* data, uint16_t size)
  *          conservadora — eleva la tasa de bits a ~45 Mbit/s estableciendo
  *          @c SPI_BAUDRATEPRESCALER_2 en el campo @c Init.BaudRatePrescaler del handle SPI.
  */
-static void SPI_ILI9341_BaudRateUp(void)
+static ILI9341_Status_t SPI_ILI9341_BaudRateUp(void)
 {
-    HAL_SPI_DeInit(ILI9341_hspi);
+    if (HAL_SPI_DeInit(ILI9341_hspi) != HAL_OK) { return ILI9341_ERROR; }
     ILI9341_hspi->Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
-    HAL_SPI_Init(ILI9341_hspi);
+    return (HAL_SPI_Init(ILI9341_hspi) == HAL_OK) ? ILI9341_OK : ILI9341_ERROR;
 }
 
 #ifdef HAL_SDRAM_MODULE_ENABLED
@@ -681,7 +681,8 @@ ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi)
     ILI9341_Opts.height      = ILI9341_HEIGHT;
     ILI9341_Opts.orientation = ILI9341_Portrait;
 
-    SPI_ILI9341_BaudRateUp();
+    st = SPI_ILI9341_BaudRateUp();
+    if (st != ILI9341_OK) { return st; }
 
 #ifdef HAL_SDRAM_MODULE_ENABLED
     ILI9341_hsdram = hsdram;
@@ -1588,11 +1589,13 @@ ILI9341_Status_t ILI9341_DeInit(void)
  * @return ILI9341_Status_t
  *         - ILI9341_OK              si el dispositivo fue detectado y configurado.
  *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
- *         - ILI9341_ERROR           si el ID del chip no coincidió con STMPE811_ID.
+ *         - ILI9341_ERROR           si el ID del chip no coincidió con STMPE811_ID
+ *                                   o si cualquier operación I2C de configuración falló.
  */
 ILI9341_Status_t ILI9341_TP_Config(void)
 {
-    uint16_t tmp = 0U;
+    uint16_t         tmp    = 0U;
+    ILI9341_Status_t status = ILI9341_OK;
 
     if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
 
@@ -1600,21 +1603,21 @@ ILI9341_Status_t ILI9341_TP_Config(void)
     tmp |= (uint16_t)ILI9341_TP_ReadDeviceRegister(1U);
     if (tmp != (uint16_t)STMPE811_ID) { return ILI9341_ERROR; }
 
-    ILI9341_TP_Reset();
-    ILI9341_TP_FnctCmd(TP_ADC_FCT, ENABLE);
-    ILI9341_TP_FnctCmd(TP_TP_FCT,  ENABLE);
-    ILI9341_TP_WriteDeviceRegister(TP_REG_ADC_CTRL1, 0x49U);
+    if ((status = ILI9341_TP_Reset())                                              != ILI9341_OK) { return status; }
+    if ((status = ILI9341_TP_FnctCmd(TP_ADC_FCT, ENABLE))                         != ILI9341_OK) { return status; }
+    if ((status = ILI9341_TP_FnctCmd(TP_TP_FCT,  ENABLE))                         != ILI9341_OK) { return status; }
+    if ((status = ILI9341_TP_WriteDeviceRegister(TP_REG_ADC_CTRL1, 0x49U))        != ILI9341_OK) { return status; }
     ILI9341_Delay(200U);
-    ILI9341_TP_WriteDeviceRegister(TP_REG_ADC_CTRL2,    0x01U);
-    ILI9341_TP_IOAFConfig((uint8_t)TOUCH_IO_ALL, DISABLE);
-    ILI9341_TP_WriteDeviceRegister(TP_REG_TP_CFG,       0x9AU);
-    ILI9341_TP_WriteDeviceRegister(TP_REG_FIFO_TH,      0x01U);
-    ILI9341_TP_WriteDeviceRegister(TP_REG_FIFO_STA,     0x01U);
-    ILI9341_TP_WriteDeviceRegister(TP_REG_FIFO_STA,     0x00U);
-    ILI9341_TP_WriteDeviceRegister(TP_REG_TP_FRACT_XYZ, 0x01U);
-    ILI9341_TP_WriteDeviceRegister(TP_REG_TP_I_DRIVE,   0x01U);
-    ILI9341_TP_WriteDeviceRegister(TP_REG_TP_CTRL,      0x03U);
-    ILI9341_TP_WriteDeviceRegister(TP_REG_INT_STA,      0xFFU);
+    if ((status = ILI9341_TP_WriteDeviceRegister(TP_REG_ADC_CTRL2,    0x01U))     != ILI9341_OK) { return status; }
+    if ((status = ILI9341_TP_IOAFConfig((uint8_t)TOUCH_IO_ALL, DISABLE))          != ILI9341_OK) { return status; }
+    if ((status = ILI9341_TP_WriteDeviceRegister(TP_REG_TP_CFG,       0x9AU))     != ILI9341_OK) { return status; }
+    if ((status = ILI9341_TP_WriteDeviceRegister(TP_REG_FIFO_TH,      0x01U))     != ILI9341_OK) { return status; }
+    if ((status = ILI9341_TP_WriteDeviceRegister(TP_REG_FIFO_STA,     0x01U))     != ILI9341_OK) { return status; }
+    if ((status = ILI9341_TP_WriteDeviceRegister(TP_REG_FIFO_STA,     0x00U))     != ILI9341_OK) { return status; }
+    if ((status = ILI9341_TP_WriteDeviceRegister(TP_REG_TP_FRACT_XYZ, 0x01U))     != ILI9341_OK) { return status; }
+    if ((status = ILI9341_TP_WriteDeviceRegister(TP_REG_TP_I_DRIVE,   0x01U))     != ILI9341_OK) { return status; }
+    if ((status = ILI9341_TP_WriteDeviceRegister(TP_REG_TP_CTRL,      0x03U))     != ILI9341_OK) { return status; }
+    if ((status = ILI9341_TP_WriteDeviceRegister(TP_REG_INT_STA,      0xFFU))     != ILI9341_OK) { return status; }
 
     TP_State.TouchDetected = TP_State.X = TP_State.Y = TP_State.Z = 0U;
 
