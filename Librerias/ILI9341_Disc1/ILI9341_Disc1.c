@@ -75,7 +75,7 @@ static uint16_t ILI9341_TP_Read_Y(void);
 static uint16_t ILI9341_TP_Read_Z(void);
 #endif /* HAL_I2C_MODULE_ENABLED */
 static ILI9341_Status_t DrawPixelClipped(int16_t x, int16_t y, uint16_t color);
-static ILI9341_Status_t DrawLineClipped(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint16_t color);
+static ILI9341_Status_t DrawHSpanClipped(int16_t xL, int16_t xR, int16_t y, uint16_t color);
 
 // ============================================================================
 // FUNCIONES PRIVADAS
@@ -471,24 +471,23 @@ static ILI9341_Status_t DrawPixelClipped(int16_t x, int16_t y, uint16_t color)
 }
 
 /**
- * @brief Dibuja una línea entre (x0, y0) y (x1, y1) con el color dado, recortando a los límites de la pantalla.
+ * @brief Dibuja un tramo horizontal entre xL y xR en la fila y, recortando a los límites de la pantalla.
  *
- * @param x0 Coordenada X del primer punto (puede ser negativa o exceder el ancho de la pantalla).
- * @param y0 Coordenada Y del primer punto (puede ser negativa o exceder el alto de la pantalla).
- * @param x1 Coordenada X del segundo punto (puede ser negativa o exceder el ancho de la pantalla).
- * @param y1 Coordenada Y del segundo punto (puede ser negativa o exceder el alto de la pantalla).
- * @param color Color de la línea en formato RGB565.
+ * @param xL    Extremo izquierdo del tramo (puede ser negativo o mayor que xR).
+ * @param xR    Extremo derecho del tramo.
+ * @param y     Fila del tramo (puede ser negativa o exceder el alto de la pantalla).
+ * @param color Color del tramo en formato RGB565.
  * @return ILI9341_Status_t
  */
-static ILI9341_Status_t DrawLineClipped(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint16_t color)
+static ILI9341_Status_t DrawHSpanClipped(int16_t xL, int16_t xR, int16_t y, uint16_t color)
 {
-    if (y0 < 0 || (uint16_t)y0 >= ILI9341_Opts.height) return ILI9341_OK;
-    if (y1 < 0 || (uint16_t)y1 >= ILI9341_Opts.height) return ILI9341_OK;
-    if (x0 < 0) x0 = 0;
-    if (x1 < 0) x1 = 0;
-    if ((uint16_t)x0 >= ILI9341_Opts.width) x0 = (int16_t)(ILI9341_Opts.width - 1U);
-    if ((uint16_t)x1 >= ILI9341_Opts.width) x1 = (int16_t)(ILI9341_Opts.width - 1U);
-    return ILI9341_DrawLine((uint16_t)x0, (uint16_t)y0, (uint16_t)x1, (uint16_t)y1, color);
+    int16_t tmp;
+    if (y < 0 || (uint16_t)y >= ILI9341_Opts.height) return ILI9341_OK;
+    if (xL > xR) { tmp = xL; xL = xR; xR = tmp; }
+    if (xL < 0) xL = 0;
+    if ((uint16_t)xR >= ILI9341_Opts.width) xR = (int16_t)(ILI9341_Opts.width - 1U);
+    if (xL > xR) return ILI9341_OK;
+    return ILI9341_DrawFilledRectangle((uint16_t)xL, (uint16_t)y, (uint16_t)xR, (uint16_t)y, color);
 }
 
 // ============================================================================
@@ -719,24 +718,135 @@ ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi)
  */
 ILI9341_Status_t ILI9341_Fill(uint16_t color)
 {
-    ILI9341_Status_t st;
-    unsigned int n;
-    uint8_t hi = (uint8_t)(color >> 8);
-    uint8_t lo = (uint8_t)(color & 0xFFU);
+    const uint32_t Timeout = 5000U;
+    uint32_t       tickstart;
+    uint32_t       n;
+    uint8_t        hi = (uint8_t)(color >> 8);
+    uint8_t        lo = (uint8_t)(color & 0xFFU);
 
     if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
 
-    st = ILI9341_SetCursorPosition(0U, 0U, ILI9341_Opts.width - 1U, ILI9341_Opts.height - 1U);
-    st = st ? st : ILI9341_SendCommand(ILI9341_GRAM);
-    if (st != ILI9341_OK) { return st; }
+    ILI9341_SetCursorPosition(0U, 0U, ILI9341_Opts.width - 1U, ILI9341_Opts.height - 1U);
+    ILI9341_SendCommand(ILI9341_GRAM);
 
-    for (n = 0U; n < ILI9341_PIXEL; n++)
+    ILI9341_WRX_SET;
+    ILI9341_CS_RESET;
+
+    if (ILI9341_hspi->State != HAL_SPI_STATE_READY)
     {
-        st = ILI9341_SendData(hi);
-        if (st != ILI9341_OK) { return st; }
-        st = ILI9341_SendData(lo);
-        if (st != ILI9341_OK) { return st; }
+        ILI9341_WRX_RESET;
+        ILI9341_CS_SET;
+        return ILI9341_ERROR;
     }
+
+    assert_param(IS_SPI_DIRECTION_2LINES_OR_1LINE(ILI9341_hspi->Init.Direction));
+    __HAL_LOCK(ILI9341_hspi);
+    ILI9341_hspi->State      = HAL_SPI_STATE_BUSY_TX;
+    ILI9341_hspi->ErrorCode  = HAL_SPI_ERROR_NONE;
+    ILI9341_hspi->TxISR      = 0;
+    ILI9341_hspi->RxISR      = 0;
+    ILI9341_hspi->RxXferSize  = 0U;
+    ILI9341_hspi->RxXferCount = 0U;
+
+    if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE)
+    {
+        SPI_RESET_CRC(ILI9341_hspi);
+    }
+    if (ILI9341_hspi->Init.Direction == SPI_DIRECTION_1LINE)
+    {
+        SPI_1LINE_TX(ILI9341_hspi);
+    }
+    if ((ILI9341_hspi->Instance->CR1 & SPI_CR1_SPE) != SPI_CR1_SPE)
+    {
+        __HAL_SPI_ENABLE(ILI9341_hspi);
+    }
+
+    for (n = 0U; n < (uint32_t)ILI9341_PIXEL; n++)
+    {
+        ILI9341_hspi->Instance->DR = hi;
+        tickstart = HAL_GetTick();
+        while (__HAL_SPI_GET_FLAG(ILI9341_hspi, SPI_FLAG_TXE) == RESET)
+        {
+            if ((Timeout == 0U) || ((HAL_GetTick() - tickstart) > Timeout))
+            {
+                __HAL_SPI_DISABLE_IT(ILI9341_hspi, (SPI_IT_TXE | SPI_IT_RXNE | SPI_IT_ERR));
+                __HAL_SPI_DISABLE(ILI9341_hspi);
+                if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE) { SPI_RESET_CRC(ILI9341_hspi); }
+                ILI9341_hspi->State = HAL_SPI_STATE_READY;
+                __HAL_UNLOCK(ILI9341_hspi);
+                ILI9341_CS_SET;
+                ILI9341_WRX_RESET;
+                return ILI9341_TIMEOUT;
+            }
+        }
+
+        ILI9341_hspi->Instance->DR = lo;
+        tickstart = HAL_GetTick();
+        while (__HAL_SPI_GET_FLAG(ILI9341_hspi, SPI_FLAG_TXE) == RESET)
+        {
+            if ((Timeout == 0U) || ((HAL_GetTick() - tickstart) > Timeout))
+            {
+                __HAL_SPI_DISABLE_IT(ILI9341_hspi, (SPI_IT_TXE | SPI_IT_RXNE | SPI_IT_ERR));
+                __HAL_SPI_DISABLE(ILI9341_hspi);
+                if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE) { SPI_RESET_CRC(ILI9341_hspi); }
+                ILI9341_hspi->State = HAL_SPI_STATE_READY;
+                __HAL_UNLOCK(ILI9341_hspi);
+                ILI9341_CS_SET;
+                ILI9341_WRX_RESET;
+                return ILI9341_TIMEOUT;
+            }
+        }
+    }
+
+    if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE)
+    {
+        ILI9341_hspi->Instance->CR1 |= SPI_CR1_CRCNEXT;
+    }
+
+    tickstart = HAL_GetTick();
+    while (__HAL_SPI_GET_FLAG(ILI9341_hspi, SPI_FLAG_TXE) == RESET)
+    {
+        if ((Timeout == 0U) || ((HAL_GetTick() - tickstart) > Timeout))
+        {
+            __HAL_SPI_DISABLE_IT(ILI9341_hspi, (SPI_IT_TXE | SPI_IT_RXNE | SPI_IT_ERR));
+            __HAL_SPI_DISABLE(ILI9341_hspi);
+            if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE) { SPI_RESET_CRC(ILI9341_hspi); }
+            ILI9341_hspi->State      = HAL_SPI_STATE_READY;
+            ILI9341_hspi->ErrorCode |= HAL_SPI_ERROR_FLAG;
+            __HAL_UNLOCK(ILI9341_hspi);
+            ILI9341_WRX_RESET;
+            ILI9341_CS_SET;
+            return ILI9341_TIMEOUT;
+        }
+    }
+
+    tickstart = HAL_GetTick();
+    while (__HAL_SPI_GET_FLAG(ILI9341_hspi, SPI_FLAG_BSY) != RESET)
+    {
+        if ((Timeout == 0U) || ((HAL_GetTick() - tickstart) > Timeout))
+        {
+            __HAL_SPI_DISABLE_IT(ILI9341_hspi, (SPI_IT_TXE | SPI_IT_RXNE | SPI_IT_ERR));
+            __HAL_SPI_DISABLE(ILI9341_hspi);
+            if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE) { SPI_RESET_CRC(ILI9341_hspi); }
+            ILI9341_hspi->State      = HAL_SPI_STATE_READY;
+            ILI9341_hspi->ErrorCode |= HAL_SPI_ERROR_FLAG;
+            __HAL_UNLOCK(ILI9341_hspi);
+            ILI9341_WRX_RESET;
+            ILI9341_CS_SET;
+            return ILI9341_TIMEOUT;
+        }
+    }
+
+    if (ILI9341_hspi->Init.Direction == SPI_DIRECTION_2LINES)
+    {
+        __HAL_SPI_CLEAR_OVRFLAG(ILI9341_hspi);
+    }
+
+    ILI9341_hspi->State = HAL_SPI_STATE_READY;
+    __HAL_UNLOCK(ILI9341_hspi);
+    ILI9341_WRX_RESET;
+    ILI9341_CS_SET;
+
     return ILI9341_OK;
 }
 
@@ -832,8 +942,19 @@ ILI9341_Status_t ILI9341_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_
     if (y0 >= ILI9341_Opts.height) { y0 = ILI9341_Opts.height - 1U; }
     if (y1 >= ILI9341_Opts.height) { y1 = ILI9341_Opts.height - 1U; }
 
-    dx  = (x0 < x1) ? (x1 - x0) : (x0 - x1);
-    dy  = (y0 < y1) ? (y1 - y0) : (y0 - y1);
+    /* Líneas horizontales y verticales: una sola ventana + burst directo al DR. */
+    if (y0 == y1 || x0 == x1)
+    {
+        uint16_t xa = (x0 < x1) ? x0 : x1;
+        uint16_t xb = (x0 < x1) ? x1 : x0;
+        uint16_t ya = (y0 < y1) ? y0 : y1;
+        uint16_t yb = (y0 < y1) ? y1 : y0;
+        return ILI9341_DrawFilledRectangle(xa, ya, xb, yb, color);
+    }
+
+    /* Línea diagonal: Bresenham pixel a pixel (SetCursorPosition por pixel inevitable). */
+    dx  = (x0 < x1) ? (int16_t)(x1 - x0) : (int16_t)(x0 - x1);
+    dy  = (y0 < y1) ? (int16_t)(y1 - y0) : (int16_t)(y0 - y1);
     sx  = (x0 < x1) ?  1 : -1;
     sy  = (y0 < y1) ?  1 : -1;
     err = ((dx > dy) ? dx : -dy) / 2;
@@ -844,8 +965,8 @@ ILI9341_Status_t ILI9341_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_
         if (st != ILI9341_OK) { return st; }
         if (x0 == x1 && y0 == y1) { break; }
         e2 = err;
-        if (e2 > -dx) { err -= dy; x0 += sx; }
-        if (e2 <  dy) { err += dx; y0 += sy; }
+        if (e2 > -dx) { err -= dy; x0 += (uint16_t)sx; }
+        if (e2 <  dy) { err += dx; y0 += (uint16_t)sy; }
     }
     return ILI9341_OK;
 }
@@ -889,13 +1010,136 @@ ILI9341_Status_t ILI9341_DrawRectangle(uint16_t x0, uint16_t y0, uint16_t x1, ui
  */
 ILI9341_Status_t ILI9341_DrawFilledRectangle(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color)
 {
-    ILI9341_Status_t st;
+    const uint32_t Timeout = 5000U;
+    uint32_t       tickstart;
+    uint32_t       n;
+    uint32_t       pixels = (uint32_t)(x1 - x0 + 1U) * (uint32_t)(y1 - y0 + 1U);
+    uint8_t        hi = (uint8_t)(color >> 8);
+    uint8_t        lo = (uint8_t)(color & 0xFFU);
+
     if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
-    for (; x0 < x1; x0++)
+
+    ILI9341_SetCursorPosition(x0, y0, x1, y1);
+    ILI9341_SendCommand(ILI9341_GRAM);
+
+    ILI9341_WRX_SET;
+    ILI9341_CS_RESET;
+
+    if (ILI9341_hspi->State != HAL_SPI_STATE_READY)
     {
-        st = ILI9341_DrawLine(x0, y0, x0, y1, color);
-        if (st != ILI9341_OK) { return st; }
+        ILI9341_WRX_RESET;
+        ILI9341_CS_SET;
+        return ILI9341_ERROR;
     }
+
+    assert_param(IS_SPI_DIRECTION_2LINES_OR_1LINE(ILI9341_hspi->Init.Direction));
+    __HAL_LOCK(ILI9341_hspi);
+    ILI9341_hspi->State      = HAL_SPI_STATE_BUSY_TX;
+    ILI9341_hspi->ErrorCode  = HAL_SPI_ERROR_NONE;
+    ILI9341_hspi->TxISR      = 0;
+    ILI9341_hspi->RxISR      = 0;
+    ILI9341_hspi->RxXferSize  = 0U;
+    ILI9341_hspi->RxXferCount = 0U;
+
+    if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE)
+    {
+        SPI_RESET_CRC(ILI9341_hspi);
+    }
+    if (ILI9341_hspi->Init.Direction == SPI_DIRECTION_1LINE)
+    {
+        SPI_1LINE_TX(ILI9341_hspi);
+    }
+    if ((ILI9341_hspi->Instance->CR1 & SPI_CR1_SPE) != SPI_CR1_SPE)
+    {
+        __HAL_SPI_ENABLE(ILI9341_hspi);
+    }
+
+    for (n = 0U; n < pixels; n++)
+    {
+        ILI9341_hspi->Instance->DR = hi;
+        tickstart = HAL_GetTick();
+        while (__HAL_SPI_GET_FLAG(ILI9341_hspi, SPI_FLAG_TXE) == RESET)
+        {
+            if ((Timeout == 0U) || ((HAL_GetTick() - tickstart) > Timeout))
+            {
+                __HAL_SPI_DISABLE_IT(ILI9341_hspi, (SPI_IT_TXE | SPI_IT_RXNE | SPI_IT_ERR));
+                __HAL_SPI_DISABLE(ILI9341_hspi);
+                if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE) { SPI_RESET_CRC(ILI9341_hspi); }
+                ILI9341_hspi->State = HAL_SPI_STATE_READY;
+                __HAL_UNLOCK(ILI9341_hspi);
+                ILI9341_CS_SET;
+                ILI9341_WRX_RESET;
+                return ILI9341_TIMEOUT;
+            }
+        }
+
+        ILI9341_hspi->Instance->DR = lo;
+        tickstart = HAL_GetTick();
+        while (__HAL_SPI_GET_FLAG(ILI9341_hspi, SPI_FLAG_TXE) == RESET)
+        {
+            if ((Timeout == 0U) || ((HAL_GetTick() - tickstart) > Timeout))
+            {
+                __HAL_SPI_DISABLE_IT(ILI9341_hspi, (SPI_IT_TXE | SPI_IT_RXNE | SPI_IT_ERR));
+                __HAL_SPI_DISABLE(ILI9341_hspi);
+                if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE) { SPI_RESET_CRC(ILI9341_hspi); }
+                ILI9341_hspi->State = HAL_SPI_STATE_READY;
+                __HAL_UNLOCK(ILI9341_hspi);
+                ILI9341_CS_SET;
+                ILI9341_WRX_RESET;
+                return ILI9341_TIMEOUT;
+            }
+        }
+    }
+
+    if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE)
+    {
+        ILI9341_hspi->Instance->CR1 |= SPI_CR1_CRCNEXT;
+    }
+
+    tickstart = HAL_GetTick();
+    while (__HAL_SPI_GET_FLAG(ILI9341_hspi, SPI_FLAG_TXE) == RESET)
+    {
+        if ((Timeout == 0U) || ((HAL_GetTick() - tickstart) > Timeout))
+        {
+            __HAL_SPI_DISABLE_IT(ILI9341_hspi, (SPI_IT_TXE | SPI_IT_RXNE | SPI_IT_ERR));
+            __HAL_SPI_DISABLE(ILI9341_hspi);
+            if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE) { SPI_RESET_CRC(ILI9341_hspi); }
+            ILI9341_hspi->State      = HAL_SPI_STATE_READY;
+            ILI9341_hspi->ErrorCode |= HAL_SPI_ERROR_FLAG;
+            __HAL_UNLOCK(ILI9341_hspi);
+            ILI9341_WRX_RESET;
+            ILI9341_CS_SET;
+            return ILI9341_TIMEOUT;
+        }
+    }
+
+    tickstart = HAL_GetTick();
+    while (__HAL_SPI_GET_FLAG(ILI9341_hspi, SPI_FLAG_BSY) != RESET)
+    {
+        if ((Timeout == 0U) || ((HAL_GetTick() - tickstart) > Timeout))
+        {
+            __HAL_SPI_DISABLE_IT(ILI9341_hspi, (SPI_IT_TXE | SPI_IT_RXNE | SPI_IT_ERR));
+            __HAL_SPI_DISABLE(ILI9341_hspi);
+            if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE) { SPI_RESET_CRC(ILI9341_hspi); }
+            ILI9341_hspi->State      = HAL_SPI_STATE_READY;
+            ILI9341_hspi->ErrorCode |= HAL_SPI_ERROR_FLAG;
+            __HAL_UNLOCK(ILI9341_hspi);
+            ILI9341_WRX_RESET;
+            ILI9341_CS_SET;
+            return ILI9341_TIMEOUT;
+        }
+    }
+
+    if (ILI9341_hspi->Init.Direction == SPI_DIRECTION_2LINES)
+    {
+        __HAL_SPI_CLEAR_OVRFLAG(ILI9341_hspi);
+    }
+
+    ILI9341_hspi->State = HAL_SPI_STATE_READY;
+    __HAL_UNLOCK(ILI9341_hspi);
+    ILI9341_WRX_RESET;
+    ILI9341_CS_SET;
+
     return ILI9341_OK;
 }
 
@@ -973,9 +1217,7 @@ ILI9341_Status_t ILI9341_DrawFilledCircle(int16_t x0, int16_t y0, int16_t r, uin
 
     st  = DrawPixelClipped(x0,     y0 + r, color);
     st  = st ? st : DrawPixelClipped(x0,     y0 - r, color);
-    st  = st ? st : DrawPixelClipped(x0 + r, y0,     color);
-    st  = st ? st : DrawPixelClipped(x0 - r, y0,     color);
-    st  = st ? st : DrawLineClipped(x0 - r, y0, x0 + r, y0, color);
+    st  = st ? st : DrawHSpanClipped(x0 - r, x0 + r, y0, color);
     if (st != ILI9341_OK) { return st; }
 
     while (x < y)
@@ -985,10 +1227,10 @@ ILI9341_Status_t ILI9341_DrawFilledCircle(int16_t x0, int16_t y0, int16_t r, uin
         ddF_x += 2;
         f += ddF_x;
 
-        st  = DrawLineClipped(x0 - x, y0 + y, x0 + x, y0 + y, color);
-        st  = st ? st : DrawLineClipped(x0 + x, y0 - y, x0 - x, y0 - y, color);
-        st  = st ? st : DrawLineClipped(x0 + y, y0 + x, x0 - y, y0 + x, color);
-        st  = st ? st : DrawLineClipped(x0 + y, y0 - x, x0 - y, y0 - x, color);
+        st  = DrawHSpanClipped(x0 - x, x0 + x, y0 + y, color);
+        st  = st ? st : DrawHSpanClipped(x0 - x, x0 + x, y0 - y, color);
+        st  = st ? st : DrawHSpanClipped(x0 - y, x0 + y, y0 + x, color);
+        st  = st ? st : DrawHSpanClipped(x0 - y, x0 + y, y0 - x, color);
         if (st != ILI9341_OK) { return st; }
     }
     return ILI9341_OK;
@@ -1006,12 +1248,16 @@ ILI9341_Status_t ILI9341_DrawFilledCircle(int16_t x0, int16_t y0, int16_t r, uin
  * @return ILI9341_Status_t
  *         - ILI9341_OK              en caso de éxito.
  *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
- *         - ILI9341_ERROR           si falla la transmisión SPI.
+ *         - ILI9341_ERROR           si el periférico SPI estaba ocupado al iniciar.
+ *         - ILI9341_TIMEOUT         si el bus SPI se bloqueó durante la transmisión.
  */
 ILI9341_Status_t ILI9341_Putc(uint16_t x, uint16_t y, char c, LCD_FontDef_t* font, uint16_t foreground, uint16_t background)
 {
-    ILI9341_Status_t st;
-    uint32_t i, b, j;
+    const uint32_t Timeout = 5000U;
+    uint32_t       tickstart;
+    uint32_t       i, b, j;
+    uint16_t       color;
+    uint8_t        hi, lo;
 
     if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
     if (font == NULL)         { return ILI9341_INVALID_PARAM;   }
@@ -1025,18 +1271,137 @@ ILI9341_Status_t ILI9341_Putc(uint16_t x, uint16_t y, char c, LCD_FontDef_t* fon
         ILI9341_x  = 0U;
     }
 
+    ILI9341_SetCursorPosition(ILI9341_x, ILI9341_y,
+                              ILI9341_x + font->FontWidth  - 1U,
+                              ILI9341_y + font->FontHeight - 1U);
+    ILI9341_SendCommand(ILI9341_GRAM);
+
+    ILI9341_WRX_SET;
+    ILI9341_CS_RESET;
+
+    if (ILI9341_hspi->State != HAL_SPI_STATE_READY)
+    {
+        ILI9341_WRX_RESET;
+        ILI9341_CS_SET;
+        return ILI9341_ERROR;
+    }
+
+    assert_param(IS_SPI_DIRECTION_2LINES_OR_1LINE(ILI9341_hspi->Init.Direction));
+    __HAL_LOCK(ILI9341_hspi);
+    ILI9341_hspi->State      = HAL_SPI_STATE_BUSY_TX;
+    ILI9341_hspi->ErrorCode  = HAL_SPI_ERROR_NONE;
+    ILI9341_hspi->TxISR      = 0;
+    ILI9341_hspi->RxISR      = 0;
+    ILI9341_hspi->RxXferSize  = 0U;
+    ILI9341_hspi->RxXferCount = 0U;
+
+    if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE)
+    {
+        SPI_RESET_CRC(ILI9341_hspi);
+    }
+    if (ILI9341_hspi->Init.Direction == SPI_DIRECTION_1LINE)
+    {
+        SPI_1LINE_TX(ILI9341_hspi);
+    }
+    if ((ILI9341_hspi->Instance->CR1 & SPI_CR1_SPE) != SPI_CR1_SPE)
+    {
+        __HAL_SPI_ENABLE(ILI9341_hspi);
+    }
+
     for (i = 0U; i < font->FontHeight; i++)
     {
         b = font->data[(c - 32) * font->FontHeight + i];
         for (j = 0U; j < font->FontWidth; j++)
         {
-            if ((b << j) & 0x8000U)
-                st = ILI9341_DrawPixel(ILI9341_x + j, ILI9341_y + i, foreground);
-            else
-                st = ILI9341_DrawPixel(ILI9341_x + j, ILI9341_y + i, background);
-            if (st != ILI9341_OK) { return st; }
+            color = ((b << j) & 0x8000U) ? foreground : background;
+            hi    = (uint8_t)(color >> 8);
+            lo    = (uint8_t)(color & 0xFFU);
+
+            ILI9341_hspi->Instance->DR = hi;
+            tickstart = HAL_GetTick();
+            while (__HAL_SPI_GET_FLAG(ILI9341_hspi, SPI_FLAG_TXE) == RESET)
+            {
+                if ((Timeout == 0U) || ((HAL_GetTick() - tickstart) > Timeout))
+                {
+                    __HAL_SPI_DISABLE_IT(ILI9341_hspi, (SPI_IT_TXE | SPI_IT_RXNE | SPI_IT_ERR));
+                    __HAL_SPI_DISABLE(ILI9341_hspi);
+                    if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE) { SPI_RESET_CRC(ILI9341_hspi); }
+                    ILI9341_hspi->State = HAL_SPI_STATE_READY;
+                    __HAL_UNLOCK(ILI9341_hspi);
+                    ILI9341_CS_SET;
+                    ILI9341_WRX_RESET;
+                    return ILI9341_TIMEOUT;
+                }
+            }
+
+            ILI9341_hspi->Instance->DR = lo;
+            tickstart = HAL_GetTick();
+            while (__HAL_SPI_GET_FLAG(ILI9341_hspi, SPI_FLAG_TXE) == RESET)
+            {
+                if ((Timeout == 0U) || ((HAL_GetTick() - tickstart) > Timeout))
+                {
+                    __HAL_SPI_DISABLE_IT(ILI9341_hspi, (SPI_IT_TXE | SPI_IT_RXNE | SPI_IT_ERR));
+                    __HAL_SPI_DISABLE(ILI9341_hspi);
+                    if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE) { SPI_RESET_CRC(ILI9341_hspi); }
+                    ILI9341_hspi->State = HAL_SPI_STATE_READY;
+                    __HAL_UNLOCK(ILI9341_hspi);
+                    ILI9341_CS_SET;
+                    ILI9341_WRX_RESET;
+                    return ILI9341_TIMEOUT;
+                }
+            }
         }
     }
+
+    if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE)
+    {
+        ILI9341_hspi->Instance->CR1 |= SPI_CR1_CRCNEXT;
+    }
+
+    tickstart = HAL_GetTick();
+    while (__HAL_SPI_GET_FLAG(ILI9341_hspi, SPI_FLAG_TXE) == RESET)
+    {
+        if ((Timeout == 0U) || ((HAL_GetTick() - tickstart) > Timeout))
+        {
+            __HAL_SPI_DISABLE_IT(ILI9341_hspi, (SPI_IT_TXE | SPI_IT_RXNE | SPI_IT_ERR));
+            __HAL_SPI_DISABLE(ILI9341_hspi);
+            if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE) { SPI_RESET_CRC(ILI9341_hspi); }
+            ILI9341_hspi->State      = HAL_SPI_STATE_READY;
+            ILI9341_hspi->ErrorCode |= HAL_SPI_ERROR_FLAG;
+            __HAL_UNLOCK(ILI9341_hspi);
+            ILI9341_WRX_RESET;
+            ILI9341_CS_SET;
+            return ILI9341_TIMEOUT;
+        }
+    }
+
+    tickstart = HAL_GetTick();
+    while (__HAL_SPI_GET_FLAG(ILI9341_hspi, SPI_FLAG_BSY) != RESET)
+    {
+        if ((Timeout == 0U) || ((HAL_GetTick() - tickstart) > Timeout))
+        {
+            __HAL_SPI_DISABLE_IT(ILI9341_hspi, (SPI_IT_TXE | SPI_IT_RXNE | SPI_IT_ERR));
+            __HAL_SPI_DISABLE(ILI9341_hspi);
+            if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE) { SPI_RESET_CRC(ILI9341_hspi); }
+            ILI9341_hspi->State      = HAL_SPI_STATE_READY;
+            ILI9341_hspi->ErrorCode |= HAL_SPI_ERROR_FLAG;
+            __HAL_UNLOCK(ILI9341_hspi);
+            ILI9341_WRX_RESET;
+            ILI9341_CS_SET;
+            return ILI9341_TIMEOUT;
+        }
+    }
+
+    if (ILI9341_hspi->Init.Direction == SPI_DIRECTION_2LINES)
+    {
+        __HAL_SPI_CLEAR_OVRFLAG(ILI9341_hspi);
+    }
+
+    ILI9341_hspi->State = HAL_SPI_STATE_READY;
+    __HAL_UNLOCK(ILI9341_hspi);
+    ILI9341_WRX_RESET;
+    ILI9341_CS_SET;
+
     ILI9341_x += font->FontWidth;
     return ILI9341_OK;
 }
