@@ -154,7 +154,7 @@ static void SDRAM_Initialization_Sequence(SDRAM_HandleTypeDef* hsdram, FMC_SDRAM
     HAL_SDRAM_SendCommand(hsdram, Command, 0x1000);
 
     /** Paso 5: Programar la memoria externa en modo registro */
-    tmpmrd = (uint32_t)SDRAM_MODEREG_BURST_LENGTH_2             |
+    tmpmrd = (uint32_t)SDRAM_MODEREG_BURST_LENGTH_1             |
                        SDRAM_MODEREG_BURST_TYPE_SEQUENTIAL      |
                        SDRAM_MODEREG_CAS_LATENCY_3              |
                        SDRAM_MODEREG_OPERATING_MODE_STANDARD    |
