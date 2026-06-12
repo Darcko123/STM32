@@ -19,9 +19,10 @@
  *          | Touch SCL  | PA8  | Reloj I2C3                |
  *          | Touch SDA  | PC9  | Datos I2C3                |
  *
+ * @origin El código de este driver se basa en la librería Petr Machala, Tilen Majerle, 2014.
  * @author Dr. Luis Antonio Raygoza Pérez & Ing. Daniel Ruiz
  * @date June 11, 2026
- * @version 1.0.0
+ * @version 1.0.1
  */
 
 #ifndef ILI9341_DISC1_H

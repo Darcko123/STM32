@@ -3,9 +3,10 @@
  * @brief Implementación del driver del controlador LCD ILI9341 para la placa
  * STM32F429-Discovery.
  *
+ * @origin El código de este driver se basa en la librería Petr Machala, Tilen Majerle, 2014.
  * @author Dr. Luis Antonio Raygoza Pérez & Ing. Daniel Ruiz
  * @date June 11, 2026
- * @version 1.0.0
+ * @version 1.0.1
  */
 
 #include "ILI9341_Disc1.h"
