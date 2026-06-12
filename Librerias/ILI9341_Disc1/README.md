@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![STM32](https://img.shields.io/badge/Platform-STM32F429--Discovery-black)](https://www.st.com/en/evaluation-tools/32f429idiscovery.html)
-[![Version](https://img.shields.io/badge/Version-1.0.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/ILI9341_Disc1)
+[![Version](https://img.shields.io/badge/Version-1.0.1-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/ILI9341_Disc1)
 [![Protocol](https://img.shields.io/badge/Protocol-SPI%20%2B%20I2C%20%2B%20SDRAM-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/ILI9341_Disc1)
 
 ---
@@ -56,6 +56,8 @@
   - [Colores Predefinidos](#colores-predefinidos)
   - [Licencia](#licencia)
   - [Changelog](#changelog)
+    - [\[1.0.1\]](#101)
+      - [Fixed](#fixed)
     - [\[1.0.0\] - 08-06-2026](#100---08-06-2026)
       - [Added](#added)
 
@@ -801,6 +803,13 @@ Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](../../LI
 
 Todos los cambios notables de esta librería se documentan en esta sección.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
+
+---
+
+### [1.0.1]
+
+#### Fixed
+- Corrección en el Copyright del encabezado de los archivos fuente.
 
 ---
 
