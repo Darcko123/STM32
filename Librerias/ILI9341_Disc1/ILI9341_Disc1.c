@@ -76,6 +76,7 @@ static uint16_t ILI9341_TP_Read_Z(void);
 #endif /* HAL_I2C_MODULE_ENABLED */
 static ILI9341_Status_t DrawPixelClipped(int16_t x, int16_t y, uint16_t color);
 static ILI9341_Status_t DrawHSpanClipped(int16_t xL, int16_t xR, int16_t y, uint16_t color);
+static void DrawHSpanClipped_ImageBuffer(int16_t xL, int16_t xR, int16_t y, uint16_t color, uint32_t* image);
 
 // ============================================================================
 // FUNCIONES PRIVADAS
@@ -488,6 +489,26 @@ static ILI9341_Status_t DrawHSpanClipped(int16_t xL, int16_t xR, int16_t y, uint
     if ((uint16_t)xR >= ILI9341_Opts.width) xR = (int16_t)(ILI9341_Opts.width - 1U);
     if (xL > xR) return ILI9341_OK;
     return ILI9341_DrawFilledRectangle((uint16_t)xL, (uint16_t)y, (uint16_t)xR, (uint16_t)y, color);
+}
+
+/**
+ * @brief Dibuja un tramo horizontal entre xL y xR en la fila y del frame buffer, recortando a los límites de pantalla.
+ *
+ * @param xL    Extremo izquierdo (puede ser negativo o mayor que xR).
+ * @param xR    Extremo derecho.
+ * @param y     Fila (puede ser negativa o exceder el alto de pantalla).
+ * @param color Color del tramo en formato RGB565.
+ * @param image Frame buffer destino.
+ */
+static void DrawHSpanClipped_ImageBuffer(int16_t xL, int16_t xR, int16_t y, uint16_t color, uint32_t* image)
+{
+    int16_t tmp;
+    if (y < 0 || (uint16_t)y >= ILI9341_HEIGHT) { return; }
+    if (xL > xR) { tmp = xL; xL = xR; xR = tmp; }
+    if (xL < 0) { xL = 0; }
+    if ((uint16_t)xR >= ILI9341_WIDTH) { xR = (int16_t)(ILI9341_WIDTH - 1U); }
+    if (xL > xR) { return; }
+    ILI9341_DrawFilledRectangle_ImageBuffer((uint16_t)xL, (uint16_t)y, (uint16_t)xR, (uint16_t)y, color, image);
 }
 
 // ============================================================================
@@ -1690,7 +1711,7 @@ ILI9341_Status_t ILI9341_DisplayImage(uint32_t image[IMG_TOTAL_BUF32])
  */
 void ILI9341_DrawPixel_ImageBuffer(uint16_t x, uint16_t y, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
 {
-    uint32_t buf, dir16, dir32, aux, aux2;
+    uint32_t buf, dir16, dir32, aux;
 
     if (image == NULL)                             { return; }
     if (x >= ILI9341_WIDTH || y >= ILI9341_HEIGHT) { return; }
@@ -1698,15 +1719,12 @@ void ILI9341_DrawPixel_ImageBuffer(uint16_t x, uint16_t y, uint16_t color, uint3
     dir16 = (uint32_t)y;
     aux   = (uint32_t)x;
     dir16 = ILI9341_WIDTH * dir16 + aux;
-    dir32 = dir16 / 2U;
+    dir32 = dir16 >> 1;
 
-    if (dir32 >= IMG_TOTAL_BUF32) { return; }
+    buf = image[dir32];
+    aux = (uint32_t)color;
 
-    aux2  = dir16 - dir32 * 2U;
-    buf   = image[dir32];
-    aux   = (uint32_t)color;
-
-    if (aux2 != 0U) { buf = (buf & 0x0000FFFFU) | (aux << 16); }
+    if (dir16 & 1U) { buf = (buf & 0x0000FFFFU) | (aux << 16); }
     else            { buf = (buf & 0xFFFF0000U) |  aux;         }
 
     image[dir32] = buf;
@@ -1739,12 +1757,16 @@ void ILI9341_Putc_ImageBuffer(uint16_t x, uint16_t y, char c, LCD_FontDef_t* fon
 
     for (i = 0U; i < font->FontHeight; i++)
     {
-        b = font->data[(c - 32) * font->FontHeight + i];
+        b = font->data[(c - 32U) * font->FontHeight + i];
+        uint32_t row32 = (uint32_t)(ILI9341_y + i) * (ILI9341_WIDTH / 2U);
         for (j = 0U; j < font->FontWidth; j++)
         {
             if ((b << j) & 0x8000U)
             {
-                ILI9341_DrawPixel_ImageBuffer(ILI9341_x + j, ILI9341_y + i, foreground, image);
+                uint32_t col = (uint32_t)(ILI9341_x + j);
+                uint32_t idx = row32 + (col >> 1U);
+                if (col & 1U) { image[idx] = (image[idx] & 0x0000FFFFU) | ((uint32_t)foreground << 16U); }
+                else          { image[idx] = (image[idx] & 0xFFFF0000U) |  (uint32_t)foreground;         }
             }
         }
     }
@@ -1814,6 +1836,18 @@ void ILI9341_DrawLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_
     if (y0 >= ILI9341_HEIGHT) { y0 = ILI9341_HEIGHT - 1U; }
     if (y1 >= ILI9341_HEIGHT) { y1 = ILI9341_HEIGHT - 1U; }
 
+    /* Líneas horizontales y verticales: delegar a DrawFilledRectangle_ImageBuffer
+     * que usa escrituras de 32 bits (2 píxeles/word) sin lecturas en la región central. */
+    if (y0 == y1 || x0 == x1)
+    {
+        uint16_t xa = (x0 < x1) ? x0 : x1;
+        uint16_t xb = (x0 < x1) ? x1 : x0;
+        uint16_t ya = (y0 < y1) ? y0 : y1;
+        uint16_t yb = (y0 < y1) ? y1 : y0;
+        ILI9341_DrawFilledRectangle_ImageBuffer(xa, ya, xb, yb, color, image);
+        return;
+    }
+
     dx  = (x0 < x1) ? (x1 - x0) : (x0 - x1);
     dy  = (y0 < y1) ? (y1 - y0) : (y0 - y1);
     sx  = (x0 < x1) ?  1 : -1;
@@ -1860,9 +1894,85 @@ void ILI9341_DrawRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, ui
  */
 void ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
 {
-    for (; x0 < x1; x0++)
+    uint32_t packed;
+    uint32_t base32;
+    uint16_t y, p, tmp, inner, pairs;
+    uint8_t  head, tail;
+
+    if (image == NULL) { return; }
+    if (x0 >= ILI9341_WIDTH)  { x0 = ILI9341_WIDTH  - 1U; }
+    if (x1 >= ILI9341_WIDTH)  { x1 = ILI9341_WIDTH  - 1U; }
+    if (y0 >= ILI9341_HEIGHT) { y0 = ILI9341_HEIGHT - 1U; }
+    if (y1 >= ILI9341_HEIGHT) { y1 = ILI9341_HEIGHT - 1U; }
+    if (x0 > x1) { tmp = x0; x0 = x1; x1 = tmp; }
+    if (y0 > y1) { tmp = y0; y0 = y1; y1 = tmp; }
+
+    packed = ((uint32_t)color << 16) | (uint32_t)color;
+
+    /* ILI9341_WIDTH es par → y * ILI9341_WIDTH siempre es par.
+     * La alineación del primer píxel de cada fila depende solo de x0. */
+    head  = (uint8_t)(x0 & 1U);
+    inner = (x1 - x0 + 1U) - (uint16_t)head;
+    pairs = inner >> 1U;
+    tail  = (uint8_t)(inner & 1U);
+
+    for (y = y0; y <= y1; y++)
     {
-        ILI9341_DrawLine_ImageBuffer(x0, y0, x0, y1, color, image);
+        base32 = (uint32_t)y * (ILI9341_WIDTH / 2U) + (x0 >> 1U);
+
+        /* Píxel cabecera: índice impar → bits 31:16 del word */
+        if (head)
+        {
+            image[base32] = (image[base32] & 0x0000FFFFU) | ((uint32_t)color << 16);
+            base32++;
+        }
+
+        /* Ráfaga central: 2 píxeles por write de 32 bits */
+        for (p = 0U; p < pairs; p++)
+            image[base32++] = packed;
+
+        /* Píxel cola: índice par → bits 15:0 del word */
+        if (tail)
+            image[base32] = (image[base32] & 0xFFFF0000U) | (uint32_t)color;
+    }
+}
+
+/**
+ * @brief Dibuja un círculo relleno en un frame buffer fuera de pantalla.
+ *
+ * @param[in]     x0     Coordenada X del centro.
+ * @param[in]     y0     Coordenada Y del centro.
+ * @param[in]     r      Radio en píxeles.
+ * @param[in]     color  Color de relleno en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ */
+void ILI9341_DrawFilledCircle_ImageBuffer(int16_t x0, int16_t y0, int16_t r, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
+{
+    int16_t f     =  1 - r;
+    int16_t ddF_x =  1;
+    int16_t ddF_y = -2 * r;
+    int16_t x     =  0;
+    int16_t y     =  r;
+
+    if (image == NULL) { return; }
+
+    /* Píxeles extremos: tope superior e inferior */
+    ILI9341_DrawPixel_ImageBuffer((uint16_t)x0, (uint16_t)(y0 + r), color, image);
+    ILI9341_DrawPixel_ImageBuffer((uint16_t)x0, (uint16_t)(y0 - r), color, image);
+    /* Tramo horizontal central */
+    DrawHSpanClipped_ImageBuffer(x0 - r, x0 + r, y0, color, image);
+
+    while (x < y)
+    {
+        if (f >= 0) { y--; ddF_y += 2; f += ddF_y; }
+        x++;
+        ddF_x += 2;
+        f += ddF_x;
+
+        DrawHSpanClipped_ImageBuffer(x0 - x, x0 + x, y0 + y, color, image);
+        DrawHSpanClipped_ImageBuffer(x0 - x, x0 + x, y0 - y, color, image);
+        DrawHSpanClipped_ImageBuffer(x0 - y, x0 + y, y0 + x, color, image);
+        DrawHSpanClipped_ImageBuffer(x0 - y, x0 + y, y0 - x, color, image);
     }
 }
 

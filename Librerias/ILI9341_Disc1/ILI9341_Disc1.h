@@ -548,6 +548,17 @@ void ILI9341_DrawRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, ui
  */
 void ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
 
+/**
+ * @brief Dibuja un círculo relleno en un frame buffer fuera de pantalla.
+ *
+ * @param[in]     x0     Coordenada X del centro.
+ * @param[in]     y0     Coordenada Y del centro.
+ * @param[in]     r      Radio en píxeles.
+ * @param[in]     color  Color de relleno en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ */
+void ILI9341_DrawFilledCircle_ImageBuffer(int16_t x0, int16_t y0, int16_t r, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+
 /* --- Frame buffer SDRAM --------------------------------------------------- */
 
 #ifdef HAL_SDRAM_MODULE_ENABLED
