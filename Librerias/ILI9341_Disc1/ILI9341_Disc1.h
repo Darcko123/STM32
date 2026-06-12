@@ -20,8 +20,8 @@
  *          | Touch SDA  | PC9  | Datos I2C3                |
  *
  * @author Dr. Luis Antonio Raygoza Pérez & Ing. Daniel Ruiz
- * @date June 08, 2026
- * @version 0.1.0
+ * @date June 11, 2026
+ * @version 1.0.0
  */
 
 #ifndef ILI9341_DISC1_H
