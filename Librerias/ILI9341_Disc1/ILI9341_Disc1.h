@@ -286,25 +286,39 @@ extern "C" {
  *          | Sí                       | No                     | ILI9341_Init(hspi, hsdram)               |
  *          | Sí                       | Sí                     | ILI9341_Init(hspi, hi2c, hsdram)         |
  *
+ *          Si además HAL_DMA2D_MODULE_ENABLED está definido, se añade un último
+ *          parámetro @p hdma2d a cualquiera de las firmas anteriores.
+ *
  * @param[in] hspi   Puntero al handle SPI de HAL (obligatorio).
  * @param[in] hi2c   (Solo con HAL_I2C_MODULE_ENABLED) Puntero al handle I2C de HAL.
  * @param[in] hsdram (Solo con HAL_SDRAM_MODULE_ENABLED) Puntero al handle SDRAM de HAL
  *                   generado por STM32CubeMX. Pasar NULL deshabilita el frame buffer en SDRAM.
  *                   Cuando no es NULL, la librería reserva los primeros ILI9341_SDRAM_FB_SIZE
  *                   bytes de ILI9341_SDRAM_BASE como frame buffer interno (153 600 B).
+ * @param[in] hdma2d (Solo con HAL_DMA2D_MODULE_ENABLED) Puntero al handle DMA2D de HAL
+ *                   generado por STM32CubeMX. Pasar NULL deshabilita la aceleración DMA2D:
+ *                   los rellenos usan el camino CPU y ILI9341_BlitImage no realiza ninguna copia.
  * @return ILI9341_Status_t
  *         - ILI9341_OK            si la inicialización fue exitosa.
  *         - ILI9341_INVALID_PARAM si @p hspi es NULL, o @p hi2c es NULL cuando I2C está habilitado.
- *         - ILI9341_ERROR         si una transmisión SPI falló durante la inicialización.
+ *         - ILI9341_ERROR         si una transmisión SPI o la configuración DMA2D falló durante la inicialización.
  */
-#if defined(HAL_SDRAM_MODULE_ENABLED) && defined(HAL_I2C_MODULE_ENABLED)
-ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c, SDRAM_HandleTypeDef* hsdram);
-#elif defined(HAL_SDRAM_MODULE_ENABLED)
-ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, SDRAM_HandleTypeDef* hsdram);
-#elif defined(HAL_I2C_MODULE_ENABLED)
-ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c);
+/* Parámetro opcional: el handle DMA2D solo se añade a ILI9341_Init() cuando
+ * DMA2D está habilitado en STM32CubeMX (mismo patrón guardado que hi2c/hsdram). */
+#ifdef HAL_DMA2D_MODULE_ENABLED
+#define ILI9341_DMA2D_INIT_PARAM   , DMA2D_HandleTypeDef* hdma2d
 #else
-ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi);
+#define ILI9341_DMA2D_INIT_PARAM
+#endif
+
+#if defined(HAL_SDRAM_MODULE_ENABLED) && defined(HAL_I2C_MODULE_ENABLED)
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c, SDRAM_HandleTypeDef* hsdram ILI9341_DMA2D_INIT_PARAM);
+#elif defined(HAL_SDRAM_MODULE_ENABLED)
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, SDRAM_HandleTypeDef* hsdram ILI9341_DMA2D_INIT_PARAM);
+#elif defined(HAL_I2C_MODULE_ENABLED)
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c ILI9341_DMA2D_INIT_PARAM);
+#else
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi ILI9341_DMA2D_INIT_PARAM);
 #endif
 
 /* --- Dibujo en pantalla --------------------------------------------------- */
@@ -559,6 +573,22 @@ void ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t 
  * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
  */
 void ILI9341_DrawFilledCircle_ImageBuffer(int16_t x0, int16_t y0, int16_t r, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+
+#ifdef HAL_DMA2D_MODULE_ENABLED
+/**
+ * @brief Copia una imagen RGB565 al frame buffer usando DMA2D (memoria a memoria).
+ *
+ * @param[in]     src         Puntero a la imagen fuente en formato RGB565.
+ * @param[in]     x0          Coordenada X de la esquina superior izquierda en el frame buffer.
+ * @param[in]     y0          Coordenada Y de la esquina superior izquierda en el frame buffer.
+ * @param[in]     img_w       Ancho de la imagen fuente en píxeles.
+ * @param[in]     img_h       Alto de la imagen fuente en píxeles.
+ * @param[in,out] framebuffer Frame buffer destino (IMG_TOTAL_BUF32 palabras uint32_t).
+ */
+void ILI9341_BlitImage(const uint16_t* src, uint16_t x0, uint16_t y0,
+                        uint16_t img_w, uint16_t img_h,
+                        uint32_t* framebuffer);
+#endif /* HAL_DMA2D_MODULE_ENABLED */
 
 /* --- Frame buffer SDRAM --------------------------------------------------- */
 

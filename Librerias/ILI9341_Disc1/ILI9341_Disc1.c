@@ -51,6 +51,10 @@ static uint32_t*            ILI9341_framebuffer  = NULL; /**< Puntero al frame b
 typedef char ILI9341_sdram_fb_size_check[(ILI9341_SDRAM_FB_SIZE <= IS42S16400J_SIZE) ? 1 : -1];
 #endif
 
+#ifdef HAL_DMA2D_MODULE_ENABLED
+static DMA2D_HandleTypeDef* ILI9341_hdma2d = NULL; /**< Handle DMA2D inyectado en Init; NULL si no se habilitó o se pasó NULL */
+#endif
+
 // ============================================================================
 // PROTOTIPOS DE FUNCIONES PRIVADAS
 // ============================================================================
@@ -79,6 +83,9 @@ static uint16_t ILI9341_TP_Read_Z(void);
 static ILI9341_Status_t DrawPixelClipped(int16_t x, int16_t y, uint16_t color);
 static ILI9341_Status_t DrawHSpanClipped(int16_t xL, int16_t xR, int16_t y, uint16_t color);
 static void DrawHSpanClipped_ImageBuffer(int16_t xL, int16_t xR, int16_t y, uint16_t color, uint32_t* image);
+#ifdef HAL_DMA2D_MODULE_ENABLED
+static void ILI9341_DMA2D_SetMode(uint32_t mode, uint32_t output_offset);
+#endif
 
 // ============================================================================
 // FUNCIONES PRIVADAS
@@ -155,7 +162,7 @@ static ILI9341_Status_t SPI_ILI9341_WaitTXE(void)
  *          -# Esperar al menos 100 µs (se usa HAL_Delay de 1 ms para mayor margen).
  *          -# Precargar todos los bancos (FMC_SDRAM_CMD_PALL).
  *          -# Cuatro ciclos de auto-refresco (mínimo 2 según datasheet).
- *          -# Programar el registro de modo: burst de 2, tipo secuencial,
+ *          -# Programar el registro de modo: burst de 1, tipo secuencial,
  *             latencia CAS 3, modo estándar, escritura en ráfaga simple.
  *          -# Programar la tasa de refresco (REFRESH_COUNT).
  *
@@ -548,6 +555,29 @@ static void DrawHSpanClipped_ImageBuffer(int16_t xL, int16_t xR, int16_t y, uint
     ILI9341_DrawFilledRectangle_ImageBuffer((uint16_t)xL, (uint16_t)y, (uint16_t)xR, (uint16_t)y, color, image);
 }
 
+#ifdef HAL_DMA2D_MODULE_ENABLED
+/**
+ * @brief Reprograma modo y offset de salida del DMA2D sin reinicializar el periférico.
+ *
+ * @details La configuración constante (reloj, formato de salida RGB565 y la capa de
+ *          entrada para M2M) se realiza una sola vez en ILI9341_Init(). Esta función
+ *          solo actualiza los dos parámetros que cambian por operación, evitando llamar
+ *          a HAL_DMA2D_Init()/HAL_DMA2D_ConfigLayer() en cada dibujo. El periférico está
+ *          inactivo entre transferencias (tras HAL_DMA2D_PollForTransfer), por lo que es
+ *          seguro escribir CR/OOR directamente antes del siguiente HAL_DMA2D_Start().
+ *
+ * @param[in] mode          Modo de operación (DMA2D_R2M para relleno, DMA2D_M2M para copia).
+ * @param[in] output_offset Píxeles a saltar al final de cada línea del destino.
+ */
+static void ILI9341_DMA2D_SetMode(uint32_t mode, uint32_t output_offset)
+{
+    ILI9341_hdma2d->Init.Mode         = mode;          /* DMA2D_SetConfig() lo lee para elegir R2M/M2M */
+    ILI9341_hdma2d->Init.OutputOffset = output_offset;
+    MODIFY_REG(ILI9341_hdma2d->Instance->CR,  DMA2D_CR_MODE, mode);
+    MODIFY_REG(ILI9341_hdma2d->Instance->OOR, DMA2D_OOR_LO,  output_offset);
+}
+#endif /* HAL_DMA2D_MODULE_ENABLED */
+
 // ============================================================================
 // FUNCIONES PÚBLICAS
 // ============================================================================
@@ -567,7 +597,7 @@ static void DrawHSpanClipped_ImageBuffer(int16_t xL, int16_t xR, int16_t y, uint
  *         - ILI9341_INVALID_PARAM si @p hspi o @p hi2c es NULL.
  *         - ILI9341_ERROR         si una transmisión SPI falló durante la inicialización.
  */
-ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c, SDRAM_HandleTypeDef* hsdram)
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c, SDRAM_HandleTypeDef* hsdram ILI9341_DMA2D_INIT_PARAM)
 #elif defined(HAL_SDRAM_MODULE_ENABLED)
 /**
  * @brief Inicializa la pantalla LCD ILI9341, la memoria SDRAM IS42S16400.
@@ -582,7 +612,7 @@ ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c, 
  *         - ILI9341_INVALID_PARAM si @p hspi o @p hi2c es NULL.
  *         - ILI9341_ERROR         si una transmisión SPI falló durante la inicialización.
  */
-ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, SDRAM_HandleTypeDef* hsdram)
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, SDRAM_HandleTypeDef* hsdram ILI9341_DMA2D_INIT_PARAM)
 #elif defined(HAL_I2C_MODULE_ENABLED)
 /**
  * @brief Inicializa la pantalla LCD ILI9341 y el controlador táctil STMPE811.
@@ -594,7 +624,7 @@ ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, SDRAM_HandleTypeDef* hsdr
  *         - ILI9341_INVALID_PARAM si @p hspi o @p hi2c es NULL.
  *         - ILI9341_ERROR         si una transmisión SPI falló durante la inicialización.
  */
-ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c)
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c ILI9341_DMA2D_INIT_PARAM)
 #else
 /**
  * @brief Inicializa la pantalla LCD ILI9341.
@@ -606,7 +636,7 @@ ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c)
  *         - ILI9341_INVALID_PARAM si @p hspi o @p hi2c es NULL.
  *         - ILI9341_ERROR         si una transmisión SPI falló durante la inicialización.
  */
-ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi)
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi ILI9341_DMA2D_INIT_PARAM)
 #endif
 {
     ILI9341_Status_t st;
@@ -757,6 +787,28 @@ ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi)
     else
     {
         ILI9341_framebuffer = NULL;
+    }
+#endif
+
+#ifdef HAL_DMA2D_MODULE_ENABLED
+    ILI9341_hdma2d = hdma2d;
+    if (hdma2d != NULL)
+    {
+        /* Configuración única: el reloj (vía MspInit), el formato de salida y la
+         * capa de entrada quedan fijos aquí; las funciones de dibujo solo cambian
+         * modo y offset mediante ILI9341_DMA2D_SetMode(). */
+        hdma2d->Instance          = DMA2D;
+        hdma2d->Init.Mode         = DMA2D_M2M;          /* base; se ajusta por operación */
+        hdma2d->Init.ColorMode    = DMA2D_OUTPUT_RGB565;
+        hdma2d->Init.OutputOffset = 0U;
+        if (HAL_DMA2D_Init(hdma2d) != HAL_OK) { return ILI9341_ERROR; }
+
+        /* Capa de entrada (solo la usa el modo M2M de ILI9341_BlitImage); constante. */
+        hdma2d->LayerCfg[1].InputColorMode = DMA2D_INPUT_RGB565;
+        hdma2d->LayerCfg[1].InputOffset    = 0U;
+        hdma2d->LayerCfg[1].AlphaMode      = DMA2D_NO_MODIF_ALPHA;
+        hdma2d->LayerCfg[1].InputAlpha     = 0xFFU;
+        if (HAL_DMA2D_ConfigLayer(hdma2d, 1U) != HAL_OK) { return ILI9341_ERROR; }
     }
 #endif
 
@@ -1758,47 +1810,63 @@ void ILI9341_DrawRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, ui
  */
 void ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
 {
-    uint32_t packed;
-    uint32_t base32;
-    uint16_t y, p, tmp, inner, pairs;
-    uint8_t  head, tail;
-
     if (image == NULL) { return; }
     if (x0 >= ILI9341_WIDTH)  { x0 = ILI9341_WIDTH  - 1U; }
     if (x1 >= ILI9341_WIDTH)  { x1 = ILI9341_WIDTH  - 1U; }
     if (y0 >= ILI9341_HEIGHT) { y0 = ILI9341_HEIGHT - 1U; }
     if (y1 >= ILI9341_HEIGHT) { y1 = ILI9341_HEIGHT - 1U; }
-    if (x0 > x1) { tmp = x0; x0 = x1; x1 = tmp; }
-    if (y0 > y1) { tmp = y0; y0 = y1; y1 = tmp; }
+    if (x0 > x1) { uint16_t _t = x0; x0 = x1; x1 = _t; }
+    if (y0 > y1) { uint16_t _t = y0; y0 = y1; y1 = _t; }
 
-    packed = ((uint32_t)color << 16) | (uint32_t)color;
-
-    /* ILI9341_WIDTH es par → y * ILI9341_WIDTH siempre es par.
-     * La alineación del primer píxel de cada fila depende solo de x0. */
-    head  = (uint8_t)(x0 & 1U);
-    inner = (x1 - x0 + 1U) - (uint16_t)head;
-    pairs = inner >> 1U;
-    tail  = (uint8_t)(inner & 1U);
-
-    for (y = y0; y <= y1; y++)
+#ifdef HAL_DMA2D_MODULE_ENABLED
+    if (ILI9341_hdma2d != NULL)
     {
-        base32 = (uint32_t)y * (ILI9341_WIDTH / 2U) + (x0 >> 1U);
+        uint16_t w   = x1 - x0 + 1U;
+        uint16_t h   = y1 - y0 + 1U;
+        uint32_t dst = (uint32_t)((uint16_t*)image + (uint32_t)y0 * ILI9341_WIDTH + x0);
 
-        /* Píxel cabecera: índice impar → halfword alto del word.
-         * Escritura de halfword (DQM enmascara el lane, sin leer SDRAM). */
-        if (head)
+        /* DMA2D ya inicializado en ILI9341_Init(); aquí solo cambian modo y offset. */
+        ILI9341_DMA2D_SetMode(DMA2D_R2M, ILI9341_WIDTH - w);
+        HAL_DMA2D_Start(ILI9341_hdma2d, color, dst, w, h);
+        HAL_DMA2D_PollForTransfer(ILI9341_hdma2d, HAL_MAX_DELAY);
+        return;
+    }
+#endif
+
+    /* Camino CPU: respaldo cuando DMA2D no está habilitado o no se inyectó el handle. */
+    {
+        uint32_t packed = ((uint32_t)color << 16) | (uint32_t)color;
+        uint32_t base32;
+        uint16_t y, p, inner, pairs;
+        uint8_t  head, tail;
+
+        /* ILI9341_WIDTH es par → y * ILI9341_WIDTH siempre es par.
+         * La alineación del primer píxel de cada fila depende solo de x0. */
+        head  = (uint8_t)(x0 & 1U);
+        inner = (x1 - x0 + 1U) - (uint16_t)head;
+        pairs = inner >> 1U;
+        tail  = (uint8_t)(inner & 1U);
+
+        for (y = y0; y <= y1; y++)
         {
-            ((uint16_t*)image)[(base32 << 1U) + 1U] = color;
-            base32++;
+            base32 = (uint32_t)y * (ILI9341_WIDTH / 2U) + (x0 >> 1U);
+
+            /* Píxel cabecera: índice impar → halfword alto del word.
+             * Escritura de halfword (DQM enmascara el lane, sin leer SDRAM). */
+            if (head)
+            {
+                ((uint16_t*)image)[(base32 << 1U) + 1U] = color;
+                base32++;
+            }
+
+            /* Ráfaga central: 2 píxeles por write de 32 bits */
+            for (p = 0U; p < pairs; p++)
+                image[base32++] = packed;
+
+            /* Píxel cola: índice par → halfword bajo del word. */
+            if (tail)
+                ((uint16_t*)image)[base32 << 1U] = color;
         }
-
-        /* Ráfaga central: 2 píxeles por write de 32 bits */
-        for (p = 0U; p < pairs; p++)
-            image[base32++] = packed;
-
-        /* Píxel cola: índice par → halfword bajo del word. */
-        if (tail)
-            ((uint16_t*)image)[base32 << 1U] = color;
     }
 }
 
@@ -1840,6 +1908,39 @@ void ILI9341_DrawFilledCircle_ImageBuffer(int16_t x0, int16_t y0, int16_t r, uin
         DrawHSpanClipped_ImageBuffer(x0 - y, x0 + y, y0 - x, color, image);
     }
 }
+
+#ifdef HAL_DMA2D_MODULE_ENABLED
+/**
+ * @brief Copia una imagen RGB565 al frame buffer usando DMA2D (memoria a memoria).
+ *
+ * @param[in]     src         Puntero a la imagen fuente en formato RGB565.
+ * @param[in]     x0          Coordenada X de la esquina superior izquierda en el frame buffer.
+ * @param[in]     y0          Coordenada Y de la esquina superior izquierda en el frame buffer.
+ * @param[in]     img_w       Ancho de la imagen fuente en píxeles (se recorta al borde).
+ * @param[in]     img_h       Alto de la imagen fuente en píxeles (se recorta al borde).
+ * @param[in,out] framebuffer Frame buffer destino (IMG_TOTAL_BUF32 palabras uint32_t).
+ */
+void ILI9341_BlitImage(const uint16_t* src, uint16_t x0, uint16_t y0,
+                        uint16_t img_w, uint16_t img_h,
+                        uint32_t* framebuffer)
+{
+    uint32_t dst;
+
+    if (src == NULL || framebuffer == NULL)          { return; }
+    if (ILI9341_hdma2d == NULL)                      { return; }
+    if (x0 >= ILI9341_WIDTH || y0 >= ILI9341_HEIGHT) { return; }
+    if ((uint32_t)x0 + img_w > ILI9341_WIDTH)  { img_w = ILI9341_WIDTH  - x0; }
+    if ((uint32_t)y0 + img_h > ILI9341_HEIGHT) { img_h = ILI9341_HEIGHT - y0; }
+
+    /* Modo + formato + capa ya configurados en ILI9341_Init();
+       aquí solo se actualizan modo (M2M) y offset de salida. */
+    ILI9341_DMA2D_SetMode(DMA2D_M2M, ILI9341_WIDTH - img_w);
+
+    dst = (uint32_t)((uint16_t*)framebuffer + (uint32_t)y0 * ILI9341_WIDTH + x0);
+    HAL_DMA2D_Start(ILI9341_hdma2d, (uint32_t)src, dst, img_w, img_h);
+    HAL_DMA2D_PollForTransfer(ILI9341_hdma2d, HAL_MAX_DELAY);
+}
+#endif /* HAL_DMA2D_MODULE_ENABLED */
 
 // ============================================================================
 // FUNCIONES PÚBLICAS — Frame buffer SDRAM
