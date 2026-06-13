@@ -82,7 +82,7 @@ static uint16_t ILI9341_TP_Read_Z(void);
 #endif /* HAL_I2C_MODULE_ENABLED */
 static ILI9341_Status_t DrawPixelClipped(int16_t x, int16_t y, uint16_t color);
 static ILI9341_Status_t DrawHSpanClipped(int16_t xL, int16_t xR, int16_t y, uint16_t color);
-static void DrawHSpanClipped_ImageBuffer(int16_t xL, int16_t xR, int16_t y, uint16_t color, uint32_t* image);
+static ILI9341_Status_t DrawHSpanClipped_ImageBuffer(int16_t xL, int16_t xR, int16_t y, uint16_t color, uint32_t* image);
 #ifdef HAL_DMA2D_MODULE_ENABLED
 static void ILI9341_DMA2D_SetMode(uint32_t mode, uint32_t output_offset);
 #endif
@@ -544,15 +544,15 @@ static ILI9341_Status_t DrawHSpanClipped(int16_t xL, int16_t xR, int16_t y, uint
  * @param color Color del tramo en formato RGB565.
  * @param image Frame buffer destino.
  */
-static void DrawHSpanClipped_ImageBuffer(int16_t xL, int16_t xR, int16_t y, uint16_t color, uint32_t* image)
+static ILI9341_Status_t DrawHSpanClipped_ImageBuffer(int16_t xL, int16_t xR, int16_t y, uint16_t color, uint32_t* image)
 {
     int16_t tmp;
-    if (y < 0 || (uint16_t)y >= ILI9341_HEIGHT) { return; }
+    if (y < 0 || (uint16_t)y >= ILI9341_HEIGHT) { return ILI9341_OK; }
     if (xL > xR) { tmp = xL; xL = xR; xR = tmp; }
     if (xL < 0) { xL = 0; }
     if ((uint16_t)xR >= ILI9341_WIDTH) { xR = (int16_t)(ILI9341_WIDTH - 1U); }
-    if (xL > xR) { return; }
-    ILI9341_DrawFilledRectangle_ImageBuffer((uint16_t)xL, (uint16_t)y, (uint16_t)xR, (uint16_t)y, color, image);
+    if (xL > xR) { return ILI9341_OK; }
+    return ILI9341_DrawFilledRectangle_ImageBuffer((uint16_t)xL, (uint16_t)y, (uint16_t)xR, (uint16_t)y, color, image);
 }
 
 #ifdef HAL_DMA2D_MODULE_ENABLED
@@ -1641,14 +1641,15 @@ ILI9341_Status_t ILI9341_DisplayImage(uint32_t image[IMG_TOTAL_BUF32])
  * @param[in]     color  Color del píxel en formato RGB565.
  * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
  */
-void ILI9341_DrawPixel_ImageBuffer(uint16_t x, uint16_t y, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
+ILI9341_Status_t ILI9341_DrawPixel_ImageBuffer(uint16_t x, uint16_t y, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
 {
-    if (image == NULL)                             { return; }
-    if (x >= ILI9341_WIDTH || y >= ILI9341_HEIGHT) { return; }
+    if (image == NULL)                              { return ILI9341_INVALID_PARAM; }
+    if (x >= ILI9341_WIDTH || y >= ILI9341_HEIGHT)  { return ILI9341_OK; }
 
     /* Escritura de halfword: el FMC enmascara el lane con DQM, sin leer SDRAM
      * (evita el read-modify-write de 32 bits, costoso por la latencia CAS). */
     ((uint16_t*)image)[(uint32_t)y * ILI9341_WIDTH + x] = color;
+    return ILI9341_OK;
 }
 
 /**
@@ -1661,12 +1662,12 @@ void ILI9341_DrawPixel_ImageBuffer(uint16_t x, uint16_t y, uint16_t color, uint3
  * @param[in]     foreground Color de primer plano en formato RGB565.
  * @param[in,out] image      Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
  */
-void ILI9341_Putc_ImageBuffer(uint16_t x, uint16_t y, char c, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32])
+ILI9341_Status_t ILI9341_Putc_ImageBuffer(uint16_t x, uint16_t y, char c, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32])
 {
     uint32_t i, b, j;
 
-    if (font == NULL || image == NULL) { return; }
-    if ((uint8_t)c < 32U || (uint8_t)c > 126U) { return; }
+    if (font == NULL || image == NULL)          { return ILI9341_INVALID_PARAM; }
+    if ((uint8_t)c < 32U || (uint8_t)c > 126U) { return ILI9341_OK; }
 
     ILI9341_x = x;
     ILI9341_y = y;
@@ -1687,6 +1688,7 @@ void ILI9341_Putc_ImageBuffer(uint16_t x, uint16_t y, char c, LCD_FontDef_t* fon
         }
     }
     ILI9341_x += font->FontWidth;
+    return ILI9341_OK;
 }
 
 /**
@@ -1699,11 +1701,12 @@ void ILI9341_Putc_ImageBuffer(uint16_t x, uint16_t y, char c, LCD_FontDef_t* fon
  * @param[in]     foreground Color de primer plano en formato RGB565.
  * @param[in,out] image      Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
  */
-void ILI9341_Puts_ImageBuffer(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32])
+ILI9341_Status_t ILI9341_Puts_ImageBuffer(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32])
 {
+    ILI9341_Status_t st;
     uint16_t startX = x;
 
-    if (str == NULL || font == NULL || image == NULL) { return; }
+    if (str == NULL || font == NULL || image == NULL) { return ILI9341_INVALID_PARAM; }
     ILI9341_x = x;
     ILI9341_y = y;
 
@@ -1729,8 +1732,10 @@ void ILI9341_Puts_ImageBuffer(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* 
             str++;
             continue;
         }
-        ILI9341_Putc_ImageBuffer(ILI9341_x, ILI9341_y, *str++, font, foreground, image);
+        st = ILI9341_Putc_ImageBuffer(ILI9341_x, ILI9341_y, *str++, font, foreground, image);
+        if (st != ILI9341_OK) { return st; }
     }
+    return ILI9341_OK;
 }
 
 /**
@@ -1743,9 +1748,12 @@ void ILI9341_Puts_ImageBuffer(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* 
  * @param[in]     color  Color de la línea en formato RGB565.
  * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
  */
-void ILI9341_DrawLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
+ILI9341_Status_t ILI9341_DrawLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
 {
+    ILI9341_Status_t st;
     int16_t dx, dy, sx, sy, err, e2;
+
+    if (image == NULL) { return ILI9341_INVALID_PARAM; }
 
     if (x0 >= ILI9341_WIDTH)  { x0 = ILI9341_WIDTH  - 1U; }
     if (x1 >= ILI9341_WIDTH)  { x1 = ILI9341_WIDTH  - 1U; }
@@ -1760,8 +1768,7 @@ void ILI9341_DrawLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_
         uint16_t xb = (x0 < x1) ? x1 : x0;
         uint16_t ya = (y0 < y1) ? y0 : y1;
         uint16_t yb = (y0 < y1) ? y1 : y0;
-        ILI9341_DrawFilledRectangle_ImageBuffer(xa, ya, xb, yb, color, image);
-        return;
+        return ILI9341_DrawFilledRectangle_ImageBuffer(xa, ya, xb, yb, color, image);
     }
 
     dx  = (x0 < x1) ? (x1 - x0) : (x0 - x1);
@@ -1772,12 +1779,14 @@ void ILI9341_DrawLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_
 
     while (1)
     {
-        ILI9341_DrawPixel_ImageBuffer(x0, y0, color, image);
+        st = ILI9341_DrawPixel_ImageBuffer(x0, y0, color, image);
+        if (st != ILI9341_OK) { return st; }
         if (x0 == x1 && y0 == y1) { break; }
         e2 = err;
         if (e2 > -dx) { err -= dy; x0 += sx; }
         if (e2 <  dy) { err += dx; y0 += sy; }
     }
+    return ILI9341_OK;
 }
 
 /**
@@ -1790,12 +1799,14 @@ void ILI9341_DrawLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_
  * @param[in]     color  Color de la línea en formato RGB565.
  * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
  */
-void ILI9341_DrawRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
+ILI9341_Status_t ILI9341_DrawRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
 {
-    ILI9341_DrawLine_ImageBuffer(x0, y0, x1, y0, color, image); /* Superior  */
-    ILI9341_DrawLine_ImageBuffer(x0, y0, x0, y1, color, image); /* Izquierda */
-    ILI9341_DrawLine_ImageBuffer(x1, y0, x1, y1, color, image); /* Derecha   */
-    ILI9341_DrawLine_ImageBuffer(x0, y1, x1, y1, color, image); /* Inferior  */
+    ILI9341_Status_t st;
+    st  = ILI9341_DrawLine_ImageBuffer(x0, y0, x1, y0, color, image); /* Superior  */
+    st  = st ? st : ILI9341_DrawLine_ImageBuffer(x0, y0, x0, y1, color, image); /* Izquierda */
+    st  = st ? st : ILI9341_DrawLine_ImageBuffer(x1, y0, x1, y1, color, image); /* Derecha   */
+    st  = st ? st : ILI9341_DrawLine_ImageBuffer(x0, y1, x1, y1, color, image); /* Inferior  */
+    return st;
 }
 
 /**
@@ -1808,9 +1819,9 @@ void ILI9341_DrawRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, ui
  * @param[in]     color  Color de relleno en formato RGB565.
  * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
  */
-void ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
+ILI9341_Status_t ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
 {
-    if (image == NULL) { return; }
+    if (image == NULL) { return ILI9341_INVALID_PARAM; }
     if (x0 >= ILI9341_WIDTH)  { x0 = ILI9341_WIDTH  - 1U; }
     if (x1 >= ILI9341_WIDTH)  { x1 = ILI9341_WIDTH  - 1U; }
     if (y0 >= ILI9341_HEIGHT) { y0 = ILI9341_HEIGHT - 1U; }
@@ -1834,9 +1845,9 @@ void ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t 
 
         /* DMA2D ya inicializado en ILI9341_Init(); aquí solo cambian modo y offset. */
         ILI9341_DMA2D_SetMode(DMA2D_R2M, ILI9341_WIDTH - w);
-        HAL_DMA2D_Start(ILI9341_hdma2d, argb, dst, w, h);
-        HAL_DMA2D_PollForTransfer(ILI9341_hdma2d, HAL_MAX_DELAY);
-        return;
+        if (HAL_DMA2D_Start(ILI9341_hdma2d, argb, dst, w, h) != HAL_OK)         { return ILI9341_ERROR; }
+        if (HAL_DMA2D_PollForTransfer(ILI9341_hdma2d, HAL_MAX_DELAY) != HAL_OK) { return ILI9341_ERROR; }
+        return ILI9341_OK;
     }
 #endif
 
@@ -1875,6 +1886,7 @@ void ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t 
                 ((uint16_t*)image)[base32 << 1U] = color;
         }
     }
+    return ILI9341_OK;
 }
 
 /**
@@ -1886,21 +1898,23 @@ void ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t 
  * @param[in]     color  Color de relleno en formato RGB565.
  * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
  */
-void ILI9341_DrawFilledCircle_ImageBuffer(int16_t x0, int16_t y0, int16_t r, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
+ILI9341_Status_t ILI9341_DrawFilledCircle_ImageBuffer(int16_t x0, int16_t y0, int16_t r, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
 {
+    ILI9341_Status_t st;
     int16_t f     =  1 - r;
     int16_t ddF_x =  1;
     int16_t ddF_y = -2 * r;
     int16_t x     =  0;
     int16_t y     =  r;
 
-    if (image == NULL) { return; }
+    if (image == NULL) { return ILI9341_INVALID_PARAM; }
 
     /* Píxeles extremos: tope superior e inferior */
-    ILI9341_DrawPixel_ImageBuffer((uint16_t)x0, (uint16_t)(y0 + r), color, image);
-    ILI9341_DrawPixel_ImageBuffer((uint16_t)x0, (uint16_t)(y0 - r), color, image);
+    st  = ILI9341_DrawPixel_ImageBuffer((uint16_t)x0, (uint16_t)(y0 + r), color, image);
+    st  = st ? st : ILI9341_DrawPixel_ImageBuffer((uint16_t)x0, (uint16_t)(y0 - r), color, image);
     /* Tramo horizontal central */
-    DrawHSpanClipped_ImageBuffer(x0 - r, x0 + r, y0, color, image);
+    st  = st ? st : DrawHSpanClipped_ImageBuffer(x0 - r, x0 + r, y0, color, image);
+    if (st != ILI9341_OK) { return st; }
 
     while (x < y)
     {
@@ -1909,11 +1923,13 @@ void ILI9341_DrawFilledCircle_ImageBuffer(int16_t x0, int16_t y0, int16_t r, uin
         ddF_x += 2;
         f += ddF_x;
 
-        DrawHSpanClipped_ImageBuffer(x0 - x, x0 + x, y0 + y, color, image);
-        DrawHSpanClipped_ImageBuffer(x0 - x, x0 + x, y0 - y, color, image);
-        DrawHSpanClipped_ImageBuffer(x0 - y, x0 + y, y0 + x, color, image);
-        DrawHSpanClipped_ImageBuffer(x0 - y, x0 + y, y0 - x, color, image);
+        st  = DrawHSpanClipped_ImageBuffer(x0 - x, x0 + x, y0 + y, color, image);
+        st  = st ? st : DrawHSpanClipped_ImageBuffer(x0 - x, x0 + x, y0 - y, color, image);
+        st  = st ? st : DrawHSpanClipped_ImageBuffer(x0 - y, x0 + y, y0 + x, color, image);
+        st  = st ? st : DrawHSpanClipped_ImageBuffer(x0 - y, x0 + y, y0 - x, color, image);
+        if (st != ILI9341_OK) { return st; }
     }
+    return ILI9341_OK;
 }
 
 #ifdef HAL_DMA2D_MODULE_ENABLED
@@ -1926,16 +1942,20 @@ void ILI9341_DrawFilledCircle_ImageBuffer(int16_t x0, int16_t y0, int16_t r, uin
  * @param[in]     img_w       Ancho de la imagen fuente en píxeles (se recorta al borde).
  * @param[in]     img_h       Alto de la imagen fuente en píxeles (se recorta al borde).
  * @param[in,out] framebuffer Frame buffer destino (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito (incluye x0/y0 fuera de pantalla, que se ignora).
+ *         - ILI9341_INVALID_PARAM   si @p src, @p framebuffer son NULL, o el handle DMA2D no fue inyectado.
+ *         - ILI9341_ERROR           si falla la transferencia DMA2D.
  */
-void ILI9341_BlitImage(const uint16_t* src, uint16_t x0, uint16_t y0,
-                        uint16_t img_w, uint16_t img_h,
-                        uint32_t* framebuffer)
+ILI9341_Status_t ILI9341_BlitImage(const uint16_t* src, uint16_t x0, uint16_t y0,
+                                    uint16_t img_w, uint16_t img_h,
+                                    uint32_t* framebuffer)
 {
     uint32_t dst;
 
-    if (src == NULL || framebuffer == NULL)          { return; }
-    if (ILI9341_hdma2d == NULL)                      { return; }
-    if (x0 >= ILI9341_WIDTH || y0 >= ILI9341_HEIGHT) { return; }
+    if (src == NULL || framebuffer == NULL)           { return ILI9341_INVALID_PARAM; }
+    if (ILI9341_hdma2d == NULL)                       { return ILI9341_INVALID_PARAM; }
+    if (x0 >= ILI9341_WIDTH || y0 >= ILI9341_HEIGHT)  { return ILI9341_OK; }
     if ((uint32_t)x0 + img_w > ILI9341_WIDTH)  { img_w = ILI9341_WIDTH  - x0; }
     if ((uint32_t)y0 + img_h > ILI9341_HEIGHT) { img_h = ILI9341_HEIGHT - y0; }
 
@@ -1944,8 +1964,9 @@ void ILI9341_BlitImage(const uint16_t* src, uint16_t x0, uint16_t y0,
     ILI9341_DMA2D_SetMode(DMA2D_M2M, ILI9341_WIDTH - img_w);
 
     dst = (uint32_t)((uint16_t*)framebuffer + (uint32_t)y0 * ILI9341_WIDTH + x0);
-    HAL_DMA2D_Start(ILI9341_hdma2d, (uint32_t)src, dst, img_w, img_h);
-    HAL_DMA2D_PollForTransfer(ILI9341_hdma2d, HAL_MAX_DELAY);
+    if (HAL_DMA2D_Start(ILI9341_hdma2d, (uint32_t)src, dst, img_w, img_h) != HAL_OK) { return ILI9341_ERROR; }
+    if (HAL_DMA2D_PollForTransfer(ILI9341_hdma2d, HAL_MAX_DELAY) != HAL_OK)          { return ILI9341_ERROR; }
+    return ILI9341_OK;
 }
 #endif /* HAL_DMA2D_MODULE_ENABLED */
 

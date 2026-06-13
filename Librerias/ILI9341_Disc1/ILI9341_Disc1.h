@@ -500,8 +500,11 @@ ILI9341_Status_t ILI9341_DisplayImage(uint32_t image[IMG_TOTAL_BUF32]);
  * @param[in]     y      Coordenada Y del píxel.
  * @param[in]     color  Color del píxel en formato RGB565.
  * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito (incluye píxel fuera de límites, que se ignora).
+ *         - ILI9341_INVALID_PARAM   si @p image es NULL.
  */
-void ILI9341_DrawPixel_ImageBuffer(uint16_t x, uint16_t y, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+ILI9341_Status_t ILI9341_DrawPixel_ImageBuffer(uint16_t x, uint16_t y, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
 
 /**
  * @brief Renderiza un carácter en un frame buffer fuera de pantalla.
@@ -512,8 +515,11 @@ void ILI9341_DrawPixel_ImageBuffer(uint16_t x, uint16_t y, uint16_t color, uint3
  * @param[in]     font       Puntero a la definición de la fuente.
  * @param[in]     foreground Color de primer plano en formato RGB565.
  * @param[in,out] image      Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito (incluye carácter fuera de rango ASCII, que se ignora).
+ *         - ILI9341_INVALID_PARAM   si @p font o @p image son NULL.
  */
-void ILI9341_Putc_ImageBuffer(uint16_t x, uint16_t y, char c, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32]);
+ILI9341_Status_t ILI9341_Putc_ImageBuffer(uint16_t x, uint16_t y, char c, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32]);
 
 /**
  * @brief Renderiza una cadena terminada en nulo en un frame buffer fuera de pantalla.
@@ -524,8 +530,11 @@ void ILI9341_Putc_ImageBuffer(uint16_t x, uint16_t y, char c, LCD_FontDef_t* fon
  * @param[in]     font       Puntero a la definición de la fuente.
  * @param[in]     foreground Color de primer plano en formato RGB565.
  * @param[in,out] image      Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_INVALID_PARAM   si @p str, @p font o @p image son NULL.
  */
-void ILI9341_Puts_ImageBuffer(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32]);
+ILI9341_Status_t ILI9341_Puts_ImageBuffer(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32]);
 
 /**
  * @brief Dibuja una línea en un frame buffer fuera de pantalla.
@@ -536,8 +545,11 @@ void ILI9341_Puts_ImageBuffer(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* 
  * @param[in]     y1     Coordenada Y de fin.
  * @param[in]     color  Color de la línea en formato RGB565.
  * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_INVALID_PARAM   si @p image es NULL.
  */
-void ILI9341_DrawLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+ILI9341_Status_t ILI9341_DrawLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
 
 /**
  * @brief Dibuja el contorno de un rectángulo en un frame buffer fuera de pantalla.
@@ -548,8 +560,11 @@ void ILI9341_DrawLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_
  * @param[in]     y1     Coordenada Y inferior derecha.
  * @param[in]     color  Color de la línea en formato RGB565.
  * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_INVALID_PARAM   si @p image es NULL.
  */
-void ILI9341_DrawRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+ILI9341_Status_t ILI9341_DrawRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
 
 /**
  * @brief Dibuja un rectángulo relleno en un frame buffer fuera de pantalla.
@@ -560,8 +575,12 @@ void ILI9341_DrawRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, ui
  * @param[in]     y1     Coordenada Y inferior derecha.
  * @param[in]     color  Color de relleno en formato RGB565.
  * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_INVALID_PARAM   si @p image es NULL.
+ *         - ILI9341_ERROR           si falla la transferencia DMA2D (solo con HAL_DMA2D_MODULE_ENABLED).
  */
-void ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+ILI9341_Status_t ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
 
 /**
  * @brief Dibuja un círculo relleno en un frame buffer fuera de pantalla.
@@ -571,8 +590,12 @@ void ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t 
  * @param[in]     r      Radio en píxeles.
  * @param[in]     color  Color de relleno en formato RGB565.
  * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_INVALID_PARAM   si @p image es NULL.
+ *         - ILI9341_ERROR           si falla una transferencia DMA2D interna (solo con HAL_DMA2D_MODULE_ENABLED).
  */
-void ILI9341_DrawFilledCircle_ImageBuffer(int16_t x0, int16_t y0, int16_t r, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+ILI9341_Status_t ILI9341_DrawFilledCircle_ImageBuffer(int16_t x0, int16_t y0, int16_t r, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
 
 #ifdef HAL_DMA2D_MODULE_ENABLED
 /**
@@ -584,10 +607,14 @@ void ILI9341_DrawFilledCircle_ImageBuffer(int16_t x0, int16_t y0, int16_t r, uin
  * @param[in]     img_w       Ancho de la imagen fuente en píxeles.
  * @param[in]     img_h       Alto de la imagen fuente en píxeles.
  * @param[in,out] framebuffer Frame buffer destino (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito (incluye x0/y0 fuera de pantalla, que se ignora).
+ *         - ILI9341_INVALID_PARAM   si @p src, @p framebuffer son NULL, o si el handle DMA2D no fue inyectado.
+ *         - ILI9341_ERROR           si falla la transferencia DMA2D.
  */
-void ILI9341_BlitImage(const uint16_t* src, uint16_t x0, uint16_t y0,
-                        uint16_t img_w, uint16_t img_h,
-                        uint32_t* framebuffer);
+ILI9341_Status_t ILI9341_BlitImage(const uint16_t* src, uint16_t x0, uint16_t y0,
+                                    uint16_t img_w, uint16_t img_h,
+                                    uint32_t* framebuffer);
 #endif /* HAL_DMA2D_MODULE_ENABLED */
 
 /* --- Frame buffer SDRAM --------------------------------------------------- */
