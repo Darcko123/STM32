@@ -1824,10 +1824,17 @@ void ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t 
         uint16_t w   = x1 - x0 + 1U;
         uint16_t h   = y1 - y0 + 1U;
         uint32_t dst = (uint32_t)((uint16_t*)image + (uint32_t)y0 * ILI9341_WIDTH + x0);
+        /* En R2M el HAL interpreta el color como ARGB8888 y lo reduce al formato de
+         * salida; hay que expandir el RGB565 a RGB888 para recuperar el mismo color.
+         * Los corrimientos dejan cada componente en los bits altos de su byte, que es
+         * justo lo que el HAL vuelve a truncar (R:5, G:6, B:5). */
+        uint32_t argb = ((uint32_t)(color & 0xF800U) << 8) |   /* R5 → bits[23:19] */
+                        ((uint32_t)(color & 0x07E0U) << 5) |   /* G6 → bits[15:10] */
+                        ((uint32_t)(color & 0x001FU) << 3);    /* B5 → bits[7:3]   */
 
         /* DMA2D ya inicializado en ILI9341_Init(); aquí solo cambian modo y offset. */
         ILI9341_DMA2D_SetMode(DMA2D_R2M, ILI9341_WIDTH - w);
-        HAL_DMA2D_Start(ILI9341_hdma2d, color, dst, w, h);
+        HAL_DMA2D_Start(ILI9341_hdma2d, argb, dst, w, h);
         HAL_DMA2D_PollForTransfer(ILI9341_hdma2d, HAL_MAX_DELAY);
         return;
     }
