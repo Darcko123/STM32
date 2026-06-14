@@ -582,61 +582,22 @@ static void ILI9341_DMA2D_SetMode(uint32_t mode, uint32_t output_offset)
 // FUNCIONES PÚBLICAS
 // ============================================================================
 
-#if defined(HAL_SDRAM_MODULE_ENABLED) && defined(HAL_I2C_MODULE_ENABLED)
-/**
- * @brief Inicializa la pantalla LCD ILI9341, la memoria SDRAM IS42S16400 y el controlador táctil STMPE811.
- *
- * @param[in] hspi   Puntero al handle SPI de HAL.
- * @param[in] hi2c   Puntero al handle I2C de HAL.
- * @param[in] hsdram (Solo con HAL_SDRAM_MODULE_ENABLED) Puntero al handle SDRAM de HAL
- *                   generado por STM32CubeMX. Pasar NULL deshabilita el frame buffer en SDRAM.
- *                   Cuando no es NULL, la librería reserva los primeros ILI9341_SDRAM_FB_SIZE
- *                   bytes de ILI9341_SDRAM_BASE como frame buffer interno (153 600 B).
- * @return ILI9341_Status_t
- *         - ILI9341_OK            si la inicialización fue exitosa.
- *         - ILI9341_INVALID_PARAM si @p hspi o @p hi2c es NULL.
- *         - ILI9341_ERROR         si una transmisión SPI falló durante la inicialización.
- */
-ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c, SDRAM_HandleTypeDef* hsdram ILI9341_DMA2D_INIT_PARAM)
+#if defined(HAL_SDRAM_MODULE_ENABLED) && defined(HAL_I2C_MODULE_ENABLED) && defined(HAL_DMA2D_MODULE_ENABLED)
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c, SDRAM_HandleTypeDef* hsdram, DMA2D_HandleTypeDef* hdma2d)
+#elif defined(HAL_SDRAM_MODULE_ENABLED) && defined(HAL_I2C_MODULE_ENABLED)
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c, SDRAM_HandleTypeDef* hsdram)
+#elif defined(HAL_SDRAM_MODULE_ENABLED) && defined(HAL_DMA2D_MODULE_ENABLED)
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, SDRAM_HandleTypeDef* hsdram, DMA2D_HandleTypeDef* hdma2d)
 #elif defined(HAL_SDRAM_MODULE_ENABLED)
-/**
- * @brief Inicializa la pantalla LCD ILI9341, la memoria SDRAM IS42S16400.
- *
- * @param[in] hspi   Puntero al handle SPI de HAL.
- * @param[in] hsdram (Solo con HAL_SDRAM_MODULE_ENABLED) Puntero al handle SDRAM de HAL
- *                   generado por STM32CubeMX. Pasar NULL deshabilita el frame buffer en SDRAM.
- *                   Cuando no es NULL, la librería reserva los primeros ILI9341_SDRAM_FB_SIZE
- *                   bytes de ILI9341_SDRAM_BASE como frame buffer interno (153 600 B).
- * @return ILI9341_Status_t
- *         - ILI9341_OK            si la inicialización fue exitosa.
- *         - ILI9341_INVALID_PARAM si @p hspi o @p hi2c es NULL.
- *         - ILI9341_ERROR         si una transmisión SPI falló durante la inicialización.
- */
-ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, SDRAM_HandleTypeDef* hsdram ILI9341_DMA2D_INIT_PARAM)
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, SDRAM_HandleTypeDef* hsdram)
+#elif defined(HAL_I2C_MODULE_ENABLED) && defined(HAL_DMA2D_MODULE_ENABLED)
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c, DMA2D_HandleTypeDef* hdma2d)
 #elif defined(HAL_I2C_MODULE_ENABLED)
-/**
- * @brief Inicializa la pantalla LCD ILI9341 y el controlador táctil STMPE811.
- *
- * @param[in] hspi   Puntero al handle SPI de HAL.
- * @param[in] hi2c   Puntero al handle I2C de HAL.
- * @return ILI9341_Status_t
- *         - ILI9341_OK            si la inicialización fue exitosa.
- *         - ILI9341_INVALID_PARAM si @p hspi o @p hi2c es NULL.
- *         - ILI9341_ERROR         si una transmisión SPI falló durante la inicialización.
- */
-ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c ILI9341_DMA2D_INIT_PARAM)
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c)
+#elif defined(HAL_DMA2D_MODULE_ENABLED)
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, DMA2D_HandleTypeDef* hdma2d)
 #else
-/**
- * @brief Inicializa la pantalla LCD ILI9341.
- *
- * @param[in] hspi   Puntero al handle SPI de HAL.
- *
- * @return ILI9341_Status_t
- *         - ILI9341_OK            si la inicialización fue exitosa.
- *         - ILI9341_INVALID_PARAM si @p hspi o @p hi2c es NULL.
- *         - ILI9341_ERROR         si una transmisión SPI falló durante la inicialización.
- */
-ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi ILI9341_DMA2D_INIT_PARAM)
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi)
 #endif
 {
     ILI9341_Status_t st;

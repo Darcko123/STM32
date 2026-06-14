@@ -279,15 +279,16 @@ extern "C" {
  * @brief Inicializa la pantalla LCD ILI9341.
  *
  * @details La firma varía según los módulos HAL habilitados en stm32f4xx_hal_conf.h:
- *          | HAL_SDRAM_MODULE_ENABLED | HAL_I2C_MODULE_ENABLED | Firma resultante                         |
- *          |--------------------------|------------------------|------------------------------------------|
- *          | No                       | No                     | ILI9341_Init(hspi)                       |
- *          | No                       | Sí                     | ILI9341_Init(hspi, hi2c)                 |
- *          | Sí                       | No                     | ILI9341_Init(hspi, hsdram)               |
- *          | Sí                       | Sí                     | ILI9341_Init(hspi, hi2c, hsdram)         |
- *
- *          Si además HAL_DMA2D_MODULE_ENABLED está definido, se añade un último
- *          parámetro @p hdma2d a cualquiera de las firmas anteriores.
+ *          | HAL_SDRAM_MODULE_ENABLED | HAL_I2C_MODULE_ENABLED | HAL_DMA2D_MODULE_ENABLED | Firma resultante                              |
+ *          |--------------------------|------------------------|--------------------------|-----------------------------------------------|
+ *          | No                       | No                     | No                       | ILI9341_Init(hspi)                            |
+ *          | No                       | No                     | Sí                       | ILI9341_Init(hspi, hdma2d)                    |
+ *          | No                       | Sí                     | No                       | ILI9341_Init(hspi, hi2c)                      |
+ *          | No                       | Sí                     | Sí                       | ILI9341_Init(hspi, hi2c, hdma2d)              |
+ *          | Sí                       | No                     | No                       | ILI9341_Init(hspi, hsdram)                    |
+ *          | Sí                       | No                     | Sí                       | ILI9341_Init(hspi, hsdram, hdma2d)            |
+ *          | Sí                       | Sí                     | No                       | ILI9341_Init(hspi, hi2c, hsdram)              |
+ *          | Sí                       | Sí                     | Sí                       | ILI9341_Init(hspi, hi2c, hsdram, hdma2d)      |
  *
  * @param[in] hspi   Puntero al handle SPI de HAL (obligatorio).
  * @param[in] hi2c   (Solo con HAL_I2C_MODULE_ENABLED) Puntero al handle I2C de HAL.
@@ -303,22 +304,22 @@ extern "C" {
  *         - ILI9341_INVALID_PARAM si @p hspi es NULL, o @p hi2c es NULL cuando I2C está habilitado.
  *         - ILI9341_ERROR         si una transmisión SPI o la configuración DMA2D falló durante la inicialización.
  */
-/* Parámetro opcional: el handle DMA2D solo se añade a ILI9341_Init() cuando
- * DMA2D está habilitado en STM32CubeMX (mismo patrón guardado que hi2c/hsdram). */
-#ifdef HAL_DMA2D_MODULE_ENABLED
-#define ILI9341_DMA2D_INIT_PARAM   , DMA2D_HandleTypeDef* hdma2d
-#else
-#define ILI9341_DMA2D_INIT_PARAM
-#endif
-
-#if defined(HAL_SDRAM_MODULE_ENABLED) && defined(HAL_I2C_MODULE_ENABLED)
-ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c, SDRAM_HandleTypeDef* hsdram ILI9341_DMA2D_INIT_PARAM);
+#if defined(HAL_SDRAM_MODULE_ENABLED) && defined(HAL_I2C_MODULE_ENABLED) && defined(HAL_DMA2D_MODULE_ENABLED)
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c, SDRAM_HandleTypeDef* hsdram, DMA2D_HandleTypeDef* hdma2d);
+#elif defined(HAL_SDRAM_MODULE_ENABLED) && defined(HAL_I2C_MODULE_ENABLED)
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c, SDRAM_HandleTypeDef* hsdram);
+#elif defined(HAL_SDRAM_MODULE_ENABLED) && defined(HAL_DMA2D_MODULE_ENABLED)
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, SDRAM_HandleTypeDef* hsdram, DMA2D_HandleTypeDef* hdma2d);
 #elif defined(HAL_SDRAM_MODULE_ENABLED)
-ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, SDRAM_HandleTypeDef* hsdram ILI9341_DMA2D_INIT_PARAM);
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, SDRAM_HandleTypeDef* hsdram);
+#elif defined(HAL_I2C_MODULE_ENABLED) && defined(HAL_DMA2D_MODULE_ENABLED)
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c, DMA2D_HandleTypeDef* hdma2d);
 #elif defined(HAL_I2C_MODULE_ENABLED)
-ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c ILI9341_DMA2D_INIT_PARAM);
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c);
+#elif defined(HAL_DMA2D_MODULE_ENABLED)
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, DMA2D_HandleTypeDef* hdma2d);
 #else
-ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi ILI9341_DMA2D_INIT_PARAM);
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi);
 #endif
 
 /* --- Dibujo en pantalla --------------------------------------------------- */
