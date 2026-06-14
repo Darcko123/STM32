@@ -55,6 +55,8 @@ typedef char ILI9341_sdram_fb_size_check[(ILI9341_SDRAM_FB_SIZE <= IS42S16400J_S
 static DMA2D_HandleTypeDef* ILI9341_hdma2d = NULL; /**< Handle DMA2D inyectado en Init; NULL si no se habilitó o se pasó NULL */
 #endif
 
+static volatile uint8_t ILI9341_spi_dma_done = 0U; /**< Bandera puesta por HAL_SPI_TxCpltCallback al completar cada tramo DMA. */
+
 // ============================================================================
 // PROTOTIPOS DE FUNCIONES PRIVADAS
 // ============================================================================
@@ -86,6 +88,8 @@ static ILI9341_Status_t DrawHSpanClipped_ImageBuffer(int16_t xL, int16_t xR, int
 #ifdef HAL_DMA2D_MODULE_ENABLED
 static void ILI9341_DMA2D_SetMode(uint32_t mode, uint32_t output_offset);
 #endif
+static ILI9341_Status_t ILI9341_SPI_SetDataSize(uint32_t datasize);
+static ILI9341_Status_t ILI9341_SPI_WaitDMAdone(uint32_t timeout_ms);
 
 // ============================================================================
 // FUNCIONES PRIVADAS
@@ -577,6 +581,68 @@ static void ILI9341_DMA2D_SetMode(uint32_t mode, uint32_t output_offset)
     MODIFY_REG(ILI9341_hdma2d->Instance->OOR, DMA2D_OOR_LO,  output_offset);
 }
 #endif /* HAL_DMA2D_MODULE_ENABLED */
+
+/**
+ * @brief Cambia el tamaño de dato del periférico SPI sin reinicializar el handle completo.
+ *
+ * @details Espera a que el bus SPI esté libre, deshabilita el periférico,
+ *          modifica el bit DFF en CR1 y actualiza Init.DataSize para que
+ *          HAL_SPI_Transmit_DMA configure el DMA correctamente.
+ *
+ * @param[in] datasize  SPI_DATASIZE_8BIT o SPI_DATASIZE_16BIT.
+ * @return ILI9341_OK o ILI9341_TIMEOUT si el bus quedó colgado.
+ */
+static ILI9341_Status_t ILI9341_SPI_SetDataSize(uint32_t datasize)
+{
+    uint32_t spin = ILI9341_SPI_TXE_SPIN_MAX;
+    while (__HAL_SPI_GET_FLAG(ILI9341_hspi, SPI_FLAG_BSY))
+    {
+        if (--spin == 0U) { return ILI9341_TIMEOUT; }
+    }
+    __HAL_SPI_DISABLE(ILI9341_hspi);
+    MODIFY_REG(ILI9341_hspi->Instance->CR1, SPI_CR1_DFF, datasize);
+    ILI9341_hspi->Init.DataSize = datasize;
+    __HAL_SPI_ENABLE(ILI9341_hspi);
+    return ILI9341_OK;
+}
+
+/**
+ * @brief Bloquea hasta que ILI9341_spi_dma_done sea distinto de cero o expire el timeout.
+ *
+ * @details Limpia la bandera antes de retornar en caso de éxito.
+ *          Si expira el timeout llama a HAL_SPI_DMAStop para abortar la transferencia.
+ *
+ * @param[in] timeout_ms Tiempo máximo de espera en milisegundos.
+ * @return ILI9341_OK o ILI9341_TIMEOUT.
+ */
+static ILI9341_Status_t ILI9341_SPI_WaitDMAdone(uint32_t timeout_ms)
+{
+    uint32_t t0 = HAL_GetTick();
+    while (!ILI9341_spi_dma_done)
+    {
+        if ((HAL_GetTick() - t0) > timeout_ms)
+        {
+            HAL_SPI_DMAStop(ILI9341_hspi);
+            return ILI9341_TIMEOUT;
+        }
+    }
+    ILI9341_spi_dma_done = 0U;
+    return ILI9341_OK;
+}
+
+/**
+ * @brief Callback de fin de transferencia SPI por DMA (override del símbolo __weak del HAL).
+ *
+ * @details Llamado desde el ISR de DMA2_Stream6 cuando SPI5 termina de enviar
+ *          el tramo de píxeles. Solo actúa sobre el handle SPI del driver ILI9341
+ *          para no interferir con otros periféricos SPI que pudieran existir.
+ *
+ * @param[in] hspi Handle SPI que completó la transferencia.
+ */
+void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
+{
+    if (hspi == ILI9341_hspi) { ILI9341_spi_dma_done = 1U; }
+}
 
 // ============================================================================
 // FUNCIONES PÚBLICAS
@@ -1475,122 +1541,68 @@ void ILI9341_GetStringSize(char* str, LCD_FontDef_t* font, uint16_t* width, uint
  */
 ILI9341_Status_t ILI9341_DisplayImage(uint32_t image[IMG_TOTAL_BUF32])
 {
-    const uint32_t Timeout   = 5000U;
-    uint32_t       pix;
-    uint32_t       tickstart;
+    /* El frame buffer almacena píxeles como uint16_t en little-endian ([lo, hi] en bytes).
+     * Con SPI en modo 16 bits el periférico lee cada halfword y lo envía MSB-first,
+     * produciendo automáticamente el orden big-endian ([hi, lo]) que espera el ILI9341.
+     * El transfer se divide en dos tramos de 38 400 píxeles para respetar el límite de
+     * 65 535 items del registro NDTR del DMA. */
+    ILI9341_Status_t  st;
+    uint16_t* const   px   = (uint16_t*)image;
+    const uint16_t    half = ILI9341_PIXEL / 2U;   /* 38 400 px — cabe en uint16_t */
 
     if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
 
+    /* Ventana + comando GRAM en modo 8 bits (normal) */
     ILI9341_SetCursorPosition(0U, 0U, ILI9341_Opts.width - 1U, ILI9341_Opts.height - 1U);
     ILI9341_SendCommand(ILI9341_GRAM);
+
     ILI9341_WRX_SET;
     ILI9341_CS_RESET;
 
-    if (ILI9341_hspi->State != HAL_SPI_STATE_READY)
+    /* Cambiar SPI a 16 bits antes del DMA */
+    st = ILI9341_SPI_SetDataSize(SPI_DATASIZE_16BIT);
+    if (st != ILI9341_OK)
     {
-        ILI9341_WRX_RESET;
-        ILI9341_CS_SET;
+        ILI9341_CS_SET; ILI9341_WRX_RESET;
+        return st;
+    }
+
+    /* — Primer tramo: píxeles [0 … 38 399] — */
+    ILI9341_spi_dma_done = 0U;
+    if (HAL_SPI_Transmit_DMA(ILI9341_hspi, (uint8_t*)px, half) != HAL_OK)
+    {
+        ILI9341_SPI_SetDataSize(SPI_DATASIZE_8BIT);
+        ILI9341_CS_SET; ILI9341_WRX_RESET;
         return ILI9341_ERROR;
     }
-
-    assert_param(IS_SPI_DIRECTION_2LINES_OR_1LINE(ILI9341_hspi->Init.Direction));
-    __HAL_LOCK(ILI9341_hspi);
-    ILI9341_hspi->State      = HAL_SPI_STATE_BUSY_TX;
-    ILI9341_hspi->ErrorCode  = HAL_SPI_ERROR_NONE;
-    ILI9341_hspi->TxISR      = 0;
-    ILI9341_hspi->RxISR      = 0;
-    ILI9341_hspi->RxXferSize  = 0U;
-    ILI9341_hspi->RxXferCount = 0U;
-
-    if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE)
+    st = ILI9341_SPI_WaitDMAdone(5000U);
+    if (st != ILI9341_OK)
     {
-        SPI_RESET_CRC(ILI9341_hspi);
-    }
-    if (ILI9341_hspi->Init.Direction == SPI_DIRECTION_1LINE)
-    {
-        SPI_1LINE_TX(ILI9341_hspi);
-    }
-    if ((ILI9341_hspi->Instance->CR1 & SPI_CR1_SPE) != SPI_CR1_SPE)
-    {
-        __HAL_SPI_ENABLE(ILI9341_hspi);
+        ILI9341_SPI_SetDataSize(SPI_DATASIZE_8BIT);
+        ILI9341_CS_SET; ILI9341_WRX_RESET;
+        return st;
     }
 
-    for (uint32_t k = 0U; k < IMG_TOTAL_BUF32; k++)
+    /* — Segundo tramo: píxeles [38 400 … 76 799] — */
+    ILI9341_spi_dma_done = 0U;
+    if (HAL_SPI_Transmit_DMA(ILI9341_hspi, (uint8_t*)(px + half), half) != HAL_OK)
     {
-        pix = image[k];
-
-        /* Primer píxel (word bajo) — byte alto */
-        ILI9341_hspi->Instance->DR = (uint8_t)(pix >> 8);
-        if (SPI_ILI9341_WaitTXE() != ILI9341_OK) { return ILI9341_TIMEOUT; }
-
-        /* Primer píxel (word bajo) — byte bajo */
-        ILI9341_hspi->Instance->DR = (uint8_t)(pix & 0x000000FFU);
-        if (SPI_ILI9341_WaitTXE() != ILI9341_OK) { return ILI9341_TIMEOUT; }
-
-        /* Segundo píxel (word alto) — byte alto */
-        ILI9341_hspi->Instance->DR = (uint8_t)(pix >> 24);
-        if (SPI_ILI9341_WaitTXE() != ILI9341_OK) { return ILI9341_TIMEOUT; }
-
-        /* Segundo píxel (word alto) — byte bajo */
-        ILI9341_hspi->Instance->DR = (uint8_t)(pix >> 16);
-        if (SPI_ILI9341_WaitTXE() != ILI9341_OK) { return ILI9341_TIMEOUT; }
+        ILI9341_SPI_SetDataSize(SPI_DATASIZE_8BIT);
+        ILI9341_CS_SET; ILI9341_WRX_RESET;
+        return ILI9341_ERROR;
+    }
+    st = ILI9341_SPI_WaitDMAdone(5000U);
+    if (st != ILI9341_OK)
+    {
+        ILI9341_SPI_SetDataSize(SPI_DATASIZE_8BIT);
+        ILI9341_CS_SET; ILI9341_WRX_RESET;
+        return st;
     }
 
-    if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE)
-    {
-        ILI9341_hspi->Instance->CR1 |= SPI_CR1_CRCNEXT;
-    }
-
-    tickstart = HAL_GetTick();
-    while (__HAL_SPI_GET_FLAG(ILI9341_hspi, SPI_FLAG_TXE) == RESET)
-    {
-        if (Timeout != HAL_MAX_DELAY)
-        {
-            if ((Timeout == 0U) || ((HAL_GetTick() - tickstart) > Timeout))
-            {
-                __HAL_SPI_DISABLE_IT(ILI9341_hspi, (SPI_IT_TXE | SPI_IT_RXNE | SPI_IT_ERR));
-                __HAL_SPI_DISABLE(ILI9341_hspi);
-                if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE) { SPI_RESET_CRC(ILI9341_hspi); }
-                ILI9341_hspi->State       = HAL_SPI_STATE_READY;
-                ILI9341_hspi->ErrorCode  |= HAL_SPI_ERROR_FLAG;
-                __HAL_UNLOCK(ILI9341_hspi);
-                ILI9341_WRX_RESET;
-                ILI9341_CS_SET;
-                return ILI9341_TIMEOUT;
-            }
-        }
-    }
-
-    tickstart = HAL_GetTick();
-    while (__HAL_SPI_GET_FLAG(ILI9341_hspi, SPI_FLAG_BSY) != RESET)
-    {
-        if (Timeout != HAL_MAX_DELAY)
-        {
-            if ((Timeout == 0U) || ((HAL_GetTick() - tickstart) > Timeout))
-            {
-                __HAL_SPI_DISABLE_IT(ILI9341_hspi, (SPI_IT_TXE | SPI_IT_RXNE | SPI_IT_ERR));
-                __HAL_SPI_DISABLE(ILI9341_hspi);
-                if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE) { SPI_RESET_CRC(ILI9341_hspi); }
-                ILI9341_hspi->State       = HAL_SPI_STATE_READY;
-                ILI9341_hspi->ErrorCode  |= HAL_SPI_ERROR_FLAG;
-                __HAL_UNLOCK(ILI9341_hspi);
-                ILI9341_WRX_RESET;
-                ILI9341_CS_SET;
-                return ILI9341_TIMEOUT;
-            }
-        }
-    }
-
-    if (ILI9341_hspi->Init.Direction == SPI_DIRECTION_2LINES)
-    {
-        __HAL_SPI_CLEAR_OVRFLAG(ILI9341_hspi);
-    }
-
-    ILI9341_hspi->State = HAL_SPI_STATE_READY;
-    __HAL_UNLOCK(ILI9341_hspi);
-    ILI9341_WRX_RESET;
+    /* Restaurar SPI a 8 bits para el resto de las operaciones del driver */
+    ILI9341_SPI_SetDataSize(SPI_DATASIZE_8BIT);
     ILI9341_CS_SET;
-
+    ILI9341_WRX_RESET;
     return ILI9341_OK;
 }
 
