@@ -21,8 +21,8 @@
  *
  * @origin El código de este driver se basa en la librería Petr Machala, Tilen Majerle, 2014.
  * @author Dr. Luis Antonio Raygoza Pérez & Ing. Daniel Ruiz
- * @date June 11, 2026
- * @version 1.0.1
+ * @date June 14, 2026
+ * @version 1.1.0
  */
 
 #ifndef ILI9341_DISC1_H
@@ -279,12 +279,16 @@ extern "C" {
  * @brief Inicializa la pantalla LCD ILI9341.
  *
  * @details La firma varía según los módulos HAL habilitados en stm32f4xx_hal_conf.h:
- *          | HAL_SDRAM_MODULE_ENABLED | HAL_I2C_MODULE_ENABLED | Firma resultante                         |
- *          |--------------------------|------------------------|------------------------------------------|
- *          | No                       | No                     | ILI9341_Init(hspi)                       |
- *          | No                       | Sí                     | ILI9341_Init(hspi, hi2c)                 |
- *          | Sí                       | No                     | ILI9341_Init(hspi, hsdram)               |
- *          | Sí                       | Sí                     | ILI9341_Init(hspi, hi2c, hsdram)         |
+ *          | HAL_SDRAM_MODULE_ENABLED | HAL_I2C_MODULE_ENABLED | HAL_DMA2D_MODULE_ENABLED | Firma resultante                              |
+ *          |--------------------------|------------------------|--------------------------|-----------------------------------------------|
+ *          | No                       | No                     | No                       | ILI9341_Init(hspi)                            |
+ *          | No                       | No                     | Sí                       | ILI9341_Init(hspi, hdma2d)                    |
+ *          | No                       | Sí                     | No                       | ILI9341_Init(hspi, hi2c)                      |
+ *          | No                       | Sí                     | Sí                       | ILI9341_Init(hspi, hi2c, hdma2d)              |
+ *          | Sí                       | No                     | No                       | ILI9341_Init(hspi, hsdram)                    |
+ *          | Sí                       | No                     | Sí                       | ILI9341_Init(hspi, hsdram, hdma2d)            |
+ *          | Sí                       | Sí                     | No                       | ILI9341_Init(hspi, hi2c, hsdram)              |
+ *          | Sí                       | Sí                     | Sí                       | ILI9341_Init(hspi, hi2c, hsdram, hdma2d)      |
  *
  * @param[in] hspi   Puntero al handle SPI de HAL (obligatorio).
  * @param[in] hi2c   (Solo con HAL_I2C_MODULE_ENABLED) Puntero al handle I2C de HAL.
@@ -292,17 +296,28 @@ extern "C" {
  *                   generado por STM32CubeMX. Pasar NULL deshabilita el frame buffer en SDRAM.
  *                   Cuando no es NULL, la librería reserva los primeros ILI9341_SDRAM_FB_SIZE
  *                   bytes de ILI9341_SDRAM_BASE como frame buffer interno (153 600 B).
+ * @param[in] hdma2d (Solo con HAL_DMA2D_MODULE_ENABLED) Puntero al handle DMA2D de HAL
+ *                   generado por STM32CubeMX. Pasar NULL deshabilita la aceleración DMA2D:
+ *                   los rellenos usan el camino CPU y ILI9341_BlitImage no realiza ninguna copia.
  * @return ILI9341_Status_t
  *         - ILI9341_OK            si la inicialización fue exitosa.
  *         - ILI9341_INVALID_PARAM si @p hspi es NULL, o @p hi2c es NULL cuando I2C está habilitado.
- *         - ILI9341_ERROR         si una transmisión SPI falló durante la inicialización.
+ *         - ILI9341_ERROR         si una transmisión SPI o la configuración DMA2D falló durante la inicialización.
  */
-#if defined(HAL_SDRAM_MODULE_ENABLED) && defined(HAL_I2C_MODULE_ENABLED)
+#if defined(HAL_SDRAM_MODULE_ENABLED) && defined(HAL_I2C_MODULE_ENABLED) && defined(HAL_DMA2D_MODULE_ENABLED)
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c, SDRAM_HandleTypeDef* hsdram, DMA2D_HandleTypeDef* hdma2d);
+#elif defined(HAL_SDRAM_MODULE_ENABLED) && defined(HAL_I2C_MODULE_ENABLED)
 ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c, SDRAM_HandleTypeDef* hsdram);
+#elif defined(HAL_SDRAM_MODULE_ENABLED) && defined(HAL_DMA2D_MODULE_ENABLED)
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, SDRAM_HandleTypeDef* hsdram, DMA2D_HandleTypeDef* hdma2d);
 #elif defined(HAL_SDRAM_MODULE_ENABLED)
 ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, SDRAM_HandleTypeDef* hsdram);
+#elif defined(HAL_I2C_MODULE_ENABLED) && defined(HAL_DMA2D_MODULE_ENABLED)
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c, DMA2D_HandleTypeDef* hdma2d);
 #elif defined(HAL_I2C_MODULE_ENABLED)
 ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c);
+#elif defined(HAL_DMA2D_MODULE_ENABLED)
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, DMA2D_HandleTypeDef* hdma2d);
 #else
 ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi);
 #endif
@@ -486,8 +501,11 @@ ILI9341_Status_t ILI9341_DisplayImage(uint32_t image[IMG_TOTAL_BUF32]);
  * @param[in]     y      Coordenada Y del píxel.
  * @param[in]     color  Color del píxel en formato RGB565.
  * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito (incluye píxel fuera de límites, que se ignora).
+ *         - ILI9341_INVALID_PARAM   si @p image es NULL.
  */
-void ILI9341_DrawPixel_ImageBuffer(uint16_t x, uint16_t y, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+ILI9341_Status_t ILI9341_DrawPixel_ImageBuffer(uint16_t x, uint16_t y, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
 
 /**
  * @brief Renderiza un carácter en un frame buffer fuera de pantalla.
@@ -498,8 +516,11 @@ void ILI9341_DrawPixel_ImageBuffer(uint16_t x, uint16_t y, uint16_t color, uint3
  * @param[in]     font       Puntero a la definición de la fuente.
  * @param[in]     foreground Color de primer plano en formato RGB565.
  * @param[in,out] image      Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito (incluye carácter fuera de rango ASCII, que se ignora).
+ *         - ILI9341_INVALID_PARAM   si @p font o @p image son NULL.
  */
-void ILI9341_Putc_ImageBuffer(uint16_t x, uint16_t y, char c, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32]);
+ILI9341_Status_t ILI9341_Putc_ImageBuffer(uint16_t x, uint16_t y, char c, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32]);
 
 /**
  * @brief Renderiza una cadena terminada en nulo en un frame buffer fuera de pantalla.
@@ -510,8 +531,11 @@ void ILI9341_Putc_ImageBuffer(uint16_t x, uint16_t y, char c, LCD_FontDef_t* fon
  * @param[in]     font       Puntero a la definición de la fuente.
  * @param[in]     foreground Color de primer plano en formato RGB565.
  * @param[in,out] image      Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_INVALID_PARAM   si @p str, @p font o @p image son NULL.
  */
-void ILI9341_Puts_ImageBuffer(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32]);
+ILI9341_Status_t ILI9341_Puts_ImageBuffer(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32]);
 
 /**
  * @brief Dibuja una línea en un frame buffer fuera de pantalla.
@@ -522,8 +546,11 @@ void ILI9341_Puts_ImageBuffer(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* 
  * @param[in]     y1     Coordenada Y de fin.
  * @param[in]     color  Color de la línea en formato RGB565.
  * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_INVALID_PARAM   si @p image es NULL.
  */
-void ILI9341_DrawLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+ILI9341_Status_t ILI9341_DrawLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
 
 /**
  * @brief Dibuja el contorno de un rectángulo en un frame buffer fuera de pantalla.
@@ -534,8 +561,11 @@ void ILI9341_DrawLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_
  * @param[in]     y1     Coordenada Y inferior derecha.
  * @param[in]     color  Color de la línea en formato RGB565.
  * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_INVALID_PARAM   si @p image es NULL.
  */
-void ILI9341_DrawRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+ILI9341_Status_t ILI9341_DrawRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
 
 /**
  * @brief Dibuja un rectángulo relleno en un frame buffer fuera de pantalla.
@@ -546,8 +576,12 @@ void ILI9341_DrawRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, ui
  * @param[in]     y1     Coordenada Y inferior derecha.
  * @param[in]     color  Color de relleno en formato RGB565.
  * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_INVALID_PARAM   si @p image es NULL.
+ *         - ILI9341_ERROR           si falla la transferencia DMA2D (solo con HAL_DMA2D_MODULE_ENABLED).
  */
-void ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+ILI9341_Status_t ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
 
 /**
  * @brief Dibuja un círculo relleno en un frame buffer fuera de pantalla.
@@ -557,8 +591,32 @@ void ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t 
  * @param[in]     r      Radio en píxeles.
  * @param[in]     color  Color de relleno en formato RGB565.
  * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_INVALID_PARAM   si @p image es NULL.
+ *         - ILI9341_ERROR           si falla una transferencia DMA2D interna (solo con HAL_DMA2D_MODULE_ENABLED).
  */
-void ILI9341_DrawFilledCircle_ImageBuffer(int16_t x0, int16_t y0, int16_t r, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+ILI9341_Status_t ILI9341_DrawFilledCircle_ImageBuffer(int16_t x0, int16_t y0, int16_t r, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+
+#ifdef HAL_DMA2D_MODULE_ENABLED
+/**
+ * @brief Copia una imagen RGB565 al frame buffer usando DMA2D (memoria a memoria).
+ *
+ * @param[in]     src         Puntero a la imagen fuente en formato RGB565.
+ * @param[in]     x0          Coordenada X de la esquina superior izquierda en el frame buffer.
+ * @param[in]     y0          Coordenada Y de la esquina superior izquierda en el frame buffer.
+ * @param[in]     img_w       Ancho de la imagen fuente en píxeles.
+ * @param[in]     img_h       Alto de la imagen fuente en píxeles.
+ * @param[in,out] framebuffer Frame buffer destino (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito (incluye x0/y0 fuera de pantalla, que se ignora).
+ *         - ILI9341_INVALID_PARAM   si @p src, @p framebuffer son NULL, o si el handle DMA2D no fue inyectado.
+ *         - ILI9341_ERROR           si falla la transferencia DMA2D.
+ */
+ILI9341_Status_t ILI9341_BlitImage(const uint16_t* src, uint16_t x0, uint16_t y0,
+                                    uint16_t img_w, uint16_t img_h,
+                                    uint32_t* framebuffer);
+#endif /* HAL_DMA2D_MODULE_ENABLED */
 
 /* --- Frame buffer SDRAM --------------------------------------------------- */
 

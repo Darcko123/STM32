@@ -5,8 +5,8 @@
  *
  * @origin El código de este driver se basa en la librería Petr Machala, Tilen Majerle, 2014.
  * @author Dr. Luis Antonio Raygoza Pérez & Ing. Daniel Ruiz
- * @date June 11, 2026
- * @version 1.0.1
+ * @date June 14, 2026
+ * @version 1.1.0
  */
 
 #include "ILI9341_Disc1.h"
@@ -51,12 +51,17 @@ static uint32_t*            ILI9341_framebuffer  = NULL; /**< Puntero al frame b
 typedef char ILI9341_sdram_fb_size_check[(ILI9341_SDRAM_FB_SIZE <= IS42S16400J_SIZE) ? 1 : -1];
 #endif
 
+#ifdef HAL_DMA2D_MODULE_ENABLED
+static DMA2D_HandleTypeDef* ILI9341_hdma2d = NULL; /**< Handle DMA2D inyectado en Init; NULL si no se habilitó o se pasó NULL */
+#endif
+
 // ============================================================================
 // PROTOTIPOS DE FUNCIONES PRIVADAS
 // ============================================================================
 
 static ILI9341_Status_t SPI_ILI9341_Send(uint8_t* data, uint16_t size);
 static ILI9341_Status_t SPI_ILI9341_BaudRateUp(void);
+static ILI9341_Status_t SPI_ILI9341_WaitTXE(void);
 #ifdef HAL_SDRAM_MODULE_ENABLED
 static HAL_StatusTypeDef SDRAM_Initialization_Sequence(SDRAM_HandleTypeDef* hsdram, FMC_SDRAM_CommandTypeDef* Command);
 #endif
@@ -77,7 +82,10 @@ static uint16_t ILI9341_TP_Read_Z(void);
 #endif /* HAL_I2C_MODULE_ENABLED */
 static ILI9341_Status_t DrawPixelClipped(int16_t x, int16_t y, uint16_t color);
 static ILI9341_Status_t DrawHSpanClipped(int16_t xL, int16_t xR, int16_t y, uint16_t color);
-static void DrawHSpanClipped_ImageBuffer(int16_t xL, int16_t xR, int16_t y, uint16_t color, uint32_t* image);
+static ILI9341_Status_t DrawHSpanClipped_ImageBuffer(int16_t xL, int16_t xR, int16_t y, uint16_t color, uint32_t* image);
+#ifdef HAL_DMA2D_MODULE_ENABLED
+static void ILI9341_DMA2D_SetMode(uint32_t mode, uint32_t output_offset);
+#endif
 
 // ============================================================================
 // FUNCIONES PRIVADAS
@@ -110,6 +118,41 @@ static ILI9341_Status_t SPI_ILI9341_BaudRateUp(void)
     return (HAL_SPI_Init(ILI9341_hspi) == HAL_OK) ? ILI9341_OK : ILI9341_ERROR;
 }
 
+/** @brief Iteraciones máximas de sondeo de TXE antes de declarar el bus colgado.
+ *  Un byte a ~45 Mbit/s tarda ~32 ciclos de CPU; este límite (decenas de ms)
+ *  solo se agota ante una falla real del bus. */
+#define ILI9341_SPI_TXE_SPIN_MAX 1000000U
+
+/**
+ * @brief Espera a que TXE se active tras escribir en el DR (ruta crítica de envío de píxeles).
+ *
+ * @details Sondea TXE con un límite de iteraciones en lugar de HAL_GetTick(),
+ *          eliminando una llamada a función y una lectura de tick por byte en
+ *          los bucles de volcado. Si el límite se agota, restaura el periférico
+ *          SPI y los pines CS/WRX igual que la ruta de timeout basada en ticks.
+ *
+ * @return ILI9341_OK si TXE se activó; ILI9341_TIMEOUT si el bus quedó colgado.
+ */
+static ILI9341_Status_t SPI_ILI9341_WaitTXE(void)
+{
+    uint32_t spin = ILI9341_SPI_TXE_SPIN_MAX;
+    while (__HAL_SPI_GET_FLAG(ILI9341_hspi, SPI_FLAG_TXE) == RESET)
+    {
+        if (--spin == 0U)
+        {
+            __HAL_SPI_DISABLE_IT(ILI9341_hspi, (SPI_IT_TXE | SPI_IT_RXNE | SPI_IT_ERR));
+            __HAL_SPI_DISABLE(ILI9341_hspi);
+            if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE) { SPI_RESET_CRC(ILI9341_hspi); }
+            ILI9341_hspi->State = HAL_SPI_STATE_READY;
+            __HAL_UNLOCK(ILI9341_hspi);
+            ILI9341_CS_SET;
+            ILI9341_WRX_RESET;
+            return ILI9341_TIMEOUT;
+        }
+    }
+    return ILI9341_OK;
+}
+
 #ifdef HAL_SDRAM_MODULE_ENABLED
 /**
  * @brief Ejecuta la secuencia de inicialización requerida por el IS42S16400J.
@@ -119,7 +162,7 @@ static ILI9341_Status_t SPI_ILI9341_BaudRateUp(void)
  *          -# Esperar al menos 100 µs (se usa HAL_Delay de 1 ms para mayor margen).
  *          -# Precargar todos los bancos (FMC_SDRAM_CMD_PALL).
  *          -# Cuatro ciclos de auto-refresco (mínimo 2 según datasheet).
- *          -# Programar el registro de modo: burst de 2, tipo secuencial,
+ *          -# Programar el registro de modo: burst de 1, tipo secuencial,
  *             latencia CAS 3, modo estándar, escritura en ráfaga simple.
  *          -# Programar la tasa de refresco (REFRESH_COUNT).
  *
@@ -501,75 +544,59 @@ static ILI9341_Status_t DrawHSpanClipped(int16_t xL, int16_t xR, int16_t y, uint
  * @param color Color del tramo en formato RGB565.
  * @param image Frame buffer destino.
  */
-static void DrawHSpanClipped_ImageBuffer(int16_t xL, int16_t xR, int16_t y, uint16_t color, uint32_t* image)
+static ILI9341_Status_t DrawHSpanClipped_ImageBuffer(int16_t xL, int16_t xR, int16_t y, uint16_t color, uint32_t* image)
 {
     int16_t tmp;
-    if (y < 0 || (uint16_t)y >= ILI9341_HEIGHT) { return; }
+    if (y < 0 || (uint16_t)y >= ILI9341_HEIGHT) { return ILI9341_OK; }
     if (xL > xR) { tmp = xL; xL = xR; xR = tmp; }
     if (xL < 0) { xL = 0; }
     if ((uint16_t)xR >= ILI9341_WIDTH) { xR = (int16_t)(ILI9341_WIDTH - 1U); }
-    if (xL > xR) { return; }
-    ILI9341_DrawFilledRectangle_ImageBuffer((uint16_t)xL, (uint16_t)y, (uint16_t)xR, (uint16_t)y, color, image);
+    if (xL > xR) { return ILI9341_OK; }
+    return ILI9341_DrawFilledRectangle_ImageBuffer((uint16_t)xL, (uint16_t)y, (uint16_t)xR, (uint16_t)y, color, image);
 }
+
+#ifdef HAL_DMA2D_MODULE_ENABLED
+/**
+ * @brief Reprograma modo y offset de salida del DMA2D sin reinicializar el periférico.
+ *
+ * @details La configuración constante (reloj, formato de salida RGB565 y la capa de
+ *          entrada para M2M) se realiza una sola vez en ILI9341_Init(). Esta función
+ *          solo actualiza los dos parámetros que cambian por operación, evitando llamar
+ *          a HAL_DMA2D_Init()/HAL_DMA2D_ConfigLayer() en cada dibujo. El periférico está
+ *          inactivo entre transferencias (tras HAL_DMA2D_PollForTransfer), por lo que es
+ *          seguro escribir CR/OOR directamente antes del siguiente HAL_DMA2D_Start().
+ *
+ * @param[in] mode          Modo de operación (DMA2D_R2M para relleno, DMA2D_M2M para copia).
+ * @param[in] output_offset Píxeles a saltar al final de cada línea del destino.
+ */
+static void ILI9341_DMA2D_SetMode(uint32_t mode, uint32_t output_offset)
+{
+    ILI9341_hdma2d->Init.Mode         = mode;          /* DMA2D_SetConfig() lo lee para elegir R2M/M2M */
+    ILI9341_hdma2d->Init.OutputOffset = output_offset;
+    MODIFY_REG(ILI9341_hdma2d->Instance->CR,  DMA2D_CR_MODE, mode);
+    MODIFY_REG(ILI9341_hdma2d->Instance->OOR, DMA2D_OOR_LO,  output_offset);
+}
+#endif /* HAL_DMA2D_MODULE_ENABLED */
 
 // ============================================================================
 // FUNCIONES PÚBLICAS
 // ============================================================================
 
-#if defined(HAL_SDRAM_MODULE_ENABLED) && defined(HAL_I2C_MODULE_ENABLED)
-/**
- * @brief Inicializa la pantalla LCD ILI9341, la memoria SDRAM IS42S16400 y el controlador táctil STMPE811.
- *
- * @param[in] hspi   Puntero al handle SPI de HAL.
- * @param[in] hi2c   Puntero al handle I2C de HAL.
- * @param[in] hsdram (Solo con HAL_SDRAM_MODULE_ENABLED) Puntero al handle SDRAM de HAL
- *                   generado por STM32CubeMX. Pasar NULL deshabilita el frame buffer en SDRAM.
- *                   Cuando no es NULL, la librería reserva los primeros ILI9341_SDRAM_FB_SIZE
- *                   bytes de ILI9341_SDRAM_BASE como frame buffer interno (153 600 B).
- * @return ILI9341_Status_t
- *         - ILI9341_OK            si la inicialización fue exitosa.
- *         - ILI9341_INVALID_PARAM si @p hspi o @p hi2c es NULL.
- *         - ILI9341_ERROR         si una transmisión SPI falló durante la inicialización.
- */
+#if defined(HAL_SDRAM_MODULE_ENABLED) && defined(HAL_I2C_MODULE_ENABLED) && defined(HAL_DMA2D_MODULE_ENABLED)
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c, SDRAM_HandleTypeDef* hsdram, DMA2D_HandleTypeDef* hdma2d)
+#elif defined(HAL_SDRAM_MODULE_ENABLED) && defined(HAL_I2C_MODULE_ENABLED)
 ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c, SDRAM_HandleTypeDef* hsdram)
+#elif defined(HAL_SDRAM_MODULE_ENABLED) && defined(HAL_DMA2D_MODULE_ENABLED)
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, SDRAM_HandleTypeDef* hsdram, DMA2D_HandleTypeDef* hdma2d)
 #elif defined(HAL_SDRAM_MODULE_ENABLED)
-/**
- * @brief Inicializa la pantalla LCD ILI9341, la memoria SDRAM IS42S16400.
- *
- * @param[in] hspi   Puntero al handle SPI de HAL.
- * @param[in] hsdram (Solo con HAL_SDRAM_MODULE_ENABLED) Puntero al handle SDRAM de HAL
- *                   generado por STM32CubeMX. Pasar NULL deshabilita el frame buffer en SDRAM.
- *                   Cuando no es NULL, la librería reserva los primeros ILI9341_SDRAM_FB_SIZE
- *                   bytes de ILI9341_SDRAM_BASE como frame buffer interno (153 600 B).
- * @return ILI9341_Status_t
- *         - ILI9341_OK            si la inicialización fue exitosa.
- *         - ILI9341_INVALID_PARAM si @p hspi o @p hi2c es NULL.
- *         - ILI9341_ERROR         si una transmisión SPI falló durante la inicialización.
- */
 ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, SDRAM_HandleTypeDef* hsdram)
+#elif defined(HAL_I2C_MODULE_ENABLED) && defined(HAL_DMA2D_MODULE_ENABLED)
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c, DMA2D_HandleTypeDef* hdma2d)
 #elif defined(HAL_I2C_MODULE_ENABLED)
-/**
- * @brief Inicializa la pantalla LCD ILI9341 y el controlador táctil STMPE811.
- *
- * @param[in] hspi   Puntero al handle SPI de HAL.
- * @param[in] hi2c   Puntero al handle I2C de HAL.
- * @return ILI9341_Status_t
- *         - ILI9341_OK            si la inicialización fue exitosa.
- *         - ILI9341_INVALID_PARAM si @p hspi o @p hi2c es NULL.
- *         - ILI9341_ERROR         si una transmisión SPI falló durante la inicialización.
- */
 ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, I2C_HandleTypeDef* hi2c)
+#elif defined(HAL_DMA2D_MODULE_ENABLED)
+ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, DMA2D_HandleTypeDef* hdma2d)
 #else
-/**
- * @brief Inicializa la pantalla LCD ILI9341.
- *
- * @param[in] hspi   Puntero al handle SPI de HAL.
- *
- * @return ILI9341_Status_t
- *         - ILI9341_OK            si la inicialización fue exitosa.
- *         - ILI9341_INVALID_PARAM si @p hspi o @p hi2c es NULL.
- *         - ILI9341_ERROR         si una transmisión SPI falló durante la inicialización.
- */
 ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi)
 #endif
 {
@@ -724,6 +751,28 @@ ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi)
     }
 #endif
 
+#ifdef HAL_DMA2D_MODULE_ENABLED
+    ILI9341_hdma2d = hdma2d;
+    if (hdma2d != NULL)
+    {
+        /* Configuración única: el reloj (vía MspInit), el formato de salida y la
+         * capa de entrada quedan fijos aquí; las funciones de dibujo solo cambian
+         * modo y offset mediante ILI9341_DMA2D_SetMode(). */
+        hdma2d->Instance          = DMA2D;
+        hdma2d->Init.Mode         = DMA2D_M2M;          /* base; se ajusta por operación */
+        hdma2d->Init.ColorMode    = DMA2D_OUTPUT_RGB565;
+        hdma2d->Init.OutputOffset = 0U;
+        if (HAL_DMA2D_Init(hdma2d) != HAL_OK) { return ILI9341_ERROR; }
+
+        /* Capa de entrada (solo la usa el modo M2M de ILI9341_BlitImage); constante. */
+        hdma2d->LayerCfg[1].InputColorMode = DMA2D_INPUT_RGB565;
+        hdma2d->LayerCfg[1].InputOffset    = 0U;
+        hdma2d->LayerCfg[1].AlphaMode      = DMA2D_NO_MODIF_ALPHA;
+        hdma2d->LayerCfg[1].InputAlpha     = 0xFFU;
+        if (HAL_DMA2D_ConfigLayer(hdma2d, 1U) != HAL_OK) { return ILI9341_ERROR; }
+    }
+#endif
+
     ILI9341_Initialized = 1U;
 
     return ILI9341_OK;
@@ -786,38 +835,10 @@ ILI9341_Status_t ILI9341_Fill(uint16_t color)
     for (n = 0U; n < (uint32_t)ILI9341_PIXEL; n++)
     {
         ILI9341_hspi->Instance->DR = hi;
-        tickstart = HAL_GetTick();
-        while (__HAL_SPI_GET_FLAG(ILI9341_hspi, SPI_FLAG_TXE) == RESET)
-        {
-            if ((Timeout == 0U) || ((HAL_GetTick() - tickstart) > Timeout))
-            {
-                __HAL_SPI_DISABLE_IT(ILI9341_hspi, (SPI_IT_TXE | SPI_IT_RXNE | SPI_IT_ERR));
-                __HAL_SPI_DISABLE(ILI9341_hspi);
-                if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE) { SPI_RESET_CRC(ILI9341_hspi); }
-                ILI9341_hspi->State = HAL_SPI_STATE_READY;
-                __HAL_UNLOCK(ILI9341_hspi);
-                ILI9341_CS_SET;
-                ILI9341_WRX_RESET;
-                return ILI9341_TIMEOUT;
-            }
-        }
+        if (SPI_ILI9341_WaitTXE() != ILI9341_OK) { return ILI9341_TIMEOUT; }
 
         ILI9341_hspi->Instance->DR = lo;
-        tickstart = HAL_GetTick();
-        while (__HAL_SPI_GET_FLAG(ILI9341_hspi, SPI_FLAG_TXE) == RESET)
-        {
-            if ((Timeout == 0U) || ((HAL_GetTick() - tickstart) > Timeout))
-            {
-                __HAL_SPI_DISABLE_IT(ILI9341_hspi, (SPI_IT_TXE | SPI_IT_RXNE | SPI_IT_ERR));
-                __HAL_SPI_DISABLE(ILI9341_hspi);
-                if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE) { SPI_RESET_CRC(ILI9341_hspi); }
-                ILI9341_hspi->State = HAL_SPI_STATE_READY;
-                __HAL_UNLOCK(ILI9341_hspi);
-                ILI9341_CS_SET;
-                ILI9341_WRX_RESET;
-                return ILI9341_TIMEOUT;
-            }
-        }
+        if (SPI_ILI9341_WaitTXE() != ILI9341_OK) { return ILI9341_TIMEOUT; }
     }
 
     if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE)
@@ -1079,38 +1100,10 @@ ILI9341_Status_t ILI9341_DrawFilledRectangle(uint16_t x0, uint16_t y0, uint16_t 
     for (n = 0U; n < pixels; n++)
     {
         ILI9341_hspi->Instance->DR = hi;
-        tickstart = HAL_GetTick();
-        while (__HAL_SPI_GET_FLAG(ILI9341_hspi, SPI_FLAG_TXE) == RESET)
-        {
-            if ((Timeout == 0U) || ((HAL_GetTick() - tickstart) > Timeout))
-            {
-                __HAL_SPI_DISABLE_IT(ILI9341_hspi, (SPI_IT_TXE | SPI_IT_RXNE | SPI_IT_ERR));
-                __HAL_SPI_DISABLE(ILI9341_hspi);
-                if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE) { SPI_RESET_CRC(ILI9341_hspi); }
-                ILI9341_hspi->State = HAL_SPI_STATE_READY;
-                __HAL_UNLOCK(ILI9341_hspi);
-                ILI9341_CS_SET;
-                ILI9341_WRX_RESET;
-                return ILI9341_TIMEOUT;
-            }
-        }
+        if (SPI_ILI9341_WaitTXE() != ILI9341_OK) { return ILI9341_TIMEOUT; }
 
         ILI9341_hspi->Instance->DR = lo;
-        tickstart = HAL_GetTick();
-        while (__HAL_SPI_GET_FLAG(ILI9341_hspi, SPI_FLAG_TXE) == RESET)
-        {
-            if ((Timeout == 0U) || ((HAL_GetTick() - tickstart) > Timeout))
-            {
-                __HAL_SPI_DISABLE_IT(ILI9341_hspi, (SPI_IT_TXE | SPI_IT_RXNE | SPI_IT_ERR));
-                __HAL_SPI_DISABLE(ILI9341_hspi);
-                if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE) { SPI_RESET_CRC(ILI9341_hspi); }
-                ILI9341_hspi->State = HAL_SPI_STATE_READY;
-                __HAL_UNLOCK(ILI9341_hspi);
-                ILI9341_CS_SET;
-                ILI9341_WRX_RESET;
-                return ILI9341_TIMEOUT;
-            }
-        }
+        if (SPI_ILI9341_WaitTXE() != ILI9341_OK) { return ILI9341_TIMEOUT; }
     }
 
     if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE)
@@ -1340,38 +1333,10 @@ ILI9341_Status_t ILI9341_Putc(uint16_t x, uint16_t y, char c, LCD_FontDef_t* fon
             lo    = (uint8_t)(color & 0xFFU);
 
             ILI9341_hspi->Instance->DR = hi;
-            tickstart = HAL_GetTick();
-            while (__HAL_SPI_GET_FLAG(ILI9341_hspi, SPI_FLAG_TXE) == RESET)
-            {
-                if ((Timeout == 0U) || ((HAL_GetTick() - tickstart) > Timeout))
-                {
-                    __HAL_SPI_DISABLE_IT(ILI9341_hspi, (SPI_IT_TXE | SPI_IT_RXNE | SPI_IT_ERR));
-                    __HAL_SPI_DISABLE(ILI9341_hspi);
-                    if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE) { SPI_RESET_CRC(ILI9341_hspi); }
-                    ILI9341_hspi->State = HAL_SPI_STATE_READY;
-                    __HAL_UNLOCK(ILI9341_hspi);
-                    ILI9341_CS_SET;
-                    ILI9341_WRX_RESET;
-                    return ILI9341_TIMEOUT;
-                }
-            }
+            if (SPI_ILI9341_WaitTXE() != ILI9341_OK) { return ILI9341_TIMEOUT; }
 
             ILI9341_hspi->Instance->DR = lo;
-            tickstart = HAL_GetTick();
-            while (__HAL_SPI_GET_FLAG(ILI9341_hspi, SPI_FLAG_TXE) == RESET)
-            {
-                if ((Timeout == 0U) || ((HAL_GetTick() - tickstart) > Timeout))
-                {
-                    __HAL_SPI_DISABLE_IT(ILI9341_hspi, (SPI_IT_TXE | SPI_IT_RXNE | SPI_IT_ERR));
-                    __HAL_SPI_DISABLE(ILI9341_hspi);
-                    if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE) { SPI_RESET_CRC(ILI9341_hspi); }
-                    ILI9341_hspi->State = HAL_SPI_STATE_READY;
-                    __HAL_UNLOCK(ILI9341_hspi);
-                    ILI9341_CS_SET;
-                    ILI9341_WRX_RESET;
-                    return ILI9341_TIMEOUT;
-                }
-            }
+            if (SPI_ILI9341_WaitTXE() != ILI9341_OK) { return ILI9341_TIMEOUT; }
         }
     }
 
@@ -1512,7 +1477,6 @@ ILI9341_Status_t ILI9341_DisplayImage(uint32_t image[IMG_TOTAL_BUF32])
 {
     const uint32_t Timeout   = 5000U;
     uint32_t       pix;
-    uint8_t        aux8;
     uint32_t       tickstart;
 
     if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
@@ -1556,92 +1520,20 @@ ILI9341_Status_t ILI9341_DisplayImage(uint32_t image[IMG_TOTAL_BUF32])
         pix = image[k];
 
         /* Primer píxel (word bajo) — byte alto */
-        aux8 = (uint8_t)(pix >> 8);
-        ILI9341_hspi->Instance->DR = aux8;
-        tickstart = HAL_GetTick();
-        while (__HAL_SPI_GET_FLAG(ILI9341_hspi, SPI_FLAG_TXE) == RESET)
-        {
-            if (Timeout != HAL_MAX_DELAY)
-            {
-                if ((Timeout == 0U) || ((HAL_GetTick() - tickstart) > Timeout))
-                {
-                    __HAL_SPI_DISABLE_IT(ILI9341_hspi, (SPI_IT_TXE | SPI_IT_RXNE | SPI_IT_ERR));
-                    __HAL_SPI_DISABLE(ILI9341_hspi);
-                    if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE) { SPI_RESET_CRC(ILI9341_hspi); }
-                    ILI9341_hspi->State = HAL_SPI_STATE_READY;
-                    __HAL_UNLOCK(ILI9341_hspi);
-                    ILI9341_CS_SET;
-                    ILI9341_WRX_RESET;
-                    return ILI9341_TIMEOUT;
-                }
-            }
-        }
+        ILI9341_hspi->Instance->DR = (uint8_t)(pix >> 8);
+        if (SPI_ILI9341_WaitTXE() != ILI9341_OK) { return ILI9341_TIMEOUT; }
 
         /* Primer píxel (word bajo) — byte bajo */
-        aux8 = (uint8_t)(pix & 0x000000FFU);
-        ILI9341_hspi->Instance->DR = aux8;
-        tickstart = HAL_GetTick();
-        while (__HAL_SPI_GET_FLAG(ILI9341_hspi, SPI_FLAG_TXE) == RESET)
-        {
-            if (Timeout != HAL_MAX_DELAY)
-            {
-                if ((Timeout == 0U) || ((HAL_GetTick() - tickstart) > Timeout))
-                {
-                    __HAL_SPI_DISABLE_IT(ILI9341_hspi, (SPI_IT_TXE | SPI_IT_RXNE | SPI_IT_ERR));
-                    __HAL_SPI_DISABLE(ILI9341_hspi);
-                    if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE) { SPI_RESET_CRC(ILI9341_hspi); }
-                    ILI9341_hspi->State = HAL_SPI_STATE_READY;
-                    __HAL_UNLOCK(ILI9341_hspi);
-                    ILI9341_CS_SET;
-                    ILI9341_WRX_RESET;
-                    return ILI9341_TIMEOUT;
-                }
-            }
-        }
+        ILI9341_hspi->Instance->DR = (uint8_t)(pix & 0x000000FFU);
+        if (SPI_ILI9341_WaitTXE() != ILI9341_OK) { return ILI9341_TIMEOUT; }
 
         /* Segundo píxel (word alto) — byte alto */
-        aux8 = (uint8_t)(pix >> 24);
-        ILI9341_hspi->Instance->DR = aux8;
-        tickstart = HAL_GetTick();
-        while (__HAL_SPI_GET_FLAG(ILI9341_hspi, SPI_FLAG_TXE) == RESET)
-        {
-            if (Timeout != HAL_MAX_DELAY)
-            {
-                if ((Timeout == 0U) || ((HAL_GetTick() - tickstart) > Timeout))
-                {
-                    __HAL_SPI_DISABLE_IT(ILI9341_hspi, (SPI_IT_TXE | SPI_IT_RXNE | SPI_IT_ERR));
-                    __HAL_SPI_DISABLE(ILI9341_hspi);
-                    if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE) { SPI_RESET_CRC(ILI9341_hspi); }
-                    ILI9341_hspi->State = HAL_SPI_STATE_READY;
-                    __HAL_UNLOCK(ILI9341_hspi);
-                    ILI9341_CS_SET;
-                    ILI9341_WRX_RESET;
-                    return ILI9341_TIMEOUT;
-                }
-            }
-        }
+        ILI9341_hspi->Instance->DR = (uint8_t)(pix >> 24);
+        if (SPI_ILI9341_WaitTXE() != ILI9341_OK) { return ILI9341_TIMEOUT; }
 
         /* Segundo píxel (word alto) — byte bajo */
-        aux8 = (uint8_t)(pix >> 16);
-        ILI9341_hspi->Instance->DR = aux8;
-        tickstart = HAL_GetTick();
-        while (__HAL_SPI_GET_FLAG(ILI9341_hspi, SPI_FLAG_TXE) == RESET)
-        {
-            if (Timeout != HAL_MAX_DELAY)
-            {
-                if ((Timeout == 0U) || ((HAL_GetTick() - tickstart) > Timeout))
-                {
-                    __HAL_SPI_DISABLE_IT(ILI9341_hspi, (SPI_IT_TXE | SPI_IT_RXNE | SPI_IT_ERR));
-                    __HAL_SPI_DISABLE(ILI9341_hspi);
-                    if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE) { SPI_RESET_CRC(ILI9341_hspi); }
-                    ILI9341_hspi->State = HAL_SPI_STATE_READY;
-                    __HAL_UNLOCK(ILI9341_hspi);
-                    ILI9341_CS_SET;
-                    ILI9341_WRX_RESET;
-                    return ILI9341_TIMEOUT;
-                }
-            }
-        }
+        ILI9341_hspi->Instance->DR = (uint8_t)(pix >> 16);
+        if (SPI_ILI9341_WaitTXE() != ILI9341_OK) { return ILI9341_TIMEOUT; }
     }
 
     if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE)
@@ -1710,25 +1602,15 @@ ILI9341_Status_t ILI9341_DisplayImage(uint32_t image[IMG_TOTAL_BUF32])
  * @param[in]     color  Color del píxel en formato RGB565.
  * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
  */
-void ILI9341_DrawPixel_ImageBuffer(uint16_t x, uint16_t y, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
+ILI9341_Status_t ILI9341_DrawPixel_ImageBuffer(uint16_t x, uint16_t y, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
 {
-    uint32_t buf, dir16, dir32, aux;
+    if (image == NULL)                              { return ILI9341_INVALID_PARAM; }
+    if (x >= ILI9341_WIDTH || y >= ILI9341_HEIGHT)  { return ILI9341_OK; }
 
-    if (image == NULL)                             { return; }
-    if (x >= ILI9341_WIDTH || y >= ILI9341_HEIGHT) { return; }
-
-    dir16 = (uint32_t)y;
-    aux   = (uint32_t)x;
-    dir16 = ILI9341_WIDTH * dir16 + aux;
-    dir32 = dir16 >> 1;
-
-    buf = image[dir32];
-    aux = (uint32_t)color;
-
-    if (dir16 & 1U) { buf = (buf & 0x0000FFFFU) | (aux << 16); }
-    else            { buf = (buf & 0xFFFF0000U) |  aux;         }
-
-    image[dir32] = buf;
+    /* Escritura de halfword: el FMC enmascara el lane con DQM, sin leer SDRAM
+     * (evita el read-modify-write de 32 bits, costoso por la latencia CAS). */
+    ((uint16_t*)image)[(uint32_t)y * ILI9341_WIDTH + x] = color;
+    return ILI9341_OK;
 }
 
 /**
@@ -1741,12 +1623,12 @@ void ILI9341_DrawPixel_ImageBuffer(uint16_t x, uint16_t y, uint16_t color, uint3
  * @param[in]     foreground Color de primer plano en formato RGB565.
  * @param[in,out] image      Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
  */
-void ILI9341_Putc_ImageBuffer(uint16_t x, uint16_t y, char c, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32])
+ILI9341_Status_t ILI9341_Putc_ImageBuffer(uint16_t x, uint16_t y, char c, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32])
 {
     uint32_t i, b, j;
 
-    if (font == NULL || image == NULL) { return; }
-    if ((uint8_t)c < 32U || (uint8_t)c > 126U) { return; }
+    if (font == NULL || image == NULL)          { return ILI9341_INVALID_PARAM; }
+    if ((uint8_t)c < 32U || (uint8_t)c > 126U) { return ILI9341_OK; }
 
     ILI9341_x = x;
     ILI9341_y = y;
@@ -1759,19 +1641,15 @@ void ILI9341_Putc_ImageBuffer(uint16_t x, uint16_t y, char c, LCD_FontDef_t* fon
     for (i = 0U; i < font->FontHeight; i++)
     {
         b = font->data[(c - 32U) * font->FontHeight + i];
-        uint32_t row32 = (uint32_t)(ILI9341_y + i) * (ILI9341_WIDTH / 2U);
+        /* Escrituras de halfword: el FMC enmascara el lane con DQM, sin leer SDRAM. */
+        uint16_t* row = (uint16_t*)image + (uint32_t)(ILI9341_y + i) * ILI9341_WIDTH + ILI9341_x;
         for (j = 0U; j < font->FontWidth; j++)
         {
-            if ((b << j) & 0x8000U)
-            {
-                uint32_t col = (uint32_t)(ILI9341_x + j);
-                uint32_t idx = row32 + (col >> 1U);
-                if (col & 1U) { image[idx] = (image[idx] & 0x0000FFFFU) | ((uint32_t)foreground << 16U); }
-                else          { image[idx] = (image[idx] & 0xFFFF0000U) |  (uint32_t)foreground;         }
-            }
+            if ((b << j) & 0x8000U) { row[j] = foreground; }
         }
     }
     ILI9341_x += font->FontWidth;
+    return ILI9341_OK;
 }
 
 /**
@@ -1784,11 +1662,12 @@ void ILI9341_Putc_ImageBuffer(uint16_t x, uint16_t y, char c, LCD_FontDef_t* fon
  * @param[in]     foreground Color de primer plano en formato RGB565.
  * @param[in,out] image      Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
  */
-void ILI9341_Puts_ImageBuffer(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32])
+ILI9341_Status_t ILI9341_Puts_ImageBuffer(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32])
 {
+    ILI9341_Status_t st;
     uint16_t startX = x;
 
-    if (str == NULL || font == NULL || image == NULL) { return; }
+    if (str == NULL || font == NULL || image == NULL) { return ILI9341_INVALID_PARAM; }
     ILI9341_x = x;
     ILI9341_y = y;
 
@@ -1814,8 +1693,10 @@ void ILI9341_Puts_ImageBuffer(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* 
             str++;
             continue;
         }
-        ILI9341_Putc_ImageBuffer(ILI9341_x, ILI9341_y, *str++, font, foreground, image);
+        st = ILI9341_Putc_ImageBuffer(ILI9341_x, ILI9341_y, *str++, font, foreground, image);
+        if (st != ILI9341_OK) { return st; }
     }
+    return ILI9341_OK;
 }
 
 /**
@@ -1828,9 +1709,12 @@ void ILI9341_Puts_ImageBuffer(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* 
  * @param[in]     color  Color de la línea en formato RGB565.
  * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
  */
-void ILI9341_DrawLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
+ILI9341_Status_t ILI9341_DrawLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
 {
+    ILI9341_Status_t st;
     int16_t dx, dy, sx, sy, err, e2;
+
+    if (image == NULL) { return ILI9341_INVALID_PARAM; }
 
     if (x0 >= ILI9341_WIDTH)  { x0 = ILI9341_WIDTH  - 1U; }
     if (x1 >= ILI9341_WIDTH)  { x1 = ILI9341_WIDTH  - 1U; }
@@ -1845,8 +1729,7 @@ void ILI9341_DrawLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_
         uint16_t xb = (x0 < x1) ? x1 : x0;
         uint16_t ya = (y0 < y1) ? y0 : y1;
         uint16_t yb = (y0 < y1) ? y1 : y0;
-        ILI9341_DrawFilledRectangle_ImageBuffer(xa, ya, xb, yb, color, image);
-        return;
+        return ILI9341_DrawFilledRectangle_ImageBuffer(xa, ya, xb, yb, color, image);
     }
 
     dx  = (x0 < x1) ? (x1 - x0) : (x0 - x1);
@@ -1857,12 +1740,14 @@ void ILI9341_DrawLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_
 
     while (1)
     {
-        ILI9341_DrawPixel_ImageBuffer(x0, y0, color, image);
+        st = ILI9341_DrawPixel_ImageBuffer(x0, y0, color, image);
+        if (st != ILI9341_OK) { return st; }
         if (x0 == x1 && y0 == y1) { break; }
         e2 = err;
         if (e2 > -dx) { err -= dy; x0 += sx; }
         if (e2 <  dy) { err += dx; y0 += sy; }
     }
+    return ILI9341_OK;
 }
 
 /**
@@ -1875,12 +1760,14 @@ void ILI9341_DrawLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_
  * @param[in]     color  Color de la línea en formato RGB565.
  * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
  */
-void ILI9341_DrawRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
+ILI9341_Status_t ILI9341_DrawRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
 {
-    ILI9341_DrawLine_ImageBuffer(x0, y0, x1, y0, color, image); /* Superior  */
-    ILI9341_DrawLine_ImageBuffer(x0, y0, x0, y1, color, image); /* Izquierda */
-    ILI9341_DrawLine_ImageBuffer(x1, y0, x1, y1, color, image); /* Derecha   */
-    ILI9341_DrawLine_ImageBuffer(x0, y1, x1, y1, color, image); /* Inferior  */
+    ILI9341_Status_t st;
+    st  = ILI9341_DrawLine_ImageBuffer(x0, y0, x1, y0, color, image); /* Superior  */
+    st  = st ? st : ILI9341_DrawLine_ImageBuffer(x0, y0, x0, y1, color, image); /* Izquierda */
+    st  = st ? st : ILI9341_DrawLine_ImageBuffer(x1, y0, x1, y1, color, image); /* Derecha   */
+    st  = st ? st : ILI9341_DrawLine_ImageBuffer(x0, y1, x1, y1, color, image); /* Inferior  */
+    return st;
 }
 
 /**
@@ -1893,49 +1780,74 @@ void ILI9341_DrawRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, ui
  * @param[in]     color  Color de relleno en formato RGB565.
  * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
  */
-void ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
+ILI9341_Status_t ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
 {
-    uint32_t packed;
-    uint32_t base32;
-    uint16_t y, p, tmp, inner, pairs;
-    uint8_t  head, tail;
-
-    if (image == NULL) { return; }
+    if (image == NULL) { return ILI9341_INVALID_PARAM; }
     if (x0 >= ILI9341_WIDTH)  { x0 = ILI9341_WIDTH  - 1U; }
     if (x1 >= ILI9341_WIDTH)  { x1 = ILI9341_WIDTH  - 1U; }
     if (y0 >= ILI9341_HEIGHT) { y0 = ILI9341_HEIGHT - 1U; }
     if (y1 >= ILI9341_HEIGHT) { y1 = ILI9341_HEIGHT - 1U; }
-    if (x0 > x1) { tmp = x0; x0 = x1; x1 = tmp; }
-    if (y0 > y1) { tmp = y0; y0 = y1; y1 = tmp; }
+    if (x0 > x1) { uint16_t _t = x0; x0 = x1; x1 = _t; }
+    if (y0 > y1) { uint16_t _t = y0; y0 = y1; y1 = _t; }
 
-    packed = ((uint32_t)color << 16) | (uint32_t)color;
-
-    /* ILI9341_WIDTH es par → y * ILI9341_WIDTH siempre es par.
-     * La alineación del primer píxel de cada fila depende solo de x0. */
-    head  = (uint8_t)(x0 & 1U);
-    inner = (x1 - x0 + 1U) - (uint16_t)head;
-    pairs = inner >> 1U;
-    tail  = (uint8_t)(inner & 1U);
-
-    for (y = y0; y <= y1; y++)
+#ifdef HAL_DMA2D_MODULE_ENABLED
+    if (ILI9341_hdma2d != NULL)
     {
-        base32 = (uint32_t)y * (ILI9341_WIDTH / 2U) + (x0 >> 1U);
+        uint16_t w   = x1 - x0 + 1U;
+        uint16_t h   = y1 - y0 + 1U;
+        uint32_t dst = (uint32_t)((uint16_t*)image + (uint32_t)y0 * ILI9341_WIDTH + x0);
+        /* En R2M el HAL interpreta el color como ARGB8888 y lo reduce al formato de
+         * salida; hay que expandir el RGB565 a RGB888 para recuperar el mismo color.
+         * Los corrimientos dejan cada componente en los bits altos de su byte, que es
+         * justo lo que el HAL vuelve a truncar (R:5, G:6, B:5). */
+        uint32_t argb = ((uint32_t)(color & 0xF800U) << 8) |   /* R5 → bits[23:19] */
+                        ((uint32_t)(color & 0x07E0U) << 5) |   /* G6 → bits[15:10] */
+                        ((uint32_t)(color & 0x001FU) << 3);    /* B5 → bits[7:3]   */
 
-        /* Píxel cabecera: índice impar → bits 31:16 del word */
-        if (head)
-        {
-            image[base32] = (image[base32] & 0x0000FFFFU) | ((uint32_t)color << 16);
-            base32++;
-        }
-
-        /* Ráfaga central: 2 píxeles por write de 32 bits */
-        for (p = 0U; p < pairs; p++)
-            image[base32++] = packed;
-
-        /* Píxel cola: índice par → bits 15:0 del word */
-        if (tail)
-            image[base32] = (image[base32] & 0xFFFF0000U) | (uint32_t)color;
+        /* DMA2D ya inicializado en ILI9341_Init(); aquí solo cambian modo y offset. */
+        ILI9341_DMA2D_SetMode(DMA2D_R2M, ILI9341_WIDTH - w);
+        if (HAL_DMA2D_Start(ILI9341_hdma2d, argb, dst, w, h) != HAL_OK)         { return ILI9341_ERROR; }
+        if (HAL_DMA2D_PollForTransfer(ILI9341_hdma2d, HAL_MAX_DELAY) != HAL_OK) { return ILI9341_ERROR; }
+        return ILI9341_OK;
     }
+#endif
+
+    /* Camino CPU: respaldo cuando DMA2D no está habilitado o no se inyectó el handle. */
+    {
+        uint32_t packed = ((uint32_t)color << 16) | (uint32_t)color;
+        uint32_t base32;
+        uint16_t y, p, inner, pairs;
+        uint8_t  head, tail;
+
+        /* ILI9341_WIDTH es par → y * ILI9341_WIDTH siempre es par.
+         * La alineación del primer píxel de cada fila depende solo de x0. */
+        head  = (uint8_t)(x0 & 1U);
+        inner = (x1 - x0 + 1U) - (uint16_t)head;
+        pairs = inner >> 1U;
+        tail  = (uint8_t)(inner & 1U);
+
+        for (y = y0; y <= y1; y++)
+        {
+            base32 = (uint32_t)y * (ILI9341_WIDTH / 2U) + (x0 >> 1U);
+
+            /* Píxel cabecera: índice impar → halfword alto del word.
+             * Escritura de halfword (DQM enmascara el lane, sin leer SDRAM). */
+            if (head)
+            {
+                ((uint16_t*)image)[(base32 << 1U) + 1U] = color;
+                base32++;
+            }
+
+            /* Ráfaga central: 2 píxeles por write de 32 bits */
+            for (p = 0U; p < pairs; p++)
+                image[base32++] = packed;
+
+            /* Píxel cola: índice par → halfword bajo del word. */
+            if (tail)
+                ((uint16_t*)image)[base32 << 1U] = color;
+        }
+    }
+    return ILI9341_OK;
 }
 
 /**
@@ -1947,21 +1859,23 @@ void ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t 
  * @param[in]     color  Color de relleno en formato RGB565.
  * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
  */
-void ILI9341_DrawFilledCircle_ImageBuffer(int16_t x0, int16_t y0, int16_t r, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
+ILI9341_Status_t ILI9341_DrawFilledCircle_ImageBuffer(int16_t x0, int16_t y0, int16_t r, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
 {
+    ILI9341_Status_t st;
     int16_t f     =  1 - r;
     int16_t ddF_x =  1;
     int16_t ddF_y = -2 * r;
     int16_t x     =  0;
     int16_t y     =  r;
 
-    if (image == NULL) { return; }
+    if (image == NULL) { return ILI9341_INVALID_PARAM; }
 
     /* Píxeles extremos: tope superior e inferior */
-    ILI9341_DrawPixel_ImageBuffer((uint16_t)x0, (uint16_t)(y0 + r), color, image);
-    ILI9341_DrawPixel_ImageBuffer((uint16_t)x0, (uint16_t)(y0 - r), color, image);
+    st  = ILI9341_DrawPixel_ImageBuffer((uint16_t)x0, (uint16_t)(y0 + r), color, image);
+    st  = st ? st : ILI9341_DrawPixel_ImageBuffer((uint16_t)x0, (uint16_t)(y0 - r), color, image);
     /* Tramo horizontal central */
-    DrawHSpanClipped_ImageBuffer(x0 - r, x0 + r, y0, color, image);
+    st  = st ? st : DrawHSpanClipped_ImageBuffer(x0 - r, x0 + r, y0, color, image);
+    if (st != ILI9341_OK) { return st; }
 
     while (x < y)
     {
@@ -1970,12 +1884,52 @@ void ILI9341_DrawFilledCircle_ImageBuffer(int16_t x0, int16_t y0, int16_t r, uin
         ddF_x += 2;
         f += ddF_x;
 
-        DrawHSpanClipped_ImageBuffer(x0 - x, x0 + x, y0 + y, color, image);
-        DrawHSpanClipped_ImageBuffer(x0 - x, x0 + x, y0 - y, color, image);
-        DrawHSpanClipped_ImageBuffer(x0 - y, x0 + y, y0 + x, color, image);
-        DrawHSpanClipped_ImageBuffer(x0 - y, x0 + y, y0 - x, color, image);
+        st  = DrawHSpanClipped_ImageBuffer(x0 - x, x0 + x, y0 + y, color, image);
+        st  = st ? st : DrawHSpanClipped_ImageBuffer(x0 - x, x0 + x, y0 - y, color, image);
+        st  = st ? st : DrawHSpanClipped_ImageBuffer(x0 - y, x0 + y, y0 + x, color, image);
+        st  = st ? st : DrawHSpanClipped_ImageBuffer(x0 - y, x0 + y, y0 - x, color, image);
+        if (st != ILI9341_OK) { return st; }
     }
+    return ILI9341_OK;
 }
+
+#ifdef HAL_DMA2D_MODULE_ENABLED
+/**
+ * @brief Copia una imagen RGB565 al frame buffer usando DMA2D (memoria a memoria).
+ *
+ * @param[in]     src         Puntero a la imagen fuente en formato RGB565.
+ * @param[in]     x0          Coordenada X de la esquina superior izquierda en el frame buffer.
+ * @param[in]     y0          Coordenada Y de la esquina superior izquierda en el frame buffer.
+ * @param[in]     img_w       Ancho de la imagen fuente en píxeles (se recorta al borde).
+ * @param[in]     img_h       Alto de la imagen fuente en píxeles (se recorta al borde).
+ * @param[in,out] framebuffer Frame buffer destino (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito (incluye x0/y0 fuera de pantalla, que se ignora).
+ *         - ILI9341_INVALID_PARAM   si @p src, @p framebuffer son NULL, o el handle DMA2D no fue inyectado.
+ *         - ILI9341_ERROR           si falla la transferencia DMA2D.
+ */
+ILI9341_Status_t ILI9341_BlitImage(const uint16_t* src, uint16_t x0, uint16_t y0,
+                                    uint16_t img_w, uint16_t img_h,
+                                    uint32_t* framebuffer)
+{
+    uint32_t dst;
+
+    if (src == NULL || framebuffer == NULL)           { return ILI9341_INVALID_PARAM; }
+    if (ILI9341_hdma2d == NULL)                       { return ILI9341_INVALID_PARAM; }
+    if (x0 >= ILI9341_WIDTH || y0 >= ILI9341_HEIGHT)  { return ILI9341_OK; }
+    if ((uint32_t)x0 + img_w > ILI9341_WIDTH)  { img_w = ILI9341_WIDTH  - x0; }
+    if ((uint32_t)y0 + img_h > ILI9341_HEIGHT) { img_h = ILI9341_HEIGHT - y0; }
+
+    /* Modo + formato + capa ya configurados en ILI9341_Init();
+       aquí solo se actualizan modo (M2M) y offset de salida. */
+    ILI9341_DMA2D_SetMode(DMA2D_M2M, ILI9341_WIDTH - img_w);
+
+    dst = (uint32_t)((uint16_t*)framebuffer + (uint32_t)y0 * ILI9341_WIDTH + x0);
+    if (HAL_DMA2D_Start(ILI9341_hdma2d, (uint32_t)src, dst, img_w, img_h) != HAL_OK) { return ILI9341_ERROR; }
+    if (HAL_DMA2D_PollForTransfer(ILI9341_hdma2d, HAL_MAX_DELAY) != HAL_OK)          { return ILI9341_ERROR; }
+    return ILI9341_OK;
+}
+#endif /* HAL_DMA2D_MODULE_ENABLED */
 
 // ============================================================================
 // FUNCIONES PÚBLICAS — Frame buffer SDRAM

@@ -2,8 +2,8 @@
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![STM32](https://img.shields.io/badge/Platform-STM32F429--Discovery-black)](https://www.st.com/en/evaluation-tools/32f429idiscovery.html)
-[![Version](https://img.shields.io/badge/Version-1.0.1-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/ILI9341_Disc1)
-[![Protocol](https://img.shields.io/badge/Protocol-SPI%20%2B%20I2C%20%2B%20SDRAM-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/ILI9341_Disc1)
+[![Version](https://img.shields.io/badge/Version-1.1.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/ILI9341_Disc1)
+[![Protocol](https://img.shields.io/badge/Protocol-SPI%20%2B%20I2C%20%2B%20SDRAM%20%2B%20DMA2D-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/ILI9341_Disc1)
 
 ---
 
@@ -20,6 +20,7 @@
   - [Configuración I2C](#configuración-i2c)
   - [Configuración SDRAM (opcional)](#configuración-sdram-opcional)
     - [Configuración](#configuración)
+  - [Configuración DMA2D (opcional)](#configuración-dma2d-opcional)
   - [Instalación](#instalación)
   - [Uso Básico](#uso-básico)
     - [1. Inicialización](#1-inicialización)
@@ -49,6 +50,7 @@
       - [`ILI9341_GetStringSize()` - Calcular Tamaño de Cadena](#ili9341_getstringsize---calcular-tamaño-de-cadena)
       - [`ILI9341_DisplayImage()` - Transferir Frame Buffer](#ili9341_displayimage---transferir-frame-buffer)
       - [Funciones de Frame Buffer fuera de Pantalla](#funciones-de-frame-buffer-fuera-de-pantalla)
+      - [`ILI9341_BlitImage()` - Copiar Imagen con DMA2D *(solo DMA2D)*](#ili9341_blitimage---copiar-imagen-con-dma2d-solo-dma2d)
       - [`ILI9341_Flush()` - Volcar Frame Buffer SDRAM *(solo SDRAM)*](#ili9341_flush---volcar-frame-buffer-sdram-solo-sdram)
       - [`ILI9341_GetFrameBuffer()` - Obtener Puntero al Frame Buffer SDRAM *(solo SDRAM)*](#ili9341_getframebuffer---obtener-puntero-al-frame-buffer-sdram-solo-sdram)
       - [`ILI9341_TP_Config()` - Configurar Panel Táctil](#ili9341_tp_config---configurar-panel-táctil)
@@ -56,32 +58,37 @@
   - [Colores Predefinidos](#colores-predefinidos)
   - [Licencia](#licencia)
   - [Changelog](#changelog)
-    - [\[1.0.1\]](#101)
-      - [Fixed](#fixed)
-    - [\[1.0.0\] - 08-06-2026](#100---08-06-2026)
+    - [\[1.1.0\] - 14-06-2026](#110---14-06-2026)
       - [Added](#added)
+      - [Changed](#changed)
+      - [Fixed](#fixed)
+    - [\[1.0.1\]](#101)
+      - [Fixed](#fixed-1)
+    - [\[1.0.0\] - 08-06-2026](#100---08-06-2026)
+      - [Added](#added-1)
 
 ---
 
 ## Descripción
 
-Librería desarrollada en C para el control de la pantalla TFT LCD **Ilitek ILI9341** de 240×320 píxeles integrada en la tarjeta **STM32F429-Discovery**. Proporciona una API completa para inicialización, primitivas de dibujo (píxeles, líneas, rectángulos, círculos), renderizado de texto con fuentes personalizables, transferencia eficiente de imágenes completas y soporte de frame buffer fuera de pantalla tanto en RAM interna como en la SDRAM externa IS42S16400J de 4 MB. Incluye además la gestión completa del panel táctil resistivo basado en el controlador **STMPE811** por I2C.
+Librería desarrollada en C para el control de la pantalla TFT LCD **Ilitek ILI9341** de 240×320 píxeles integrada en la tarjeta **STM32F429-Discovery**. Proporciona una API completa para inicialización, primitivas de dibujo (píxeles, líneas, rectángulos, círculos), renderizado de texto con fuentes personalizables, transferencia eficiente de imágenes completas y soporte de frame buffer fuera de pantalla tanto en RAM interna como en la SDRAM externa IS42S16400J de 4 MB. Incluye aceleración por hardware **DMA2D** para relleno de rectángulos y copia de imágenes al frame buffer, así como la gestión completa del panel táctil resistivo basado en el controlador **STMPE811** por I2C.
 
-Diseñada para ser portable y robusta: toda función pública retorna un código de estado `ILI9341_Status_t` que permite detectar errores de comunicación SPI/I2C, timeouts y condiciones de driver no inicializado.
+Diseñada para ser portable y robusta: toda función pública (incluidas las variantes `*_ImageBuffer()`) retorna un código de estado `ILI9341_Status_t` que permite detectar errores de comunicación SPI/I2C, timeouts y condiciones de driver no inicializado.
 
 ---
 
 ## Características
 
 - **Comunicación SPI optimizada**: Inicialización a 2 Mbit/s para la secuencia de configuración del chip; tras `ILI9341_Init()` el preescalador se eleva automáticamente a 45 Mbit/s para máxima velocidad de refresco.
-- **Escrituras SPI optimizadas mediante acceso directo al registro `DR`**: `ILI9341_Fill()`, `ILI9341_DrawFilledRectangle()`, `ILI9341_Putc()` e `ILI9341_DisplayImage()` acceden directamente al registro `DR` del SPI, eliminando el overhead de `HAL_SPI_Transmit` y maximizando el rendimiento en todas las operaciones de relleno y renderizado de texto.
+- **Escrituras SPI optimizadas mediante acceso directo al registro `DR`**: `ILI9341_Fill()`, `ILI9341_DrawFilledRectangle()`, `ILI9341_Putc()` e `ILI9341_DisplayImage()` acceden directamente al registro `DR` del SPI. El sondeo de TXE usa un contador de iteraciones (`SPI_ILI9341_WaitTXE`) en lugar de `HAL_GetTick()`, eliminando una llamada a función y una lectura de tick por byte en los bucles críticos de volcado.
+- **Aceleración DMA2D** *(requiere `HAL_DMA2D_MODULE_ENABLED`)*: `ILI9341_Init()` acepta un `DMA2D_HandleTypeDef*` opcional; si no es NULL, configura el periférico DMA2D una sola vez y lo reutiliza en modo R2M (relleno) para `ILI9341_DrawFilledRectangle_ImageBuffer()` y en modo M2M (copia) para `ILI9341_BlitImage()`. Si se pasa NULL, ambas operaciones usan el camino CPU.
 - **Primitivas de dibujo completas**: Píxeles, líneas (algoritmo de Bresenham), rectángulos (contorno y relleno) y círculos (contorno y relleno) directamente sobre la pantalla.
 - **Renderizado de texto**: `ILI9341_Putc()` / `ILI9341_Puts()` con soporte de saltos de línea, retorno de carro y fuentes de ancho variable mediante `LCD_FontDef_t`.
-- **Frame buffer fuera de pantalla (RAM)**: Juego completo de funciones `*_ImageBuffer()` que operan sobre un array `uint32_t[38 400]` en RAM interna, empaquetando dos píxeles RGB565 por palabra de 32 bits. Ideal para composición de imagen sin parpadeo.
+- **Frame buffer fuera de pantalla (RAM)**: Juego completo de funciones `*_ImageBuffer()` que operan sobre un array `uint32_t[38 400]` en RAM interna, empaquetando dos píxeles RGB565 por palabra de 32 bits. Todas estas funciones retornan `ILI9341_Status_t` para detectar errores (puntero NULL, fallo DMA2D). Ideal para composición de imagen sin parpadeo.
 - **Frame buffer en SDRAM** *(requiere `HAL_SDRAM_MODULE_ENABLED`)*: `ILI9341_Init()` acepta un `SDRAM_HandleTypeDef*` opcional; si no es NULL, inicializa la IS42S16400J y reserva los primeros 153 600 bytes de `0xD0000000` como frame buffer interno. `ILI9341_Flush()` vuelca el buffer a pantalla con una sola llamada.
 - **Panel táctil resistivo STMPE811**: Configuración, lectura de coordenadas X/Y calibradas ([0, 239] × [0, 319]) y presión Z por I2C, con filtro de histeresis de 5 puntos.
 - **Cuatro orientaciones de pantalla**: Portrait 0°/180° y Landscape 90°/270° configurables en tiempo de ejecución con `ILI9341_Rotate()`.
-- **Manejo robusto de errores**: Retornos `ILI9341_Status_t` en todas las funciones públicas con valores específicos para parámetro inválido, timeout de SPI y driver no inicializado.
+- **Manejo robusto de errores**: Retornos `ILI9341_Status_t` en todas las funciones públicas (incluidas las variantes `*_ImageBuffer()`) con valores específicos para parámetro inválido, timeout de SPI, fallo DMA2D y driver no inicializado.
 - **Portabilidad HAL**: Solo requiere `main.h` (que incluye el HAL de STM32F4) para compilar. Los pines de control están definidos como macros modificables en el encabezado.
 
 ---
@@ -202,6 +209,22 @@ La secuencia de inicialización (habilitación de reloj, PALL, 4 ciclos de auto-
 
 ---
 
+## Configuración DMA2D (opcional)
+
+El soporte de aceleración gráfica por hardware se activa automáticamente cuando `HAL_DMA2D_MODULE_ENABLED` está definido (lo incluye el HAL generado por CubeMX al habilitar el periférico DMA2D).
+
+Habilita el periférico **DMA2D** en CubeMX: basta con marcarlo como *Activated* en la categoría *Multimedia*. La librería configura internamente el modo, el formato de color y la capa de entrada dentro de `ILI9341_Init()`, por lo que no es necesario ajustar ningún parámetro adicional en CubeMX.
+
+| Función acelerada por DMA2D | Modo DMA2D | Descripción |
+|-----------------------------|------------|-------------|
+| `ILI9341_DrawFilledRectangle_ImageBuffer()` | R2M (Register to Memory) | Rellena un rectángulo en el frame buffer sin intervención de la CPU |
+| `ILI9341_BlitImage()` | M2M (Memory to Memory) | Copia una imagen RGB565 fuente al frame buffer |
+
+> [!NOTE]
+> Si se pasa `NULL` como `hdma2d` en `ILI9341_Init()`, ambas operaciones usan el camino CPU como respaldo. El resto de funciones de dibujo no se ven afectadas.
+
+---
+
 ## Instalación
 
 1. Copia `ILI9341_Disc1.c`, `ILI9341_Disc1.h` y `lcd_fonts.h` a tu proyecto (ej: `Librerias/ILI9341_Disc1/`).
@@ -220,20 +243,40 @@ La secuencia de inicialización (habilitación de reloj, PALL, 4 ciclos de auto-
 ### 1. Inicialización
 
 ```c
-/* Solo SPI (sin panel táctil ni SDRAM) */
+/* Solo SPI (sin panel táctil, sin SDRAM, sin DMA2D) */
 ILI9341_Status_t status = ILI9341_Init(&hspi5);
 
-/* Con panel táctil I2C, sin SDRAM */
+/* Con panel táctil I2C, sin SDRAM ni DMA2D */
 ILI9341_Status_t status = ILI9341_Init(&hspi5, &hi2c3);
 
-/* Con SDRAM, sin panel táctil */
+/* Con DMA2D, sin panel táctil ni SDRAM */
+#ifdef HAL_DMA2D_MODULE_ENABLED
+ILI9341_Status_t status = ILI9341_Init(&hspi5, &hdma2d);
+#endif
+
+/* Con panel táctil I2C y DMA2D, sin SDRAM */
+#if defined(HAL_I2C_MODULE_ENABLED) && defined(HAL_DMA2D_MODULE_ENABLED)
+ILI9341_Status_t status = ILI9341_Init(&hspi5, &hi2c3, &hdma2d);
+#endif
+
+/* Con SDRAM, sin panel táctil ni DMA2D */
 #ifdef HAL_SDRAM_MODULE_ENABLED
 ILI9341_Status_t status = ILI9341_Init(&hspi5, &hsdram);
 #endif
 
-/* Con panel táctil I2C y SDRAM */
-#ifdef HAL_SDRAM_MODULE_ENABLED
+/* Con SDRAM y DMA2D, sin panel táctil */
+#if defined(HAL_SDRAM_MODULE_ENABLED) && defined(HAL_DMA2D_MODULE_ENABLED)
+ILI9341_Status_t status = ILI9341_Init(&hspi5, &hsdram, &hdma2d);
+#endif
+
+/* Con panel táctil I2C y SDRAM, sin DMA2D */
+#if defined(HAL_SDRAM_MODULE_ENABLED) && defined(HAL_I2C_MODULE_ENABLED)
 ILI9341_Status_t status = ILI9341_Init(&hspi5, &hi2c3, &hsdram);
+#endif
+
+/* Con panel táctil I2C, SDRAM y DMA2D */
+#if defined(HAL_SDRAM_MODULE_ENABLED) && defined(HAL_I2C_MODULE_ENABLED) && defined(HAL_DMA2D_MODULE_ENABLED)
+ILI9341_Status_t status = ILI9341_Init(&hspi5, &hi2c3, &hsdram, &hdma2d);
 #endif
 
 if (status != ILI9341_OK) {
@@ -247,7 +290,7 @@ if (ILI9341_TP_Config() != ILI9341_OK) {
 ```
 
 > [!NOTE]
-> El SPI debe estar previamente inicializado a ~5.6 Mbit/s mediante `MX_SPI5_Init()`. La librería elevará el preescalador automáticamente al final de `ILI9341_Init()`. Tanto el handle I2C (`hi2c`) como el SDRAM (`hsdram`) son opcionales: usa la sobrecarga que corresponda a los periféricos de tu proyecto.
+> El SPI debe estar previamente inicializado a ~5.6 Mbit/s mediante `MX_SPI5_Init()`. La librería elevará el preescalador automáticamente al final de `ILI9341_Init()`. Los handles I2C (`hi2c`), SDRAM (`hsdram`) y DMA2D (`hdma2d`) son opcionales: usa la sobrecarga que corresponda a los periféricos habilitados en tu proyecto. Pasar `NULL` como `hdma2d` deshabilita la aceleración DMA2D sin error.
 
 ---
 
@@ -457,37 +500,29 @@ typedef struct {
 
 #### `ILI9341_Init()` - Inicialización del Driver
 
-Inicializa la pantalla ILI9341 y, opcionalmente, la SDRAM IS42S16400J. Aplica la secuencia de configuración del chip, enciende la pantalla y eleva el preescalador SPI a 45 Mbit/s al finalizar. El estado inicial es Portrait 1 (240×320).
+Inicializa la pantalla ILI9341 y, opcionalmente, la SDRAM IS42S16400J y/o el acelerador DMA2D. Aplica la secuencia de configuración del chip, enciende la pantalla y eleva el preescalador SPI a 45 Mbit/s al finalizar. El estado inicial es Portrait 1 (240×320).
 
-```c
-/* Solo SPI (sin panel táctil ni SDRAM) */
-ILI9341_Status_t status = ILI9341_Init(&hspi5);
+La firma varía según los módulos HAL habilitados:
 
-/* Con panel táctil I2C, sin SDRAM */
-ILI9341_Status_t status = ILI9341_Init(&hspi5, &hi2c3);
-
-/* Con SDRAM, sin panel táctil */
-#ifdef HAL_SDRAM_MODULE_ENABLED
-ILI9341_Status_t status = ILI9341_Init(&hspi5, &hsdram);
-#endif
-
-/* Con panel táctil I2C y SDRAM */
-#ifdef HAL_SDRAM_MODULE_ENABLED
-ILI9341_Status_t status = ILI9341_Init(&hspi5, &hi2c3, &hsdram);
-#endif
-
-if (status != ILI9341_OK) {
-    Error_Handler();
-}
-```
+| `HAL_SDRAM_MODULE_ENABLED` | `HAL_I2C_MODULE_ENABLED` | `HAL_DMA2D_MODULE_ENABLED` | Firma resultante |
+|:--------------------------:|:------------------------:|:--------------------------:|------------------|
+| No | No | No | `ILI9341_Init(hspi)` |
+| No | No | Sí | `ILI9341_Init(hspi, hdma2d)` |
+| No | Sí | No | `ILI9341_Init(hspi, hi2c)` |
+| No | Sí | Sí | `ILI9341_Init(hspi, hi2c, hdma2d)` |
+| Sí | No | No | `ILI9341_Init(hspi, hsdram)` |
+| Sí | No | Sí | `ILI9341_Init(hspi, hsdram, hdma2d)` |
+| Sí | Sí | No | `ILI9341_Init(hspi, hi2c, hsdram)` |
+| Sí | Sí | Sí | `ILI9341_Init(hspi, hi2c, hsdram, hdma2d)` |
 
 | Parámetro | Tipo | Descripción |
 |-----------|------|-------------|
-| `hspi` | `SPI_HandleTypeDef*` | Handle del periférico SPI5 |
-| `hi2c` | `I2C_HandleTypeDef*` | Handle del periférico I2C3 (panel táctil) |
+| `hspi` | `SPI_HandleTypeDef*` | Handle del periférico SPI5 (obligatorio) |
+| `hi2c` | `I2C_HandleTypeDef*` | Handle del periférico I2C3 (panel táctil); obligatorio si `HAL_I2C_MODULE_ENABLED` |
 | `hsdram` | `SDRAM_HandleTypeDef*` | Handle SDRAM del FMC. `NULL` deshabilita el frame buffer en SDRAM |
+| `hdma2d` | `DMA2D_HandleTypeDef*` | Handle DMA2D. `NULL` deshabilita la aceleración DMA2D (rellenos y BlitImage usan CPU) |
 
-**Retorna**: `ILI9341_OK` si la inicialización fue exitosa, `ILI9341_INVALID_PARAM` si `hspi` o `hi2c` son NULL, `ILI9341_ERROR` si una transmisión SPI falló durante la configuración.
+**Retorna**: `ILI9341_OK` si la inicialización fue exitosa, `ILI9341_INVALID_PARAM` si `hspi` o `hi2c` son NULL, `ILI9341_ERROR` si una transmisión SPI o la configuración DMA2D falló durante la inicialización.
 
 **Secuencia interna:**
 1. Validación de parámetros y reset por hardware.
@@ -495,6 +530,7 @@ if (status != ILI9341_OK) {
 3. Salida del modo sleep y encendido de la pantalla.
 4. Reinicialización de SPI5 con preescalador `/2` (45 Mbit/s).
 5. *(Si `hsdram != NULL`)* Ejecución de la secuencia de inicialización SDRAM y mapeo del frame buffer en `0xD0000000`.
+6. *(Si `hdma2d != NULL`)* Configuración única del DMA2D: formato de salida RGB565, capa de entrada RGB565. Las operaciones de dibujo posteriores solo actualizan modo y offset mediante `ILI9341_DMA2D_SetMode()`.
 
 ---
 
@@ -707,15 +743,41 @@ Estas funciones realizan la misma operación que sus equivalentes directas, pero
 > [!NOTE]
 > Las versiones `_ImageBuffer` de Putc y Puts **no reciben color de fondo**: solo dibujan los píxeles del trazo en primer plano, dejando el resto del buffer sin modificar (renderizado transparente). Usa `memset` o `DrawFilledRectangle_ImageBuffer` para limpiar el fondo antes de renderizar texto.
 
+Todas retornan `ILI9341_Status_t` (`ILI9341_OK`, `ILI9341_INVALID_PARAM` o `ILI9341_ERROR`).
+
 | Función | Descripción |
 |---------|-------------|
 | `ILI9341_DrawPixel_ImageBuffer(x, y, color, image)` | Escribe un píxel en el buffer |
 | `ILI9341_DrawLine_ImageBuffer(x0, y0, x1, y1, color, image)` | Dibuja una línea (Bresenham) |
 | `ILI9341_DrawRectangle_ImageBuffer(x0, y0, x1, y1, color, image)` | Contorno de rectángulo |
-| `ILI9341_DrawFilledRectangle_ImageBuffer(x0, y0, x1, y1, color, image)` | Rectángulo relleno |
+| `ILI9341_DrawFilledRectangle_ImageBuffer(x0, y0, x1, y1, color, image)` | Rectángulo relleno (DMA2D R2M si disponible) |
 | `ILI9341_DrawFilledCircle_ImageBuffer(x0, y0, r, color, image)` | Círculo relleno |
 | `ILI9341_Putc_ImageBuffer(x, y, c, font, fg, image)` | Carácter (sin fondo) |
 | `ILI9341_Puts_ImageBuffer(x, y, str, font, fg, image)` | Cadena (sin fondo) |
+
+---
+
+#### `ILI9341_BlitImage()` - Copiar Imagen con DMA2D *(solo DMA2D)*
+
+Copia una imagen RGB565 al frame buffer usando DMA2D en modo memoria a memoria (M2M). La imagen se recorta automáticamente si sobresale del borde de la pantalla. Requiere que `ILI9341_Init()` haya sido invocado con un handle DMA2D válido.
+
+```c
+#ifdef HAL_DMA2D_MODULE_ENABLED
+ILI9341_Status_t ILI9341_BlitImage(const uint16_t* src, uint16_t x0, uint16_t y0,
+                                    uint16_t img_w, uint16_t img_h,
+                                    uint32_t* framebuffer);
+#endif
+```
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `src` | `const uint16_t*` | Puntero a la imagen fuente en formato RGB565 |
+| `x0`, `y0` | `uint16_t` | Esquina superior izquierda de destino en el frame buffer |
+| `img_w` | `uint16_t` | Ancho de la imagen fuente en píxeles |
+| `img_h` | `uint16_t` | Alto de la imagen fuente en píxeles |
+| `framebuffer` | `uint32_t*` | Frame buffer destino (`IMG_TOTAL_BUF32` palabras) |
+
+**Retorna**: `ILI9341_OK` si la copia fue exitosa (incluyendo el caso en que `x0`/`y0` están fuera de pantalla, que se ignora sin error), `ILI9341_INVALID_PARAM` si `src` o `framebuffer` son NULL o el handle DMA2D no fue inyectado, `ILI9341_ERROR` si la transferencia DMA2D falla.
 
 ---
 
@@ -803,6 +865,28 @@ Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](../../LI
 
 Todos los cambios notables de esta librería se documentan en esta sección.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
+
+---
+
+### [1.1.0] - 14-06-2026
+
+#### Added
+
+- Soporte de aceleración gráfica por hardware mediante **DMA2D** (`HAL_DMA2D_MODULE_ENABLED`):
+  - `ILI9341_BlitImage()`: copia una imagen RGB565 fuente al frame buffer usando DMA2D en modo M2M (memoria a memoria), con recorte automático al borde de pantalla.
+  - `ILI9341_DrawFilledRectangle_ImageBuffer()` usa DMA2D en modo R2M (registro a memoria) cuando el handle DMA2D fue inyectado en `ILI9341_Init()`; cae al camino CPU si se pasa `NULL`.
+  - Función privada `ILI9341_DMA2D_SetMode()` que reprograma modo y offset de salida del DMA2D directamente sobre los registros `CR`/`OOR`, evitando llamar a `HAL_DMA2D_Init()` en cada operación de dibujo.
+  - La firma de `ILI9341_Init()` se amplía a 8 combinaciones para cubrir todas las combinaciones posibles de `HAL_I2C_MODULE_ENABLED`, `HAL_SDRAM_MODULE_ENABLED` y `HAL_DMA2D_MODULE_ENABLED`.
+
+#### Changed
+
+- Todas las funciones `*_ImageBuffer()` que retornaban `void` ahora retornan `ILI9341_Status_t` (`ILI9341_OK`, `ILI9341_INVALID_PARAM`, `ILI9341_ERROR`). Afecta a: `DrawPixel_ImageBuffer`, `Putc_ImageBuffer`, `Puts_ImageBuffer`, `DrawLine_ImageBuffer`, `DrawRectangle_ImageBuffer`, `DrawFilledRectangle_ImageBuffer`, `DrawFilledCircle_ImageBuffer`.
+- `SPI_ILI9341_WaitTXE()` (privada): el sondeo de la bandera TXE ahora usa un contador de iteraciones (`ILI9341_SPI_TXE_SPIN_MAX = 1 000 000`) en lugar de `HAL_GetTick()`, eliminando una llamada a función y una lectura de tick por byte en los bucles críticos de `ILI9341_Fill()` e `ILI9341_DrawFilledRectangle()`.
+- `DrawFilledRectangle_ImageBuffer`: los píxeles de cabecera y cola (alineación impar) se escriben como halfword (`uint16_t*`) en lugar de read-modify-write de 32 bits, eliminando artefactos de alineación.
+
+#### Fixed
+
+- Secuencia de inicialización SDRAM: el registro de modo ahora programa burst de **1 palabra** (en lugar de 2) tal como especifica el datasheet del IS42S16400J.
 
 ---
 
