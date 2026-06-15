@@ -2146,7 +2146,7 @@ uint32_t* ILI9341_GetFrameBuffer(void)
  * @brief Desinicializa el driver LCD y libera los recursos periféricos.
  *
  * @details Marca el driver como no inicializado y pone a NULL los handles
- *          internos de SPI e I2C. Si HAL_SDRAM_MODULE_ENABLED está definido y
+ *          internos de SPI, I2C y DMA2D. Si HAL_SDRAM_MODULE_ENABLED está definido y
  *          la SDRAM fue habilitada en Init(), también llama a HAL_SDRAM_DeInit()
  *          y limpia el puntero al frame buffer. Tras esta llamada es necesario
  *          invocar ILI9341_Init() antes de usar cualquier otra función.
@@ -2176,6 +2176,9 @@ ILI9341_Status_t ILI9341_DeInit(void)
     ILI9341_hspi = NULL;
 #ifdef HAL_I2C_MODULE_ENABLED
     ILI9341_hi2c = NULL;
+#endif
+#ifdef HAL_DMA2D_MODULE_ENABLED
+    ILI9341_hdma2d = NULL;
 #endif
 
     return ILI9341_OK;
