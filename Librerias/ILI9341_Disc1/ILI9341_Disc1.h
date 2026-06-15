@@ -62,7 +62,7 @@
 #ifndef ILI9341_SDRAM_BASE
 #define ILI9341_SDRAM_BASE               0xD0000000U    /**< Dirección base del banco 2 del FMC en la STM32F429-Discovery */
 #endif
-#define ILI9341_SDRAM_FB_SIZE            (IMG_TOTAL_BUF32 * 4U) /**< Tamaño del frame-buffer en SDRAM en bytes (153 600 B) */
+#define ILI9341_SDRAM_FB_SIZE            (IMG_TOTAL_BUF32 * 4U) /**< Tamaño de cada frame-buffer en SDRAM en bytes (153 600 B) */
 
 #define IS42S16400J_SIZE                 0x400000U /**< Capacidad total del chip IS42S16400J: 4 MB */
 
@@ -623,30 +623,64 @@ ILI9341_Status_t ILI9341_BlitImage(const uint16_t* src, uint16_t x0, uint16_t y0
 #ifdef HAL_SDRAM_MODULE_ENABLED
 
 /**
- * @brief Transfiere el frame buffer interno (SDRAM) a la pantalla LCD mediante SPI.
+ * @brief Presenta el frame dibujado en pantalla usando doble buffer con pipelining DMA.
  *
- * @details Equivalente a llamar ILI9341_DisplayImage() con el puntero interno
- *          al frame buffer en SDRAM. Requiere que ILI9341_Init() haya sido
- *          invocado con un handle SDRAM válido.
+ * @details Internamente implementa el patrón front/back buffer de forma transparente:
+ *          -# Espera a que termine el DMA del frame anterior (si hay uno activo).
+ *          -# Intercambia los punteros front/back.
+ *          -# Inicia el DMA sobre el nuevo front buffer y retorna sin bloquear.
+ *
+ *          La CPU puede empezar a dibujar el siguiente frame inmediatamente después de
+ *          que Flush() retorne, mientras el DMA envía el frame actual a la pantalla.
+ *          El puntero devuelto por ILI9341_GetFrameBuffer() cambia tras cada llamada
+ *          a Flush(), por lo que debe invocarse de nuevo para obtener el back buffer activo.
+ *
+ *          Uso típico:
+ *          @code
+ *          while (1) {
+ *              uint32_t *fb = ILI9341_GetFrameBuffer();
+ *              draw_scene(fb);   // dibuja mientras el DMA envía el frame anterior
+ *              ILI9341_Flush();  // espera DMA, swap, arranca DMA del frame recién dibujado
+ *          }
+ *          @endcode
+ *
+ * @note No usar funciones de dibujo directo en pantalla (SPI) entre Flush() y el siguiente
+ *       ILI9341_GetFrameBuffer(), ya que el DMA puede estar ocupando el bus SPI.
  *
  * @return ILI9341_Status_t
- *         - ILI9341_OK              si la transferencia fue exitosa.
+ *         - ILI9341_OK              si el swap y el nuevo DMA se iniciaron correctamente.
  *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
  *         - ILI9341_INVALID_PARAM   si el frame buffer SDRAM no está habilitado (hsdram era NULL).
- *         - ILI9341_TIMEOUT         si el bus SPI se bloqueó.
- *         - ILI9341_ERROR           si el periférico SPI estaba ocupado.
+ *         - ILI9341_TIMEOUT         si el DMA anterior no terminó en 5 000 ms.
+ *         - ILI9341_ERROR           si HAL_SPI_Transmit_DMA falló.
  */
 ILI9341_Status_t ILI9341_Flush(void);
 
 /**
- * @brief Retorna el puntero al frame buffer interno ubicado en SDRAM.
+ * @brief Espera a que concluya el DMA en curso y restaura el bus SPI al modo 8 bits.
  *
- * @details El buffer tiene formato IMG_TOTAL_BUF32 palabras uint32_t (dos píxeles
- *          RGB565 empaquetados por palabra), compatible con todas las funciones
- *          ILI9341_*_ImageBuffer(). Retorna NULL si SDRAM no fue habilitada
- *          o si el driver no ha sido inicializado.
+ * @details Llamar al salir del modo de doble buffer antes de usar funciones de dibujo
+ *          directo en pantalla (ILI9341_Fill, ILI9341_DrawPixel, etc.).
+ *          Si no hay DMA activo retorna inmediatamente sin efecto.
  *
- * @return Puntero al frame buffer en SDRAM, o NULL si no está disponible.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              si el bus quedó libre correctamente.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_TIMEOUT         si el DMA no terminó en 5 000 ms.
+ */
+ILI9341_Status_t ILI9341_Sync(void);
+
+/**
+ * @brief Retorna el puntero al buffer de dibujo activo en SDRAM (back buffer).
+ *
+ * @details Devuelve siempre el buffer sobre el que debe dibujar la CPU — el back buffer
+ *          en el esquema de doble buffer interno. El puntero cambia tras cada llamada a
+ *          ILI9341_Flush(), por lo que hay que invocarlo de nuevo en cada frame.
+ *          El buffer tiene formato IMG_TOTAL_BUF32 palabras uint32_t (dos píxeles RGB565
+ *          por palabra), compatible con todas las funciones ILI9341_*_ImageBuffer().
+ *          Retorna NULL si SDRAM no fue habilitada o si el driver no ha sido inicializado.
+ *
+ * @return Puntero al back buffer en SDRAM, o NULL si no está disponible.
  */
 uint32_t* ILI9341_GetFrameBuffer(void);
 

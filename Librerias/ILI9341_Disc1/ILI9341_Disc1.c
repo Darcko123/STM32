@@ -43,19 +43,29 @@ static TP_STATE TP_State; /**< Estado interno del panel táctil (actualizado en 
 #endif
 
 #ifdef HAL_SDRAM_MODULE_ENABLED
-static SDRAM_HandleTypeDef* ILI9341_hsdram       = NULL; /**< Handle SDRAM; NULL si la SDRAM no fue habilitada en Init  */
-static uint32_t*            ILI9341_framebuffer  = NULL; /**< Puntero al frame buffer en SDRAM; NULL si no disponible   */
+#define ILI9341_SDRAM_FB_BACK  (ILI9341_SDRAM_BASE + ILI9341_SDRAM_FB_SIZE) /* dirección del back buffer */
 
-/* Verificación en tiempo de compilación: el frame buffer debe caber en el chip SDRAM.
+static SDRAM_HandleTypeDef* ILI9341_hsdram            = NULL; /**< Handle SDRAM; NULL si la SDRAM no fue habilitada en Init      */
+static uint32_t*            ILI9341_framebuffer        = NULL; /**< Front buffer en SDRAM: enviado a LCD por DMA                  */
+static uint32_t*            ILI9341_back_framebuffer   = NULL; /**< Back buffer en SDRAM: la CPU dibuja aquí mientras corre el DMA */
+
+/* Verificación en tiempo de compilación: los dos frame buffers deben caber en el chip SDRAM.
  * Genera un error "array size is negative" si la condición no se cumple. */
-typedef char ILI9341_sdram_fb_size_check[(ILI9341_SDRAM_FB_SIZE <= IS42S16400J_SIZE) ? 1 : -1];
+typedef char ILI9341_sdram_fb_size_check[((ILI9341_SDRAM_FB_SIZE * 2U) <= IS42S16400J_SIZE) ? 1 : -1];
 #endif
 
 #ifdef HAL_DMA2D_MODULE_ENABLED
 static DMA2D_HandleTypeDef* ILI9341_hdma2d = NULL; /**< Handle DMA2D inyectado en Init; NULL si no se habilitó o se pasó NULL */
 #endif
 
-static volatile uint8_t ILI9341_spi_dma_done = 0U; /**< Bandera puesta por HAL_SPI_TxCpltCallback al completar cada tramo DMA. */
+static volatile uint8_t ILI9341_spi_dma_done = 0U; /**< Bandera puesta por HAL_SPI_TxCpltCallback al completar toda la transferencia. */
+
+/* Estado del DMA async (doble buffer). El callback usa estas variables para
+ * encadenar el segundo tramo automáticamente en el modo pipelining. */
+static volatile uint8_t ILI9341_dma_state  = 0U;    /**< 0=idle, 1=primer tramo en vuelo, 2=segundo tramo en vuelo */
+static volatile uint8_t ILI9341_dma_cs_held = 0U;   /**< 1 mientras CS está bajo por un FlushAsync activo          */
+static volatile uint16_t*  ILI9341_dma_px2    = NULL;   /**< Puntero al inicio del segundo tramo (píxeles 38 400–76 799) */
+static volatile uint16_t   ILI9341_dma_half   = 0U;    /**< Tamaño de cada tramo en items de 16 bits                   */
 
 // ============================================================================
 // PROTOTIPOS DE FUNCIONES PRIVADAS
@@ -90,6 +100,10 @@ static void ILI9341_DMA2D_SetMode(uint32_t mode, uint32_t output_offset);
 #endif
 static ILI9341_Status_t ILI9341_SPI_SetDataSize(uint32_t datasize);
 static ILI9341_Status_t ILI9341_SPI_WaitDMAdone(uint32_t timeout_ms);
+#ifdef HAL_SDRAM_MODULE_ENABLED
+static ILI9341_Status_t ILI9341_FlushAsync(void);
+static ILI9341_Status_t ILI9341_PresentFrame(void);
+#endif
 
 // ============================================================================
 // FUNCIONES PRIVADAS
@@ -623,6 +637,7 @@ static ILI9341_Status_t ILI9341_SPI_WaitDMAdone(uint32_t timeout_ms)
         if ((HAL_GetTick() - t0) > timeout_ms)
         {
             HAL_SPI_DMAStop(ILI9341_hspi);
+            ILI9341_dma_state = 0U;
             return ILI9341_TIMEOUT;
         }
     }
@@ -633,15 +648,35 @@ static ILI9341_Status_t ILI9341_SPI_WaitDMAdone(uint32_t timeout_ms)
 /**
  * @brief Callback de fin de transferencia SPI por DMA (override del símbolo __weak del HAL).
  *
- * @details Llamado desde el ISR de DMA2_Stream6 cuando SPI5 termina de enviar
- *          el tramo de píxeles. Solo actúa sobre el handle SPI del driver ILI9341
- *          para no interferir con otros periféricos SPI que pudieran existir.
+ * @details Llamado desde el ISR de DMA2_Stream6 cuando SPI5 termina un tramo DMA.
+ *          En modo pipelining (ILI9341_FlushAsync): si acaba el primer tramo encadena
+ *          automáticamente el segundo; al terminar el segundo señaliza con spi_dma_done.
+ *          En modo bloqueante (ILI9341_DisplayImage): dma_state es 0 en ambos tramos,
+ *          por lo que el comportamiento es idéntico al original (señaliza spi_dma_done).
  *
  * @param[in] hspi Handle SPI que completó la transferencia.
  */
 void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
 {
-    if (hspi == ILI9341_hspi) { ILI9341_spi_dma_done = 1U; }
+    if (hspi != ILI9341_hspi) { return; }
+
+    if (ILI9341_dma_state == 1U)
+    {
+        /* Primer tramo del modo async completado: encadenar el segundo automáticamente. */
+        ILI9341_dma_state = 2U;
+        if (HAL_SPI_Transmit_DMA(ILI9341_hspi, (uint8_t*)ILI9341_dma_px2, ILI9341_dma_half) != HAL_OK)
+        {
+            /* Si el segundo tramo no pudo iniciarse, desbloquear el waiter limpiamente. */
+            ILI9341_spi_dma_done = 1U;
+            ILI9341_dma_state    = 0U;
+        }
+    }
+    else
+    {
+        /* Segundo tramo (o tramo único en modo bloqueante): señalizar fin de frame. */
+        ILI9341_spi_dma_done = 1U;
+        ILI9341_dma_state    = 0U;
+    }
 }
 
 // ============================================================================
@@ -680,8 +715,9 @@ ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi)
     ILI9341_Initialized = 0U;
 
 #ifdef HAL_SDRAM_MODULE_ENABLED
-    ILI9341_hsdram     = NULL;
-    ILI9341_framebuffer = NULL;
+    ILI9341_hsdram            = NULL;
+    ILI9341_framebuffer       = NULL;
+    ILI9341_back_framebuffer  = NULL;
 #endif
 
     ILI9341_CS_SET;
@@ -808,12 +844,15 @@ ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi)
     {
         FMC_SDRAM_CommandTypeDef sdramCmd = {0};
         if (SDRAM_Initialization_Sequence(hsdram, &sdramCmd) != HAL_OK) { return ILI9341_ERROR; }
-        ILI9341_framebuffer = (uint32_t*)ILI9341_SDRAM_BASE;
-        memset(ILI9341_framebuffer, 0, ILI9341_SDRAM_FB_SIZE);
+        ILI9341_framebuffer      = (uint32_t*)ILI9341_SDRAM_BASE;
+        ILI9341_back_framebuffer = (uint32_t*)ILI9341_SDRAM_FB_BACK;
+        memset(ILI9341_framebuffer,      0, ILI9341_SDRAM_FB_SIZE);
+        memset(ILI9341_back_framebuffer, 0, ILI9341_SDRAM_FB_SIZE);
     }
     else
     {
-        ILI9341_framebuffer = NULL;
+        ILI9341_framebuffer      = NULL;
+        ILI9341_back_framebuffer = NULL;
     }
 #endif
 
@@ -1950,40 +1989,155 @@ ILI9341_Status_t ILI9341_BlitImage(const uint16_t* src, uint16_t x0, uint16_t y0
 #ifdef HAL_SDRAM_MODULE_ENABLED
 
 /**
- * @brief Transfiere el frame buffer interno (SDRAM) a la pantalla LCD mediante SPI.
+ * @brief Presenta el frame dibujado en pantalla usando doble buffer con pipelining DMA.
  *
- * @details Equivalente a llamar ILI9341_DisplayImage() con el puntero interno
- *          al frame buffer en SDRAM. Requiere que ILI9341_Init() haya sido
- *          invocado con un handle SDRAM válido.
+ * @details Delega en ILI9341_PresentFrame() (privada): espera el DMA anterior, intercambia
+ *          front/back e inicia el DMA del frame recién dibujado sin bloquear.
+ *          Ver la documentación del header para el patrón de uso completo.
  *
  * @return ILI9341_Status_t
- *         - ILI9341_OK              si la transferencia fue exitosa.
- *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
- *         - ILI9341_INVALID_PARAM   si el frame buffer SDRAM no está habilitado (hsdram era NULL).
- *         - ILI9341_TIMEOUT         si el bus SPI se bloqueó.
- *         - ILI9341_ERROR           si el periférico SPI estaba ocupado.
  */
 ILI9341_Status_t ILI9341_Flush(void)
 {
     if (!ILI9341_Initialized)   { return ILI9341_NOT_INITIALIZED; }
     if (ILI9341_hsdram == NULL) { return ILI9341_INVALID_PARAM;   }
-    return ILI9341_DisplayImage(ILI9341_framebuffer);
+    return ILI9341_PresentFrame();
 }
 
 /**
- * @brief Retorna el puntero al frame buffer interno ubicado en SDRAM.
+ * @brief Espera a que concluya el DMA en curso y restaura el bus SPI al modo 8 bits.
  *
- * @details El buffer tiene formato IMG_TOTAL_BUF32 palabras uint32_t (dos píxeles
- *          RGB565 empaquetados por palabra), compatible con todas las funciones
- *          ILI9341_*_ImageBuffer(). Retorna NULL si SDRAM no fue habilitada
- *          o si el driver no ha sido inicializado.
+ * @details Debe llamarse al salir del modo de doble buffer antes de usar funciones de
+ *          dibujo directo en pantalla (ILI9341_Fill, ILI9341_DrawPixel, etc.).
+ *          Si no hay DMA activo retorna inmediatamente sin efecto.
  *
- * @return Puntero al frame buffer en SDRAM, o NULL si no está disponible.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              si el bus quedó libre correctamente.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_TIMEOUT         si el DMA no terminó en 5 000 ms.
+ */
+ILI9341_Status_t ILI9341_Sync(void)
+{
+    ILI9341_Status_t st = ILI9341_OK;
+    if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
+    if (!ILI9341_dma_cs_held) { return ILI9341_OK; }
+
+    if (ILI9341_dma_state != 0U)
+    {
+        st = ILI9341_SPI_WaitDMAdone(5000U);
+    }
+    ILI9341_SPI_SetDataSize(SPI_DATASIZE_8BIT);
+    ILI9341_CS_SET;
+    ILI9341_WRX_RESET;
+    ILI9341_dma_cs_held = 0U;
+    return st;
+}
+
+/**
+ * @brief Inicia la transferencia del front buffer a la LCD por SPI DMA sin bloquear.
+ *
+ * @details El callback HAL_SPI_TxCpltCallback encadena automáticamente el segundo tramo
+ *          (píxeles 38 400–76 799) para respetar el límite de 65 535 items del NDTR de DMA.
+ *          La función retorna en cuanto el primer tramo está encolado en el DMA.
+ *
+ * @return ILI9341_Status_t
+ */
+static ILI9341_Status_t ILI9341_FlushAsync(void)
+{
+    ILI9341_Status_t st;
+    uint16_t* const  px   = (uint16_t*)ILI9341_framebuffer;
+    const uint16_t   half = ILI9341_PIXEL / 2U;
+
+    if (!ILI9341_Initialized)                                       { return ILI9341_NOT_INITIALIZED; }
+    if (ILI9341_hsdram == NULL || ILI9341_back_framebuffer == NULL) { return ILI9341_INVALID_PARAM;   }
+    if (ILI9341_dma_state != 0U)                                    { return ILI9341_ERROR;            }
+
+    ILI9341_SetCursorPosition(0U, 0U, ILI9341_Opts.width - 1U, ILI9341_Opts.height - 1U);
+    ILI9341_SendCommand(ILI9341_GRAM);
+    ILI9341_WRX_SET;
+    ILI9341_CS_RESET;
+
+    st = ILI9341_SPI_SetDataSize(SPI_DATASIZE_16BIT);
+    if (st != ILI9341_OK)
+    {
+        ILI9341_CS_SET; ILI9341_WRX_RESET;
+        return st;
+    }
+
+    /* Prepara segundo tramo antes de armar el estado — el callback puede disparar
+     * muy rápido y debe encontrar px2/half ya escritos. */
+    ILI9341_dma_px2      = px + half;
+    ILI9341_dma_half     = half;
+    ILI9341_spi_dma_done = 0U;
+    ILI9341_dma_cs_held  = 1U;
+    ILI9341_dma_state    = 1U; /* arma la máquina de estados ANTES del HAL call */
+
+    if (HAL_SPI_Transmit_DMA(ILI9341_hspi, (uint8_t*)px, half) != HAL_OK)
+    {
+        ILI9341_dma_state   = 0U;
+        ILI9341_dma_cs_held = 0U;
+        ILI9341_SPI_SetDataSize(SPI_DATASIZE_8BIT);
+        ILI9341_CS_SET; ILI9341_WRX_RESET;
+        return ILI9341_ERROR;
+    }
+
+    return ILI9341_OK; /* DMA corriendo; caller puede dibujar en el back buffer */
+}
+
+/**
+ * @brief Espera el DMA en curso, hace swap de buffers e inicia la transferencia del nuevo frame.
+ *
+ * @details Implementa el paso de sincronización del patrón de doble buffer con pipelining.
+ *          Ver ILI9341_FlushAsync() y la documentación del header para el patrón de uso.
+ *
+ * @return ILI9341_Status_t
+ */
+static ILI9341_Status_t ILI9341_PresentFrame(void)
+{
+    ILI9341_Status_t st   = ILI9341_OK;
+    uint32_t*        tmp;
+
+    if (!ILI9341_Initialized)                                       { return ILI9341_NOT_INITIALIZED; }
+    if (ILI9341_hsdram == NULL || ILI9341_back_framebuffer == NULL) { return ILI9341_INVALID_PARAM;   }
+
+    /* Sincronizar con el DMA anterior si sigue activo o aún no se limpió CS. */
+    if (ILI9341_dma_cs_held)
+    {
+        if (ILI9341_dma_state != 0U)
+        {
+            st = ILI9341_SPI_WaitDMAdone(5000U);
+        }
+        ILI9341_SPI_SetDataSize(SPI_DATASIZE_8BIT);
+        ILI9341_CS_SET;
+        ILI9341_WRX_RESET;
+        ILI9341_dma_cs_held = 0U;
+        if (st != ILI9341_OK) { return st; }
+    }
+
+    /* Swap: el back buffer recién dibujado pasa a ser el front. */
+    tmp                      = ILI9341_framebuffer;
+    ILI9341_framebuffer      = ILI9341_back_framebuffer;
+    ILI9341_back_framebuffer = tmp;
+
+    /* Arrancar DMA sobre el nuevo front buffer inmediatamente. */
+    return ILI9341_FlushAsync();
+}
+
+/**
+ * @brief Retorna el puntero al back buffer activo ubicado en SDRAM.
+ *
+ * @details Devuelve siempre el back buffer (el buffer sobre el que debe dibujar la CPU).
+ *          Tiene formato IMG_TOTAL_BUF32 palabras uint32_t, compatible con todas las
+ *          funciones ILI9341_*_ImageBuffer(). El puntero cambia tras cada llamada a
+ *          ILI9341_Flush(), por lo que hay que invocarlo de nuevo en cada frame.
+ *          Retorna NULL si SDRAM no fue habilitada o el driver no está inicializado.
+ *
+ * @return Puntero al back buffer en SDRAM, o NULL si no está disponible.
  */
 uint32_t* ILI9341_GetFrameBuffer(void)
 {
     if (!ILI9341_Initialized) { return NULL; }
-    return ILI9341_framebuffer;
+    return ILI9341_back_framebuffer;
 }
 
 #endif /* HAL_SDRAM_MODULE_ENABLED */
@@ -2011,9 +2165,12 @@ ILI9341_Status_t ILI9341_DeInit(void)
     if (ILI9341_hsdram != NULL)
     {
         HAL_SDRAM_DeInit(ILI9341_hsdram);
-        ILI9341_hsdram      = NULL;
-        ILI9341_framebuffer = NULL;
+        ILI9341_hsdram           = NULL;
+        ILI9341_framebuffer      = NULL;
+        ILI9341_back_framebuffer = NULL;
     }
+    ILI9341_dma_state   = 0U;
+    ILI9341_dma_cs_held = 0U;
 #endif
 
     ILI9341_hspi = NULL;
