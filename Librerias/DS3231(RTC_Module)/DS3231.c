@@ -3,7 +3,7 @@
  * @brief Implementación de la librería para el módulo RTC DS3231 utilizando I2C en STM32.
  *
  * @author Daniel Ruiz
- * @date April 9, 2026
+ * @date Junio 16, 2026
  * @version 2.0.0
  */
 
@@ -192,7 +192,6 @@ DS3231_Status_t DS3231_SetAlarm1(ds3231_alarm1_t *alarm1)
  */
 DS3231_Status_t DS3231_GetAlarm1(ds3231_alarm1_t *alarma1)
 {
-
     if(DS3231_Initialized != 1)
     {
         return DS3231_NOT_INITIALIZED;
@@ -225,7 +224,6 @@ DS3231_Status_t DS3231_GetAlarm1(ds3231_alarm1_t *alarma1)
  */
 DS3231_Status_t DS3231_SetAlarm2(ds3231_alarm2_t *alarm2)
 {
-
     if(DS3231_Initialized != 1)
     {
         return DS3231_NOT_INITIALIZED;
@@ -316,7 +314,7 @@ DS3231_Status_t DS3231_GetTemperature(ds3231_temp_t *temp)
 
     if(temp == NULL)
     {
-        return DS3231_ERROR;
+        return DS3231_INVALID_PARAM;
     }
 
     uint8_t raw_bytes[2];
