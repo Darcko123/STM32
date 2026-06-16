@@ -5,8 +5,8 @@
  *
  * @origin El código de este driver se basa en la librería Petr Machala, Tilen Majerle, 2014.
  * @author Dr. Luis Antonio Raygoza Pérez & Ing. Daniel Ruiz
- * @date June 14, 2026
- * @version 1.1.0
+ * @date June 15, 2026
+ * @version 1.2.0
  */
 
 #include "ILI9341_Disc1.h"
@@ -43,17 +43,29 @@ static TP_STATE TP_State; /**< Estado interno del panel táctil (actualizado en 
 #endif
 
 #ifdef HAL_SDRAM_MODULE_ENABLED
-static SDRAM_HandleTypeDef* ILI9341_hsdram       = NULL; /**< Handle SDRAM; NULL si la SDRAM no fue habilitada en Init  */
-static uint32_t*            ILI9341_framebuffer  = NULL; /**< Puntero al frame buffer en SDRAM; NULL si no disponible   */
+#define ILI9341_SDRAM_FB_BACK  (ILI9341_SDRAM_BASE + ILI9341_SDRAM_FB_SIZE) /* dirección del back buffer */
 
-/* Verificación en tiempo de compilación: el frame buffer debe caber en el chip SDRAM.
+static SDRAM_HandleTypeDef* ILI9341_hsdram            = NULL; /**< Handle SDRAM; NULL si la SDRAM no fue habilitada en Init      */
+static uint32_t*            ILI9341_framebuffer        = NULL; /**< Front buffer en SDRAM: enviado a LCD por DMA                  */
+static uint32_t*            ILI9341_back_framebuffer   = NULL; /**< Back buffer en SDRAM: la CPU dibuja aquí mientras corre el DMA */
+
+/* Verificación en tiempo de compilación: los dos frame buffers deben caber en el chip SDRAM.
  * Genera un error "array size is negative" si la condición no se cumple. */
-typedef char ILI9341_sdram_fb_size_check[(ILI9341_SDRAM_FB_SIZE <= IS42S16400J_SIZE) ? 1 : -1];
+typedef char ILI9341_sdram_fb_size_check[((ILI9341_SDRAM_FB_SIZE * 2U) <= IS42S16400J_SIZE) ? 1 : -1];
 #endif
 
 #ifdef HAL_DMA2D_MODULE_ENABLED
 static DMA2D_HandleTypeDef* ILI9341_hdma2d = NULL; /**< Handle DMA2D inyectado en Init; NULL si no se habilitó o se pasó NULL */
 #endif
+
+static volatile uint8_t ILI9341_spi_dma_done = 0U; /**< Bandera puesta por HAL_SPI_TxCpltCallback al completar toda la transferencia. */
+
+/* Estado del DMA async (doble buffer). El callback usa estas variables para
+ * encadenar el segundo tramo automáticamente en el modo pipelining. */
+static volatile uint8_t ILI9341_dma_state  = 0U;    /**< 0=idle, 1=primer tramo en vuelo, 2=segundo tramo en vuelo */
+static volatile uint8_t ILI9341_dma_cs_held = 0U;   /**< 1 mientras CS está bajo por un FlushAsync activo          */
+static volatile uint16_t*  ILI9341_dma_px2    = NULL;   /**< Puntero al inicio del segundo tramo (píxeles 38 400–76 799) */
+static volatile uint16_t   ILI9341_dma_half   = 0U;    /**< Tamaño de cada tramo en items de 16 bits                   */
 
 // ============================================================================
 // PROTOTIPOS DE FUNCIONES PRIVADAS
@@ -82,9 +94,18 @@ static uint16_t ILI9341_TP_Read_Z(void);
 #endif /* HAL_I2C_MODULE_ENABLED */
 static ILI9341_Status_t DrawPixelClipped(int16_t x, int16_t y, uint16_t color);
 static ILI9341_Status_t DrawHSpanClipped(int16_t xL, int16_t xR, int16_t y, uint16_t color);
+#ifdef HAL_SDRAM_MODULE_ENABLED
 static ILI9341_Status_t DrawHSpanClipped_ImageBuffer(int16_t xL, int16_t xR, int16_t y, uint16_t color, uint32_t* image);
+static ILI9341_Status_t DrawPixelClipped_ImageBuffer(int16_t x, int16_t y, uint16_t color, uint32_t* image);
+#endif /* HAL_SDRAM_MODULE_ENABLED */
 #ifdef HAL_DMA2D_MODULE_ENABLED
 static void ILI9341_DMA2D_SetMode(uint32_t mode, uint32_t output_offset);
+#endif
+static ILI9341_Status_t ILI9341_SPI_SetDataSize(uint32_t datasize);
+static ILI9341_Status_t ILI9341_SPI_WaitDMAdone(uint32_t timeout_ms);
+#ifdef HAL_SDRAM_MODULE_ENABLED
+static ILI9341_Status_t ILI9341_FlushAsync(void);
+static ILI9341_Status_t ILI9341_PresentFrame(void);
 #endif
 
 // ============================================================================
@@ -544,6 +565,7 @@ static ILI9341_Status_t DrawHSpanClipped(int16_t xL, int16_t xR, int16_t y, uint
  * @param color Color del tramo en formato RGB565.
  * @param image Frame buffer destino.
  */
+#ifdef HAL_SDRAM_MODULE_ENABLED
 static ILI9341_Status_t DrawHSpanClipped_ImageBuffer(int16_t xL, int16_t xR, int16_t y, uint16_t color, uint32_t* image)
 {
     int16_t tmp;
@@ -554,6 +576,17 @@ static ILI9341_Status_t DrawHSpanClipped_ImageBuffer(int16_t xL, int16_t xR, int
     if (xL > xR) { return ILI9341_OK; }
     return ILI9341_DrawFilledRectangle_ImageBuffer((uint16_t)xL, (uint16_t)y, (uint16_t)xR, (uint16_t)y, color, image);
 }
+
+/**
+ * @brief Dibuja un píxel en (x, y) del frame buffer con recorte a los límites fijos del panel.
+ */
+static ILI9341_Status_t DrawPixelClipped_ImageBuffer(int16_t x, int16_t y, uint16_t color, uint32_t* image)
+{
+    if (x < 0 || y < 0 || (uint16_t)x >= ILI9341_WIDTH || (uint16_t)y >= ILI9341_HEIGHT)
+        return ILI9341_OK;
+    return ILI9341_DrawPixel_ImageBuffer((uint16_t)x, (uint16_t)y, color, image);
+}
+#endif /* HAL_SDRAM_MODULE_ENABLED */
 
 #ifdef HAL_DMA2D_MODULE_ENABLED
 /**
@@ -577,6 +610,89 @@ static void ILI9341_DMA2D_SetMode(uint32_t mode, uint32_t output_offset)
     MODIFY_REG(ILI9341_hdma2d->Instance->OOR, DMA2D_OOR_LO,  output_offset);
 }
 #endif /* HAL_DMA2D_MODULE_ENABLED */
+
+/**
+ * @brief Cambia el tamaño de dato del periférico SPI sin reinicializar el handle completo.
+ *
+ * @details Espera a que el bus SPI esté libre, deshabilita el periférico,
+ *          modifica el bit DFF en CR1 y actualiza Init.DataSize para que
+ *          HAL_SPI_Transmit_DMA configure el DMA correctamente.
+ *
+ * @param[in] datasize  SPI_DATASIZE_8BIT o SPI_DATASIZE_16BIT.
+ * @return ILI9341_OK o ILI9341_TIMEOUT si el bus quedó colgado.
+ */
+static ILI9341_Status_t ILI9341_SPI_SetDataSize(uint32_t datasize)
+{
+    uint32_t spin = ILI9341_SPI_TXE_SPIN_MAX;
+    while (__HAL_SPI_GET_FLAG(ILI9341_hspi, SPI_FLAG_BSY))
+    {
+        if (--spin == 0U) { return ILI9341_TIMEOUT; }
+    }
+    __HAL_SPI_DISABLE(ILI9341_hspi);
+    MODIFY_REG(ILI9341_hspi->Instance->CR1, SPI_CR1_DFF, datasize);
+    ILI9341_hspi->Init.DataSize = datasize;
+    __HAL_SPI_ENABLE(ILI9341_hspi);
+    return ILI9341_OK;
+}
+
+/**
+ * @brief Bloquea hasta que ILI9341_spi_dma_done sea distinto de cero o expire el timeout.
+ *
+ * @details Limpia la bandera antes de retornar en caso de éxito.
+ *          Si expira el timeout llama a HAL_SPI_DMAStop para abortar la transferencia.
+ *
+ * @param[in] timeout_ms Tiempo máximo de espera en milisegundos.
+ * @return ILI9341_OK o ILI9341_TIMEOUT.
+ */
+static ILI9341_Status_t ILI9341_SPI_WaitDMAdone(uint32_t timeout_ms)
+{
+    uint32_t t0 = HAL_GetTick();
+    while (!ILI9341_spi_dma_done)
+    {
+        if ((HAL_GetTick() - t0) > timeout_ms)
+        {
+            HAL_SPI_DMAStop(ILI9341_hspi);
+            ILI9341_dma_state = 0U;
+            return ILI9341_TIMEOUT;
+        }
+    }
+    ILI9341_spi_dma_done = 0U;
+    return ILI9341_OK;
+}
+
+/**
+ * @brief Callback de fin de transferencia SPI por DMA (override del símbolo __weak del HAL).
+ *
+ * @details Llamado desde el ISR de DMA2_Stream6 cuando SPI5 termina un tramo DMA.
+ *          En modo pipelining (ILI9341_FlushAsync): si acaba el primer tramo encadena
+ *          automáticamente el segundo; al terminar el segundo señaliza con spi_dma_done.
+ *          En modo bloqueante (ILI9341_DisplayImage): dma_state es 0 en ambos tramos,
+ *          por lo que el comportamiento es idéntico al original (señaliza spi_dma_done).
+ *
+ * @param[in] hspi Handle SPI que completó la transferencia.
+ */
+void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
+{
+    if (hspi != ILI9341_hspi) { return; }
+
+    if (ILI9341_dma_state == 1U)
+    {
+        /* Primer tramo del modo async completado: encadenar el segundo automáticamente. */
+        ILI9341_dma_state = 2U;
+        if (HAL_SPI_Transmit_DMA(ILI9341_hspi, (uint8_t*)ILI9341_dma_px2, ILI9341_dma_half) != HAL_OK)
+        {
+            /* Si el segundo tramo no pudo iniciarse, desbloquear el waiter limpiamente. */
+            ILI9341_spi_dma_done = 1U;
+            ILI9341_dma_state    = 0U;
+        }
+    }
+    else
+    {
+        /* Segundo tramo (o tramo único en modo bloqueante): señalizar fin de frame. */
+        ILI9341_spi_dma_done = 1U;
+        ILI9341_dma_state    = 0U;
+    }
+}
 
 // ============================================================================
 // FUNCIONES PÚBLICAS
@@ -614,8 +730,9 @@ ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi)
     ILI9341_Initialized = 0U;
 
 #ifdef HAL_SDRAM_MODULE_ENABLED
-    ILI9341_hsdram     = NULL;
-    ILI9341_framebuffer = NULL;
+    ILI9341_hsdram            = NULL;
+    ILI9341_framebuffer       = NULL;
+    ILI9341_back_framebuffer  = NULL;
 #endif
 
     ILI9341_CS_SET;
@@ -742,12 +859,15 @@ ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi)
     {
         FMC_SDRAM_CommandTypeDef sdramCmd = {0};
         if (SDRAM_Initialization_Sequence(hsdram, &sdramCmd) != HAL_OK) { return ILI9341_ERROR; }
-        ILI9341_framebuffer = (uint32_t*)ILI9341_SDRAM_BASE;
-        memset(ILI9341_framebuffer, 0, ILI9341_SDRAM_FB_SIZE);
+        ILI9341_framebuffer      = (uint32_t*)ILI9341_SDRAM_BASE;
+        ILI9341_back_framebuffer = (uint32_t*)ILI9341_SDRAM_FB_BACK;
+        memset(ILI9341_framebuffer,      0, ILI9341_SDRAM_FB_SIZE);
+        memset(ILI9341_back_framebuffer, 0, ILI9341_SDRAM_FB_SIZE);
     }
     else
     {
-        ILI9341_framebuffer = NULL;
+        ILI9341_framebuffer      = NULL;
+        ILI9341_back_framebuffer = NULL;
     }
 #endif
 
@@ -1039,6 +1159,157 @@ ILI9341_Status_t ILI9341_DrawRectangle(uint16_t x0, uint16_t y0, uint16_t x1, ui
 }
 
 /**
+ * @brief Dibuja el contorno de un rectángulo con esquinas redondeadas en la pantalla LCD.
+ *
+ * @param[in] x0    Coordenada X superior izquierda.
+ * @param[in] y0    Coordenada Y superior izquierda.
+ * @param[in] x1    Coordenada X inferior derecha.
+ * @param[in] y1    Coordenada Y inferior derecha.
+ * @param[in] r     Radio de las esquinas en píxeles (se recorta a min(ancho,alto)/2).
+ * @param[in] color Color del contorno en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawRoundRect(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t r, uint16_t color)
+{
+    ILI9341_Status_t st;
+    int16_t f, ddF_x, ddF_y, x, y;
+    int16_t cx0, cx1, cy0, cy1;
+    uint16_t rmax;
+
+    if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
+
+    if (x0 > x1) { uint16_t _t = x0; x0 = x1; x1 = _t; }
+    if (y0 > y1) { uint16_t _t = y0; y0 = y1; y1 = _t; }
+
+    rmax = ((x1 - x0) < (y1 - y0)) ? (x1 - x0) / 2U : (y1 - y0) / 2U;
+    if (r > rmax) { r = rmax; }
+    if (r == 0U)  { return ILI9341_DrawRectangle(x0, y0, x1, y1, color); }
+
+    cx0 = (int16_t)x0 + (int16_t)r;
+    cx1 = (int16_t)x1 - (int16_t)r;
+    cy0 = (int16_t)y0 + (int16_t)r;
+    cy1 = (int16_t)y1 - (int16_t)r;
+
+    /* Segmentos rectos */
+    st  = ILI9341_DrawLine((uint16_t)cx0, y0, (uint16_t)cx1, y0, color);
+    st  = st ? st : ILI9341_DrawLine((uint16_t)cx0, y1, (uint16_t)cx1, y1, color);
+    st  = st ? st : ILI9341_DrawLine(x0, (uint16_t)cy0, x0, (uint16_t)cy1, color);
+    st  = st ? st : ILI9341_DrawLine(x1, (uint16_t)cy0, x1, (uint16_t)cy1, color);
+    if (st != ILI9341_OK) { return st; }
+
+    /* Bresenham — estado inicial (x=0, y=r): píxeles cardinales de cada esquina */
+    f     =  1 - (int16_t)r;
+    ddF_x =  1;
+    ddF_y = -2 * (int16_t)r;
+    x     =  0;
+    y     =  (int16_t)r;
+
+    st  = DrawPixelClipped(cx0,     cy0 - y, color); /* TL arriba   */
+    st  = st ? st : DrawPixelClipped(cx1,     cy0 - y, color); /* TR arriba   */
+    st  = st ? st : DrawPixelClipped(cx0,     cy1 + y, color); /* BL abajo    */
+    st  = st ? st : DrawPixelClipped(cx1,     cy1 + y, color); /* BR abajo    */
+    st  = st ? st : DrawPixelClipped(cx0 - y, cy0,     color); /* TL izquierda */
+    st  = st ? st : DrawPixelClipped(cx1 + y, cy0,     color); /* TR derecha  */
+    st  = st ? st : DrawPixelClipped(cx0 - y, cy1,     color); /* BL izquierda */
+    st  = st ? st : DrawPixelClipped(cx1 + y, cy1,     color); /* BR derecha  */
+    if (st != ILI9341_OK) { return st; }
+
+    while (x < y)
+    {
+        if (f >= 0) { y--; ddF_y += 2; f += ddF_y; }
+        x++;
+        ddF_x += 2;
+        f += ddF_x;
+
+        /* TL: cuadrante (-x,-y) y (-y,-x) */
+        st  = DrawPixelClipped(cx0 - x, cy0 - y, color);
+        st  = st ? st : DrawPixelClipped(cx0 - y, cy0 - x, color);
+        /* TR: cuadrante (+x,-y) y (+y,-x) */
+        st  = st ? st : DrawPixelClipped(cx1 + x, cy0 - y, color);
+        st  = st ? st : DrawPixelClipped(cx1 + y, cy0 - x, color);
+        /* BL: cuadrante (-x,+y) y (-y,+x) */
+        st  = st ? st : DrawPixelClipped(cx0 - x, cy1 + y, color);
+        st  = st ? st : DrawPixelClipped(cx0 - y, cy1 + x, color);
+        /* BR: cuadrante (+x,+y) y (+y,+x) */
+        st  = st ? st : DrawPixelClipped(cx1 + x, cy1 + y, color);
+        st  = st ? st : DrawPixelClipped(cx1 + y, cy1 + x, color);
+        if (st != ILI9341_OK) { return st; }
+    }
+    return ILI9341_OK;
+}
+
+/**
+ * @brief Dibuja un rectángulo relleno con esquinas redondeadas en la pantalla LCD.
+ *
+ * @param[in] x0    Coordenada X superior izquierda.
+ * @param[in] y0    Coordenada Y superior izquierda.
+ * @param[in] x1    Coordenada X inferior derecha.
+ * @param[in] y1    Coordenada Y inferior derecha.
+ * @param[in] r     Radio de las esquinas en píxeles (se recorta a min(ancho,alto)/2).
+ * @param[in] color Color de relleno en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawFilledRoundRect(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t r, uint16_t color)
+{
+    ILI9341_Status_t st;
+    int16_t f, ddF_x, ddF_y, x, y;
+    int16_t cx0, cx1, cy0, cy1;
+    uint16_t rmax;
+
+    if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
+
+    if (x0 > x1) { uint16_t _t = x0; x0 = x1; x1 = _t; }
+    if (y0 > y1) { uint16_t _t = y0; y0 = y1; y1 = _t; }
+
+    rmax = ((x1 - x0) < (y1 - y0)) ? (x1 - x0) / 2U : (y1 - y0) / 2U;
+    if (r > rmax) { r = rmax; }
+    if (r == 0U)  { return ILI9341_DrawFilledRectangle(x0, y0, x1, y1, color); }
+
+    cx0 = (int16_t)x0 + (int16_t)r;
+    cx1 = (int16_t)x1 - (int16_t)r;
+    cy0 = (int16_t)y0 + (int16_t)r;
+    cy1 = (int16_t)y1 - (int16_t)r;
+
+    /* Franja central de ancho completo */
+    st = ILI9341_DrawFilledRectangle(x0, (uint16_t)cy0, x1, (uint16_t)cy1, color);
+    if (st != ILI9341_OK) { return st; }
+
+    f     =  1 - (int16_t)r;
+    ddF_x =  1;
+    ddF_y = -2 * (int16_t)r;
+    x     =  0;
+    y     =  (int16_t)r;
+
+    /* Tramos cardinales (estado inicial Bresenham: x=0, y=r) */
+    st  = DrawHSpanClipped(cx0, cx1, cy0 - y, color); /* tope superior */
+    st  = st ? st : DrawHSpanClipped(cx0, cx1, cy1 + y, color); /* tope inferior */
+    if (st != ILI9341_OK) { return st; }
+
+    while (x < y)
+    {
+        if (f >= 0) { y--; ddF_y += 2; f += ddF_y; }
+        x++;
+        ddF_x += 2;
+        f += ddF_x;
+
+        /* Filas del arco de esquina (cy0-y y cy1+y): ancho ±x desde los centros */
+        st  = DrawHSpanClipped(cx0 - x, cx1 + x, cy0 - y, color);
+        st  = st ? st : DrawHSpanClipped(cx0 - x, cx1 + x, cy1 + y, color);
+        /* Filas del arco lateral (cy0-x y cy1+x): ancho ±y desde los centros */
+        st  = st ? st : DrawHSpanClipped(cx0 - y, cx1 + y, cy0 - x, color);
+        st  = st ? st : DrawHSpanClipped(cx0 - y, cx1 + y, cy1 + x, color);
+        if (st != ILI9341_OK) { return st; }
+    }
+    return ILI9341_OK;
+}
+
+/**
  * @brief Dibuja un rectángulo relleno en la pantalla LCD.
  *
  * @param[in] x0    Coordenada X superior izquierda.
@@ -1246,6 +1517,93 @@ ILI9341_Status_t ILI9341_DrawFilledCircle(int16_t x0, int16_t y0, int16_t r, uin
         st  = st ? st : DrawHSpanClipped(x0 - x, x0 + x, y0 - y, color);
         st  = st ? st : DrawHSpanClipped(x0 - y, x0 + y, y0 + x, color);
         st  = st ? st : DrawHSpanClipped(x0 - y, x0 + y, y0 - x, color);
+        if (st != ILI9341_OK) { return st; }
+    }
+    return ILI9341_OK;
+}
+
+/**
+ * @brief Dibuja el contorno de un triángulo en la pantalla LCD.
+ *
+ * @param[in] x0    Coordenada X del primer vértice.
+ * @param[in] y0    Coordenada Y del primer vértice.
+ * @param[in] x1    Coordenada X del segundo vértice.
+ * @param[in] y1    Coordenada Y del segundo vértice.
+ * @param[in] x2    Coordenada X del tercer vértice.
+ * @param[in] y2    Coordenada Y del tercer vértice.
+ * @param[in] color Color de la línea en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawTriangle(uint16_t x0, uint16_t y0,
+                                       uint16_t x1, uint16_t y1,
+                                       uint16_t x2, uint16_t y2,
+                                       uint16_t color)
+{
+    ILI9341_Status_t st;
+    if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
+    st  = ILI9341_DrawLine(x0, y0, x1, y1, color);
+    st  = st ? st : ILI9341_DrawLine(x1, y1, x2, y2, color);
+    st  = st ? st : ILI9341_DrawLine(x2, y2, x0, y0, color);
+    return st;
+}
+
+/**
+ * @brief Dibuja un triángulo relleno en la pantalla LCD.
+ *
+ * @details Ordena los vértices por coordenada Y y rellena con tramos horizontales
+ *          usando interpolación entera. Los tramos se recortan al borde de pantalla.
+ *
+ * @param[in] x0    Coordenada X del primer vértice.
+ * @param[in] y0    Coordenada Y del primer vértice.
+ * @param[in] x1    Coordenada X del segundo vértice.
+ * @param[in] y1    Coordenada Y del segundo vértice.
+ * @param[in] x2    Coordenada X del tercer vértice.
+ * @param[in] y2    Coordenada Y del tercer vértice.
+ * @param[in] color Color de relleno en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawFilledTriangle(uint16_t x0, uint16_t y0,
+                                             uint16_t x1, uint16_t y1,
+                                             uint16_t x2, uint16_t y2,
+                                             uint16_t color)
+{
+    ILI9341_Status_t st;
+    int32_t ax, ay, bx, by, cx, cy, tmp;
+    int32_t y, xa, xb;
+
+    if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
+
+    ax = (int32_t)x0; ay = (int32_t)y0;
+    bx = (int32_t)x1; by = (int32_t)y1;
+    cx = (int32_t)x2; cy = (int32_t)y2;
+
+    /* Ordenar vértices por Y: ay <= by <= cy */
+    if (ay > by) { tmp = ax; ax = bx; bx = tmp; tmp = ay; ay = by; by = tmp; }
+    if (by > cy) { tmp = bx; bx = cx; cx = tmp; tmp = by; by = cy; cy = tmp; }
+    if (ay > by) { tmp = ax; ax = bx; bx = tmp; tmp = ay; ay = by; by = tmp; }
+
+    /* Triángulo degenerado: todos los vértices en la misma fila */
+    if (ay == cy)
+    {
+        return DrawHSpanClipped((int16_t)ax, (int16_t)cx, (int16_t)ay, color);
+    }
+
+    for (y = ay; y <= cy; y++)
+    {
+        /* Interpolación sobre el lado largo (a→c, siempre presente) */
+        xa = ax + (cx - ax) * (y - ay) / (cy - ay);
+        /* Interpolación sobre el lado corto activo según la mitad del triángulo */
+        if (y <= by)
+            xb = (ay == by) ? bx : ax + (bx - ax) * (y - ay) / (by - ay);
+        else
+            xb = bx + (cx - bx) * (y - by) / (cy - by);
+        st = DrawHSpanClipped((int16_t)xa, (int16_t)xb, (int16_t)y, color);
         if (st != ILI9341_OK) { return st; }
     }
     return ILI9341_OK;
@@ -1475,124 +1833,72 @@ void ILI9341_GetStringSize(char* str, LCD_FontDef_t* font, uint16_t* width, uint
  */
 ILI9341_Status_t ILI9341_DisplayImage(uint32_t image[IMG_TOTAL_BUF32])
 {
-    const uint32_t Timeout   = 5000U;
-    uint32_t       pix;
-    uint32_t       tickstart;
+    /* El frame buffer almacena píxeles como uint16_t en little-endian ([lo, hi] en bytes).
+     * Con SPI en modo 16 bits el periférico lee cada halfword y lo envía MSB-first,
+     * produciendo automáticamente el orden big-endian ([hi, lo]) que espera el ILI9341.
+     * El transfer se divide en dos tramos de 38 400 píxeles para respetar el límite de
+     * 65 535 items del registro NDTR del DMA. */
+    ILI9341_Status_t  st;
+    uint16_t* const   px   = (uint16_t*)image;
+    const uint16_t    half = ILI9341_PIXEL / 2U;   /* 38 400 px — cabe en uint16_t */
 
     if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
 
+    /* Ventana + comando GRAM en modo 8 bits (normal) */
     ILI9341_SetCursorPosition(0U, 0U, ILI9341_Opts.width - 1U, ILI9341_Opts.height - 1U);
     ILI9341_SendCommand(ILI9341_GRAM);
+
     ILI9341_WRX_SET;
     ILI9341_CS_RESET;
 
-    if (ILI9341_hspi->State != HAL_SPI_STATE_READY)
+    /* Cambiar SPI a 16 bits antes del DMA */
+    st = ILI9341_SPI_SetDataSize(SPI_DATASIZE_16BIT);
+    if (st != ILI9341_OK)
     {
-        ILI9341_WRX_RESET;
-        ILI9341_CS_SET;
+        ILI9341_CS_SET; ILI9341_WRX_RESET;
+        return st;
+    }
+
+    /* — Primer tramo: píxeles [0 … 38 399] — */
+    ILI9341_spi_dma_done = 0U;
+    if (HAL_SPI_Transmit_DMA(ILI9341_hspi, (uint8_t*)px, half) != HAL_OK)
+    {
+        ILI9341_SPI_SetDataSize(SPI_DATASIZE_8BIT);
+        ILI9341_CS_SET; ILI9341_WRX_RESET;
         return ILI9341_ERROR;
     }
-
-    assert_param(IS_SPI_DIRECTION_2LINES_OR_1LINE(ILI9341_hspi->Init.Direction));
-    __HAL_LOCK(ILI9341_hspi);
-    ILI9341_hspi->State      = HAL_SPI_STATE_BUSY_TX;
-    ILI9341_hspi->ErrorCode  = HAL_SPI_ERROR_NONE;
-    ILI9341_hspi->TxISR      = 0;
-    ILI9341_hspi->RxISR      = 0;
-    ILI9341_hspi->RxXferSize  = 0U;
-    ILI9341_hspi->RxXferCount = 0U;
-
-    if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE)
+    st = ILI9341_SPI_WaitDMAdone(5000U);
+    if (st != ILI9341_OK)
     {
-        SPI_RESET_CRC(ILI9341_hspi);
-    }
-    if (ILI9341_hspi->Init.Direction == SPI_DIRECTION_1LINE)
-    {
-        SPI_1LINE_TX(ILI9341_hspi);
-    }
-    if ((ILI9341_hspi->Instance->CR1 & SPI_CR1_SPE) != SPI_CR1_SPE)
-    {
-        __HAL_SPI_ENABLE(ILI9341_hspi);
+        ILI9341_SPI_SetDataSize(SPI_DATASIZE_8BIT);
+        ILI9341_CS_SET; ILI9341_WRX_RESET;
+        return st;
     }
 
-    for (uint32_t k = 0U; k < IMG_TOTAL_BUF32; k++)
+    /* — Segundo tramo: píxeles [38 400 … 76 799] — */
+    ILI9341_spi_dma_done = 0U;
+    if (HAL_SPI_Transmit_DMA(ILI9341_hspi, (uint8_t*)(px + half), half) != HAL_OK)
     {
-        pix = image[k];
-
-        /* Primer píxel (word bajo) — byte alto */
-        ILI9341_hspi->Instance->DR = (uint8_t)(pix >> 8);
-        if (SPI_ILI9341_WaitTXE() != ILI9341_OK) { return ILI9341_TIMEOUT; }
-
-        /* Primer píxel (word bajo) — byte bajo */
-        ILI9341_hspi->Instance->DR = (uint8_t)(pix & 0x000000FFU);
-        if (SPI_ILI9341_WaitTXE() != ILI9341_OK) { return ILI9341_TIMEOUT; }
-
-        /* Segundo píxel (word alto) — byte alto */
-        ILI9341_hspi->Instance->DR = (uint8_t)(pix >> 24);
-        if (SPI_ILI9341_WaitTXE() != ILI9341_OK) { return ILI9341_TIMEOUT; }
-
-        /* Segundo píxel (word alto) — byte bajo */
-        ILI9341_hspi->Instance->DR = (uint8_t)(pix >> 16);
-        if (SPI_ILI9341_WaitTXE() != ILI9341_OK) { return ILI9341_TIMEOUT; }
+        ILI9341_SPI_SetDataSize(SPI_DATASIZE_8BIT);
+        ILI9341_CS_SET; ILI9341_WRX_RESET;
+        return ILI9341_ERROR;
+    }
+    st = ILI9341_SPI_WaitDMAdone(5000U);
+    if (st != ILI9341_OK)
+    {
+        ILI9341_SPI_SetDataSize(SPI_DATASIZE_8BIT);
+        ILI9341_CS_SET; ILI9341_WRX_RESET;
+        return st;
     }
 
-    if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE)
-    {
-        ILI9341_hspi->Instance->CR1 |= SPI_CR1_CRCNEXT;
-    }
-
-    tickstart = HAL_GetTick();
-    while (__HAL_SPI_GET_FLAG(ILI9341_hspi, SPI_FLAG_TXE) == RESET)
-    {
-        if (Timeout != HAL_MAX_DELAY)
-        {
-            if ((Timeout == 0U) || ((HAL_GetTick() - tickstart) > Timeout))
-            {
-                __HAL_SPI_DISABLE_IT(ILI9341_hspi, (SPI_IT_TXE | SPI_IT_RXNE | SPI_IT_ERR));
-                __HAL_SPI_DISABLE(ILI9341_hspi);
-                if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE) { SPI_RESET_CRC(ILI9341_hspi); }
-                ILI9341_hspi->State       = HAL_SPI_STATE_READY;
-                ILI9341_hspi->ErrorCode  |= HAL_SPI_ERROR_FLAG;
-                __HAL_UNLOCK(ILI9341_hspi);
-                ILI9341_WRX_RESET;
-                ILI9341_CS_SET;
-                return ILI9341_TIMEOUT;
-            }
-        }
-    }
-
-    tickstart = HAL_GetTick();
-    while (__HAL_SPI_GET_FLAG(ILI9341_hspi, SPI_FLAG_BSY) != RESET)
-    {
-        if (Timeout != HAL_MAX_DELAY)
-        {
-            if ((Timeout == 0U) || ((HAL_GetTick() - tickstart) > Timeout))
-            {
-                __HAL_SPI_DISABLE_IT(ILI9341_hspi, (SPI_IT_TXE | SPI_IT_RXNE | SPI_IT_ERR));
-                __HAL_SPI_DISABLE(ILI9341_hspi);
-                if (ILI9341_hspi->Init.CRCCalculation == SPI_CRCCALCULATION_ENABLE) { SPI_RESET_CRC(ILI9341_hspi); }
-                ILI9341_hspi->State       = HAL_SPI_STATE_READY;
-                ILI9341_hspi->ErrorCode  |= HAL_SPI_ERROR_FLAG;
-                __HAL_UNLOCK(ILI9341_hspi);
-                ILI9341_WRX_RESET;
-                ILI9341_CS_SET;
-                return ILI9341_TIMEOUT;
-            }
-        }
-    }
-
-    if (ILI9341_hspi->Init.Direction == SPI_DIRECTION_2LINES)
-    {
-        __HAL_SPI_CLEAR_OVRFLAG(ILI9341_hspi);
-    }
-
-    ILI9341_hspi->State = HAL_SPI_STATE_READY;
-    __HAL_UNLOCK(ILI9341_hspi);
-    ILI9341_WRX_RESET;
+    /* Restaurar SPI a 8 bits para el resto de las operaciones del driver */
+    ILI9341_SPI_SetDataSize(SPI_DATASIZE_8BIT);
     ILI9341_CS_SET;
-
+    ILI9341_WRX_RESET;
     return ILI9341_OK;
 }
+
+#ifdef HAL_SDRAM_MODULE_ENABLED
 
 /**
  * @brief Escribe un píxel en un frame buffer fuera de pantalla.
@@ -1771,6 +2077,150 @@ ILI9341_Status_t ILI9341_DrawRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uin
 }
 
 /**
+ * @brief Dibuja el contorno de un rectángulo con esquinas redondeadas en un frame buffer fuera de pantalla.
+ *
+ * @param[in]     x0     Coordenada X superior izquierda.
+ * @param[in]     y0     Coordenada Y superior izquierda.
+ * @param[in]     x1     Coordenada X inferior derecha.
+ * @param[in]     y1     Coordenada Y inferior derecha.
+ * @param[in]     r      Radio de las esquinas en píxeles (se recorta a min(ancho,alto)/2).
+ * @param[in]     color  Color del contorno en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK            en caso de éxito.
+ *         - ILI9341_INVALID_PARAM si @p image es NULL.
+ */
+ILI9341_Status_t ILI9341_DrawRoundRect_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t r, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
+{
+    ILI9341_Status_t st;
+    int16_t f, ddF_x, ddF_y, x, y;
+    int16_t cx0, cx1, cy0, cy1;
+    uint16_t rmax;
+
+    if (image == NULL) { return ILI9341_INVALID_PARAM; }
+
+    if (x0 > x1) { uint16_t _t = x0; x0 = x1; x1 = _t; }
+    if (y0 > y1) { uint16_t _t = y0; y0 = y1; y1 = _t; }
+
+    rmax = ((x1 - x0) < (y1 - y0)) ? (x1 - x0) / 2U : (y1 - y0) / 2U;
+    if (r > rmax) { r = rmax; }
+    if (r == 0U)  { return ILI9341_DrawRectangle_ImageBuffer(x0, y0, x1, y1, color, image); }
+
+    cx0 = (int16_t)x0 + (int16_t)r;
+    cx1 = (int16_t)x1 - (int16_t)r;
+    cy0 = (int16_t)y0 + (int16_t)r;
+    cy1 = (int16_t)y1 - (int16_t)r;
+
+    /* Segmentos rectos */
+    st  = ILI9341_DrawLine_ImageBuffer((uint16_t)cx0, y0, (uint16_t)cx1, y0, color, image);
+    st  = st ? st : ILI9341_DrawLine_ImageBuffer((uint16_t)cx0, y1, (uint16_t)cx1, y1, color, image);
+    st  = st ? st : ILI9341_DrawLine_ImageBuffer(x0, (uint16_t)cy0, x0, (uint16_t)cy1, color, image);
+    st  = st ? st : ILI9341_DrawLine_ImageBuffer(x1, (uint16_t)cy0, x1, (uint16_t)cy1, color, image);
+    if (st != ILI9341_OK) { return st; }
+
+    f     =  1 - (int16_t)r;
+    ddF_x =  1;
+    ddF_y = -2 * (int16_t)r;
+    x     =  0;
+    y     =  (int16_t)r;
+
+    st  = DrawPixelClipped_ImageBuffer(cx0,     cy0 - y, color, image);
+    st  = st ? st : DrawPixelClipped_ImageBuffer(cx1,     cy0 - y, color, image);
+    st  = st ? st : DrawPixelClipped_ImageBuffer(cx0,     cy1 + y, color, image);
+    st  = st ? st : DrawPixelClipped_ImageBuffer(cx1,     cy1 + y, color, image);
+    st  = st ? st : DrawPixelClipped_ImageBuffer(cx0 - y, cy0,     color, image);
+    st  = st ? st : DrawPixelClipped_ImageBuffer(cx1 + y, cy0,     color, image);
+    st  = st ? st : DrawPixelClipped_ImageBuffer(cx0 - y, cy1,     color, image);
+    st  = st ? st : DrawPixelClipped_ImageBuffer(cx1 + y, cy1,     color, image);
+    if (st != ILI9341_OK) { return st; }
+
+    while (x < y)
+    {
+        if (f >= 0) { y--; ddF_y += 2; f += ddF_y; }
+        x++;
+        ddF_x += 2;
+        f += ddF_x;
+
+        st  = DrawPixelClipped_ImageBuffer(cx0 - x, cy0 - y, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer(cx0 - y, cy0 - x, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer(cx1 + x, cy0 - y, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer(cx1 + y, cy0 - x, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer(cx0 - x, cy1 + y, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer(cx0 - y, cy1 + x, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer(cx1 + x, cy1 + y, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer(cx1 + y, cy1 + x, color, image);
+        if (st != ILI9341_OK) { return st; }
+    }
+    return ILI9341_OK;
+}
+
+/**
+ * @brief Dibuja un rectángulo relleno con esquinas redondeadas en un frame buffer fuera de pantalla.
+ *
+ * @param[in]     x0     Coordenada X superior izquierda.
+ * @param[in]     y0     Coordenada Y superior izquierda.
+ * @param[in]     x1     Coordenada X inferior derecha.
+ * @param[in]     y1     Coordenada Y inferior derecha.
+ * @param[in]     r      Radio de las esquinas en píxeles (se recorta a min(ancho,alto)/2).
+ * @param[in]     color  Color de relleno en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK            en caso de éxito.
+ *         - ILI9341_INVALID_PARAM si @p image es NULL.
+ *         - ILI9341_ERROR         si falla una transferencia DMA2D interna (solo con HAL_DMA2D_MODULE_ENABLED).
+ */
+ILI9341_Status_t ILI9341_DrawFilledRoundRect_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t r, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
+{
+    ILI9341_Status_t st;
+    int16_t f, ddF_x, ddF_y, x, y;
+    int16_t cx0, cx1, cy0, cy1;
+    uint16_t rmax;
+
+    if (image == NULL) { return ILI9341_INVALID_PARAM; }
+
+    if (x0 > x1) { uint16_t _t = x0; x0 = x1; x1 = _t; }
+    if (y0 > y1) { uint16_t _t = y0; y0 = y1; y1 = _t; }
+
+    rmax = ((x1 - x0) < (y1 - y0)) ? (x1 - x0) / 2U : (y1 - y0) / 2U;
+    if (r > rmax) { r = rmax; }
+    if (r == 0U)  { return ILI9341_DrawFilledRectangle_ImageBuffer(x0, y0, x1, y1, color, image); }
+
+    cx0 = (int16_t)x0 + (int16_t)r;
+    cx1 = (int16_t)x1 - (int16_t)r;
+    cy0 = (int16_t)y0 + (int16_t)r;
+    cy1 = (int16_t)y1 - (int16_t)r;
+
+    /* Franja central de ancho completo */
+    st = ILI9341_DrawFilledRectangle_ImageBuffer(x0, (uint16_t)cy0, x1, (uint16_t)cy1, color, image);
+    if (st != ILI9341_OK) { return st; }
+
+    f     =  1 - (int16_t)r;
+    ddF_x =  1;
+    ddF_y = -2 * (int16_t)r;
+    x     =  0;
+    y     =  (int16_t)r;
+
+    st  = DrawHSpanClipped_ImageBuffer(cx0, cx1, cy0 - y, color, image);
+    st  = st ? st : DrawHSpanClipped_ImageBuffer(cx0, cx1, cy1 + y, color, image);
+    if (st != ILI9341_OK) { return st; }
+
+    while (x < y)
+    {
+        if (f >= 0) { y--; ddF_y += 2; f += ddF_y; }
+        x++;
+        ddF_x += 2;
+        f += ddF_x;
+
+        st  = DrawHSpanClipped_ImageBuffer(cx0 - x, cx1 + x, cy0 - y, color, image);
+        st  = st ? st : DrawHSpanClipped_ImageBuffer(cx0 - x, cx1 + x, cy1 + y, color, image);
+        st  = st ? st : DrawHSpanClipped_ImageBuffer(cx0 - y, cx1 + y, cy0 - x, color, image);
+        st  = st ? st : DrawHSpanClipped_ImageBuffer(cx0 - y, cx1 + y, cy1 + x, color, image);
+        if (st != ILI9341_OK) { return st; }
+    }
+    return ILI9341_OK;
+}
+
+/**
  * @brief Dibuja un rectángulo relleno en un frame buffer fuera de pantalla.
  *
  * @param[in]     x0     Coordenada X superior izquierda.
@@ -1893,6 +2343,87 @@ ILI9341_Status_t ILI9341_DrawFilledCircle_ImageBuffer(int16_t x0, int16_t y0, in
     return ILI9341_OK;
 }
 
+/**
+ * @brief Dibuja el contorno de un triángulo en un frame buffer fuera de pantalla.
+ *
+ * @param[in]     x0     Coordenada X del primer vértice.
+ * @param[in]     y0     Coordenada Y del primer vértice.
+ * @param[in]     x1     Coordenada X del segundo vértice.
+ * @param[in]     y1     Coordenada Y del segundo vértice.
+ * @param[in]     x2     Coordenada X del tercer vértice.
+ * @param[in]     y2     Coordenada Y del tercer vértice.
+ * @param[in]     color  Color de la línea en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ */
+ILI9341_Status_t ILI9341_DrawTriangle_ImageBuffer(uint16_t x0, uint16_t y0,
+                                                   uint16_t x1, uint16_t y1,
+                                                   uint16_t x2, uint16_t y2,
+                                                   uint16_t color,
+                                                   uint32_t image[IMG_TOTAL_BUF32])
+{
+    ILI9341_Status_t st;
+    if (image == NULL) { return ILI9341_INVALID_PARAM; }
+    st  = ILI9341_DrawLine_ImageBuffer(x0, y0, x1, y1, color, image);
+    st  = st ? st : ILI9341_DrawLine_ImageBuffer(x1, y1, x2, y2, color, image);
+    st  = st ? st : ILI9341_DrawLine_ImageBuffer(x2, y2, x0, y0, color, image);
+    return st;
+}
+
+/**
+ * @brief Dibuja un triángulo relleno en un frame buffer fuera de pantalla.
+ *
+ * @details Misma lógica que ILI9341_DrawFilledTriangle() pero escribe directamente
+ *          en el frame buffer. Los tramos se recortan a los límites fijos del panel.
+ *
+ * @param[in]     x0     Coordenada X del primer vértice.
+ * @param[in]     y0     Coordenada Y del primer vértice.
+ * @param[in]     x1     Coordenada X del segundo vértice.
+ * @param[in]     y1     Coordenada Y del segundo vértice.
+ * @param[in]     x2     Coordenada X del tercer vértice.
+ * @param[in]     y2     Coordenada Y del tercer vértice.
+ * @param[in]     color  Color de relleno en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ */
+ILI9341_Status_t ILI9341_DrawFilledTriangle_ImageBuffer(uint16_t x0, uint16_t y0,
+                                                         uint16_t x1, uint16_t y1,
+                                                         uint16_t x2, uint16_t y2,
+                                                         uint16_t color,
+                                                         uint32_t image[IMG_TOTAL_BUF32])
+{
+    ILI9341_Status_t st;
+    int32_t ax, ay, bx, by, cx, cy, tmp;
+    int32_t y, xa, xb;
+
+    if (image == NULL) { return ILI9341_INVALID_PARAM; }
+
+    ax = (int32_t)x0; ay = (int32_t)y0;
+    bx = (int32_t)x1; by = (int32_t)y1;
+    cx = (int32_t)x2; cy = (int32_t)y2;
+
+    if (ay > by) { tmp = ax; ax = bx; bx = tmp; tmp = ay; ay = by; by = tmp; }
+    if (by > cy) { tmp = bx; bx = cx; cx = tmp; tmp = by; by = cy; cy = tmp; }
+    if (ay > by) { tmp = ax; ax = bx; bx = tmp; tmp = ay; ay = by; by = tmp; }
+
+    if (ay == cy)
+    {
+        return DrawHSpanClipped_ImageBuffer((int16_t)ax, (int16_t)cx, (int16_t)ay, color, image);
+    }
+
+    for (y = ay; y <= cy; y++)
+    {
+        xa = ax + (cx - ax) * (y - ay) / (cy - ay);
+        if (y <= by)
+            xb = (ay == by) ? bx : ax + (bx - ax) * (y - ay) / (by - ay);
+        else
+            xb = bx + (cx - bx) * (y - by) / (cy - by);
+        st = DrawHSpanClipped_ImageBuffer((int16_t)xa, (int16_t)xb, (int16_t)y, color, image);
+        if (st != ILI9341_OK) { return st; }
+    }
+    return ILI9341_OK;
+}
+
+#endif /* HAL_SDRAM_MODULE_ENABLED */
+
 #ifdef HAL_DMA2D_MODULE_ENABLED
 /**
  * @brief Copia una imagen RGB565 al frame buffer usando DMA2D (memoria a memoria).
@@ -1938,40 +2469,155 @@ ILI9341_Status_t ILI9341_BlitImage(const uint16_t* src, uint16_t x0, uint16_t y0
 #ifdef HAL_SDRAM_MODULE_ENABLED
 
 /**
- * @brief Transfiere el frame buffer interno (SDRAM) a la pantalla LCD mediante SPI.
+ * @brief Presenta el frame dibujado en pantalla usando doble buffer con pipelining DMA.
  *
- * @details Equivalente a llamar ILI9341_DisplayImage() con el puntero interno
- *          al frame buffer en SDRAM. Requiere que ILI9341_Init() haya sido
- *          invocado con un handle SDRAM válido.
+ * @details Delega en ILI9341_PresentFrame() (privada): espera el DMA anterior, intercambia
+ *          front/back e inicia el DMA del frame recién dibujado sin bloquear.
+ *          Ver la documentación del header para el patrón de uso completo.
  *
  * @return ILI9341_Status_t
- *         - ILI9341_OK              si la transferencia fue exitosa.
- *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
- *         - ILI9341_INVALID_PARAM   si el frame buffer SDRAM no está habilitado (hsdram era NULL).
- *         - ILI9341_TIMEOUT         si el bus SPI se bloqueó.
- *         - ILI9341_ERROR           si el periférico SPI estaba ocupado.
  */
 ILI9341_Status_t ILI9341_Flush(void)
 {
     if (!ILI9341_Initialized)   { return ILI9341_NOT_INITIALIZED; }
     if (ILI9341_hsdram == NULL) { return ILI9341_INVALID_PARAM;   }
-    return ILI9341_DisplayImage(ILI9341_framebuffer);
+    return ILI9341_PresentFrame();
 }
 
 /**
- * @brief Retorna el puntero al frame buffer interno ubicado en SDRAM.
+ * @brief Espera a que concluya el DMA en curso y restaura el bus SPI al modo 8 bits.
  *
- * @details El buffer tiene formato IMG_TOTAL_BUF32 palabras uint32_t (dos píxeles
- *          RGB565 empaquetados por palabra), compatible con todas las funciones
- *          ILI9341_*_ImageBuffer(). Retorna NULL si SDRAM no fue habilitada
- *          o si el driver no ha sido inicializado.
+ * @details Debe llamarse al salir del modo de doble buffer antes de usar funciones de
+ *          dibujo directo en pantalla (ILI9341_Fill, ILI9341_DrawPixel, etc.).
+ *          Si no hay DMA activo retorna inmediatamente sin efecto.
  *
- * @return Puntero al frame buffer en SDRAM, o NULL si no está disponible.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              si el bus quedó libre correctamente.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_TIMEOUT         si el DMA no terminó en 5 000 ms.
+ */
+ILI9341_Status_t ILI9341_Sync(void)
+{
+    ILI9341_Status_t st = ILI9341_OK;
+    if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
+    if (!ILI9341_dma_cs_held) { return ILI9341_OK; }
+
+    if (ILI9341_dma_state != 0U)
+    {
+        st = ILI9341_SPI_WaitDMAdone(5000U);
+    }
+    ILI9341_SPI_SetDataSize(SPI_DATASIZE_8BIT);
+    ILI9341_CS_SET;
+    ILI9341_WRX_RESET;
+    ILI9341_dma_cs_held = 0U;
+    return st;
+}
+
+/**
+ * @brief Inicia la transferencia del front buffer a la LCD por SPI DMA sin bloquear.
+ *
+ * @details El callback HAL_SPI_TxCpltCallback encadena automáticamente el segundo tramo
+ *          (píxeles 38 400–76 799) para respetar el límite de 65 535 items del NDTR de DMA.
+ *          La función retorna en cuanto el primer tramo está encolado en el DMA.
+ *
+ * @return ILI9341_Status_t
+ */
+static ILI9341_Status_t ILI9341_FlushAsync(void)
+{
+    ILI9341_Status_t st;
+    uint16_t* const  px   = (uint16_t*)ILI9341_framebuffer;
+    const uint16_t   half = ILI9341_PIXEL / 2U;
+
+    if (!ILI9341_Initialized)                                       { return ILI9341_NOT_INITIALIZED; }
+    if (ILI9341_hsdram == NULL || ILI9341_back_framebuffer == NULL) { return ILI9341_INVALID_PARAM;   }
+    if (ILI9341_dma_state != 0U)                                    { return ILI9341_ERROR;            }
+
+    ILI9341_SetCursorPosition(0U, 0U, ILI9341_Opts.width - 1U, ILI9341_Opts.height - 1U);
+    ILI9341_SendCommand(ILI9341_GRAM);
+    ILI9341_WRX_SET;
+    ILI9341_CS_RESET;
+
+    st = ILI9341_SPI_SetDataSize(SPI_DATASIZE_16BIT);
+    if (st != ILI9341_OK)
+    {
+        ILI9341_CS_SET; ILI9341_WRX_RESET;
+        return st;
+    }
+
+    /* Prepara segundo tramo antes de armar el estado — el callback puede disparar
+     * muy rápido y debe encontrar px2/half ya escritos. */
+    ILI9341_dma_px2      = px + half;
+    ILI9341_dma_half     = half;
+    ILI9341_spi_dma_done = 0U;
+    ILI9341_dma_cs_held  = 1U;
+    ILI9341_dma_state    = 1U; /* arma la máquina de estados ANTES del HAL call */
+
+    if (HAL_SPI_Transmit_DMA(ILI9341_hspi, (uint8_t*)px, half) != HAL_OK)
+    {
+        ILI9341_dma_state   = 0U;
+        ILI9341_dma_cs_held = 0U;
+        ILI9341_SPI_SetDataSize(SPI_DATASIZE_8BIT);
+        ILI9341_CS_SET; ILI9341_WRX_RESET;
+        return ILI9341_ERROR;
+    }
+
+    return ILI9341_OK; /* DMA corriendo; caller puede dibujar en el back buffer */
+}
+
+/**
+ * @brief Espera el DMA en curso, hace swap de buffers e inicia la transferencia del nuevo frame.
+ *
+ * @details Implementa el paso de sincronización del patrón de doble buffer con pipelining.
+ *          Ver ILI9341_FlushAsync() y la documentación del header para el patrón de uso.
+ *
+ * @return ILI9341_Status_t
+ */
+static ILI9341_Status_t ILI9341_PresentFrame(void)
+{
+    ILI9341_Status_t st   = ILI9341_OK;
+    uint32_t*        tmp;
+
+    if (!ILI9341_Initialized)                                       { return ILI9341_NOT_INITIALIZED; }
+    if (ILI9341_hsdram == NULL || ILI9341_back_framebuffer == NULL) { return ILI9341_INVALID_PARAM;   }
+
+    /* Sincronizar con el DMA anterior si sigue activo o aún no se limpió CS. */
+    if (ILI9341_dma_cs_held)
+    {
+        if (ILI9341_dma_state != 0U)
+        {
+            st = ILI9341_SPI_WaitDMAdone(5000U);
+        }
+        ILI9341_SPI_SetDataSize(SPI_DATASIZE_8BIT);
+        ILI9341_CS_SET;
+        ILI9341_WRX_RESET;
+        ILI9341_dma_cs_held = 0U;
+        if (st != ILI9341_OK) { return st; }
+    }
+
+    /* Swap: el back buffer recién dibujado pasa a ser el front. */
+    tmp                      = ILI9341_framebuffer;
+    ILI9341_framebuffer      = ILI9341_back_framebuffer;
+    ILI9341_back_framebuffer = tmp;
+
+    /* Arrancar DMA sobre el nuevo front buffer inmediatamente. */
+    return ILI9341_FlushAsync();
+}
+
+/**
+ * @brief Retorna el puntero al back buffer activo ubicado en SDRAM.
+ *
+ * @details Devuelve siempre el back buffer (el buffer sobre el que debe dibujar la CPU).
+ *          Tiene formato IMG_TOTAL_BUF32 palabras uint32_t, compatible con todas las
+ *          funciones ILI9341_*_ImageBuffer(). El puntero cambia tras cada llamada a
+ *          ILI9341_Flush(), por lo que hay que invocarlo de nuevo en cada frame.
+ *          Retorna NULL si SDRAM no fue habilitada o el driver no está inicializado.
+ *
+ * @return Puntero al back buffer en SDRAM, o NULL si no está disponible.
  */
 uint32_t* ILI9341_GetFrameBuffer(void)
 {
     if (!ILI9341_Initialized) { return NULL; }
-    return ILI9341_framebuffer;
+    return ILI9341_back_framebuffer;
 }
 
 #endif /* HAL_SDRAM_MODULE_ENABLED */
@@ -1980,7 +2626,7 @@ uint32_t* ILI9341_GetFrameBuffer(void)
  * @brief Desinicializa el driver LCD y libera los recursos periféricos.
  *
  * @details Marca el driver como no inicializado y pone a NULL los handles
- *          internos de SPI e I2C. Si HAL_SDRAM_MODULE_ENABLED está definido y
+ *          internos de SPI, I2C y DMA2D. Si HAL_SDRAM_MODULE_ENABLED está definido y
  *          la SDRAM fue habilitada en Init(), también llama a HAL_SDRAM_DeInit()
  *          y limpia el puntero al frame buffer. Tras esta llamada es necesario
  *          invocar ILI9341_Init() antes de usar cualquier otra función.
@@ -1999,14 +2645,20 @@ ILI9341_Status_t ILI9341_DeInit(void)
     if (ILI9341_hsdram != NULL)
     {
         HAL_SDRAM_DeInit(ILI9341_hsdram);
-        ILI9341_hsdram      = NULL;
-        ILI9341_framebuffer = NULL;
+        ILI9341_hsdram           = NULL;
+        ILI9341_framebuffer      = NULL;
+        ILI9341_back_framebuffer = NULL;
     }
+    ILI9341_dma_state   = 0U;
+    ILI9341_dma_cs_held = 0U;
 #endif
 
     ILI9341_hspi = NULL;
 #ifdef HAL_I2C_MODULE_ENABLED
     ILI9341_hi2c = NULL;
+#endif
+#ifdef HAL_DMA2D_MODULE_ENABLED
+    ILI9341_hdma2d = NULL;
 #endif
 
     return ILI9341_OK;

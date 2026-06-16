@@ -21,8 +21,8 @@
  *
  * @origin El código de este driver se basa en la librería Petr Machala, Tilen Majerle, 2014.
  * @author Dr. Luis Antonio Raygoza Pérez & Ing. Daniel Ruiz
- * @date June 14, 2026
- * @version 1.1.0
+ * @date June 15, 2026
+ * @version 1.2.0
  */
 
 #ifndef ILI9341_DISC1_H
@@ -62,7 +62,7 @@
 #ifndef ILI9341_SDRAM_BASE
 #define ILI9341_SDRAM_BASE               0xD0000000U    /**< Dirección base del banco 2 del FMC en la STM32F429-Discovery */
 #endif
-#define ILI9341_SDRAM_FB_SIZE            (IMG_TOTAL_BUF32 * 4U) /**< Tamaño del frame-buffer en SDRAM en bytes (153 600 B) */
+#define ILI9341_SDRAM_FB_SIZE            (IMG_TOTAL_BUF32 * 4U) /**< Tamaño de cada frame-buffer en SDRAM en bytes (153 600 B) */
 
 #define IS42S16400J_SIZE                 0x400000U /**< Capacidad total del chip IS42S16400J: 4 MB */
 
@@ -407,6 +407,48 @@ ILI9341_Status_t ILI9341_DrawRectangle(uint16_t x0, uint16_t y0, uint16_t x1, ui
 ILI9341_Status_t ILI9341_DrawFilledRectangle(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color);
 
 /**
+ * @brief Dibuja el contorno de un rectángulo con esquinas redondeadas en la pantalla LCD.
+ *
+ * @details Las esquinas se trazan con arcos de cuarto de círculo de radio @p r usando el
+ *          algoritmo de Bresenham. Si @p r supera la mitad del lado más corto se recorta
+ *          automáticamente; si se pasa 0 es equivalente a ILI9341_DrawRectangle().
+ *
+ * @param[in] x0    Coordenada X superior izquierda.
+ * @param[in] y0    Coordenada Y superior izquierda.
+ * @param[in] x1    Coordenada X inferior derecha.
+ * @param[in] y1    Coordenada Y inferior derecha.
+ * @param[in] r     Radio de las esquinas en píxeles.
+ * @param[in] color Color del contorno en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawRoundRect(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t r, uint16_t color);
+
+/**
+ * @brief Dibuja un rectángulo relleno con esquinas redondeadas en la pantalla LCD.
+ *
+ * @details Combina una franja central (rectángulo completo entre los centros de las
+ *          esquinas) con tramos horizontales generados por Bresenham para las zonas
+ *          de arco superior e inferior. Si @p r supera la mitad del lado más corto
+ *          se recorta automáticamente; si se pasa 0 es equivalente a
+ *          ILI9341_DrawFilledRectangle().
+ *
+ * @param[in] x0    Coordenada X superior izquierda.
+ * @param[in] y0    Coordenada Y superior izquierda.
+ * @param[in] x1    Coordenada X inferior derecha.
+ * @param[in] y1    Coordenada Y inferior derecha.
+ * @param[in] r     Radio de las esquinas en píxeles.
+ * @param[in] color Color de relleno en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawFilledRoundRect(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t r, uint16_t color);
+
+/**
  * @brief Dibuja el contorno de un círculo en la pantalla LCD.
  *
  * @param[in] x0    Coordenada X del centro.
@@ -433,6 +475,43 @@ ILI9341_Status_t ILI9341_DrawCircle(int16_t x0, int16_t y0, int16_t r, uint16_t 
  *         - ILI9341_ERROR           si falla la transmisión SPI.
  */
 ILI9341_Status_t ILI9341_DrawFilledCircle(int16_t x0, int16_t y0, int16_t r, uint16_t color);
+
+/**
+ * @brief Dibuja el contorno de un triángulo en la pantalla LCD.
+ *
+ * @param[in] x0    Coordenada X del primer vértice.
+ * @param[in] y0    Coordenada Y del primer vértice.
+ * @param[in] x1    Coordenada X del segundo vértice.
+ * @param[in] y1    Coordenada Y del segundo vértice.
+ * @param[in] x2    Coordenada X del tercer vértice.
+ * @param[in] y2    Coordenada Y del tercer vértice.
+ * @param[in] color Color de la línea en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawTriangle(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color);
+
+/**
+ * @brief Dibuja un triángulo relleno en la pantalla LCD.
+ *
+ * @details Ordena los vértices por coordenada Y y rellena con tramos horizontales
+ *          usando interpolación entera. Los tramos se recortan al borde de pantalla.
+ *
+ * @param[in] x0    Coordenada X del primer vértice.
+ * @param[in] y0    Coordenada Y del primer vértice.
+ * @param[in] x1    Coordenada X del segundo vértice.
+ * @param[in] y1    Coordenada Y del segundo vértice.
+ * @param[in] x2    Coordenada X del tercer vértice.
+ * @param[in] y2    Coordenada Y del tercer vértice.
+ * @param[in] color Color de relleno en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawFilledTriangle(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color);
 
 /* --- Texto en pantalla ---------------------------------------------------- */
 
@@ -493,6 +572,8 @@ void ILI9341_GetStringSize(char* str, LCD_FontDef_t* font, uint16_t* width, uint
 ILI9341_Status_t ILI9341_DisplayImage(uint32_t image[IMG_TOTAL_BUF32]);
 
 /* --- Frame buffer (escritura fuera de pantalla) --------------------------- */
+
+#ifdef HAL_SDRAM_MODULE_ENABLED
 
 /**
  * @brief Escribe un píxel en un frame buffer fuera de pantalla.
@@ -584,6 +665,48 @@ ILI9341_Status_t ILI9341_DrawRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uin
 ILI9341_Status_t ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
 
 /**
+ * @brief Dibuja el contorno de un rectángulo con esquinas redondeadas en un frame buffer fuera de pantalla.
+ *
+ * @details Misma lógica que ILI9341_DrawRoundRect() pero escribe directamente en el frame
+ *          buffer en lugar de enviar por SPI. Las esquinas se trazan con arcos de cuarto
+ *          de círculo usando Bresenham; @p r se recorta a min(ancho,alto)/2.
+ *
+ * @param[in]     x0     Coordenada X superior izquierda.
+ * @param[in]     y0     Coordenada Y superior izquierda.
+ * @param[in]     x1     Coordenada X inferior derecha.
+ * @param[in]     y1     Coordenada Y inferior derecha.
+ * @param[in]     r      Radio de las esquinas en píxeles.
+ * @param[in]     color  Color del contorno en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK            en caso de éxito.
+ *         - ILI9341_INVALID_PARAM si @p image es NULL.
+ */
+ILI9341_Status_t ILI9341_DrawRoundRect_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t r, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+
+/**
+ * @brief Dibuja un rectángulo relleno con esquinas redondeadas en un frame buffer fuera de pantalla.
+ *
+ * @details Misma lógica que ILI9341_DrawFilledRoundRect() pero escribe directamente en el
+ *          frame buffer. La franja central se delega a ILI9341_DrawFilledRectangle_ImageBuffer()
+ *          (que usa DMA2D cuando está disponible); los arcos se rellenan con tramos horizontales
+ *          de Bresenham. @p r se recorta a min(ancho,alto)/2.
+ *
+ * @param[in]     x0     Coordenada X superior izquierda.
+ * @param[in]     y0     Coordenada Y superior izquierda.
+ * @param[in]     x1     Coordenada X inferior derecha.
+ * @param[in]     y1     Coordenada Y inferior derecha.
+ * @param[in]     r      Radio de las esquinas en píxeles.
+ * @param[in]     color  Color de relleno en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK            en caso de éxito.
+ *         - ILI9341_INVALID_PARAM si @p image es NULL.
+ *         - ILI9341_ERROR         si falla una transferencia DMA2D interna (solo con HAL_DMA2D_MODULE_ENABLED).
+ */
+ILI9341_Status_t ILI9341_DrawFilledRoundRect_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t r, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+
+/**
  * @brief Dibuja un círculo relleno en un frame buffer fuera de pantalla.
  *
  * @param[in]     x0     Coordenada X del centro.
@@ -597,6 +720,45 @@ ILI9341_Status_t ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y
  *         - ILI9341_ERROR           si falla una transferencia DMA2D interna (solo con HAL_DMA2D_MODULE_ENABLED).
  */
 ILI9341_Status_t ILI9341_DrawFilledCircle_ImageBuffer(int16_t x0, int16_t y0, int16_t r, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+
+/**
+ * @brief Dibuja el contorno de un triángulo en un frame buffer fuera de pantalla.
+ *
+ * @param[in]     x0     Coordenada X del primer vértice.
+ * @param[in]     y0     Coordenada Y del primer vértice.
+ * @param[in]     x1     Coordenada X del segundo vértice.
+ * @param[in]     y1     Coordenada Y del segundo vértice.
+ * @param[in]     x2     Coordenada X del tercer vértice.
+ * @param[in]     y2     Coordenada Y del tercer vértice.
+ * @param[in]     color  Color de la línea en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK            en caso de éxito.
+ *         - ILI9341_INVALID_PARAM si @p image es NULL.
+ */
+ILI9341_Status_t ILI9341_DrawTriangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+
+/**
+ * @brief Dibuja un triángulo relleno en un frame buffer fuera de pantalla.
+ *
+ * @details Misma lógica que ILI9341_DrawFilledTriangle() pero escribe directamente
+ *          en el frame buffer. Los tramos se recortan a los límites fijos del panel.
+ *
+ * @param[in]     x0     Coordenada X del primer vértice.
+ * @param[in]     y0     Coordenada Y del primer vértice.
+ * @param[in]     x1     Coordenada X del segundo vértice.
+ * @param[in]     y1     Coordenada Y del segundo vértice.
+ * @param[in]     x2     Coordenada X del tercer vértice.
+ * @param[in]     y2     Coordenada Y del tercer vértice.
+ * @param[in]     color  Color de relleno en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK            en caso de éxito.
+ *         - ILI9341_INVALID_PARAM si @p image es NULL.
+ */
+ILI9341_Status_t ILI9341_DrawFilledTriangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+
+#endif /* HAL_SDRAM_MODULE_ENABLED */
 
 #ifdef HAL_DMA2D_MODULE_ENABLED
 /**
@@ -623,30 +785,64 @@ ILI9341_Status_t ILI9341_BlitImage(const uint16_t* src, uint16_t x0, uint16_t y0
 #ifdef HAL_SDRAM_MODULE_ENABLED
 
 /**
- * @brief Transfiere el frame buffer interno (SDRAM) a la pantalla LCD mediante SPI.
+ * @brief Presenta el frame dibujado en pantalla usando doble buffer con pipelining DMA.
  *
- * @details Equivalente a llamar ILI9341_DisplayImage() con el puntero interno
- *          al frame buffer en SDRAM. Requiere que ILI9341_Init() haya sido
- *          invocado con un handle SDRAM válido.
+ * @details Internamente implementa el patrón front/back buffer de forma transparente:
+ *          -# Espera a que termine el DMA del frame anterior (si hay uno activo).
+ *          -# Intercambia los punteros front/back.
+ *          -# Inicia el DMA sobre el nuevo front buffer y retorna sin bloquear.
+ *
+ *          La CPU puede empezar a dibujar el siguiente frame inmediatamente después de
+ *          que Flush() retorne, mientras el DMA envía el frame actual a la pantalla.
+ *          El puntero devuelto por ILI9341_GetFrameBuffer() cambia tras cada llamada
+ *          a Flush(), por lo que debe invocarse de nuevo para obtener el back buffer activo.
+ *
+ *          Uso típico:
+ *          @code
+ *          while (1) {
+ *              uint32_t *fb = ILI9341_GetFrameBuffer();
+ *              draw_scene(fb);   // dibuja mientras el DMA envía el frame anterior
+ *              ILI9341_Flush();  // espera DMA, swap, arranca DMA del frame recién dibujado
+ *          }
+ *          @endcode
+ *
+ * @note No usar funciones de dibujo directo en pantalla (SPI) entre Flush() y el siguiente
+ *       ILI9341_GetFrameBuffer(), ya que el DMA puede estar ocupando el bus SPI.
  *
  * @return ILI9341_Status_t
- *         - ILI9341_OK              si la transferencia fue exitosa.
+ *         - ILI9341_OK              si el swap y el nuevo DMA se iniciaron correctamente.
  *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
  *         - ILI9341_INVALID_PARAM   si el frame buffer SDRAM no está habilitado (hsdram era NULL).
- *         - ILI9341_TIMEOUT         si el bus SPI se bloqueó.
- *         - ILI9341_ERROR           si el periférico SPI estaba ocupado.
+ *         - ILI9341_TIMEOUT         si el DMA anterior no terminó en 5 000 ms.
+ *         - ILI9341_ERROR           si HAL_SPI_Transmit_DMA falló.
  */
 ILI9341_Status_t ILI9341_Flush(void);
 
 /**
- * @brief Retorna el puntero al frame buffer interno ubicado en SDRAM.
+ * @brief Espera a que concluya el DMA en curso y restaura el bus SPI al modo 8 bits.
  *
- * @details El buffer tiene formato IMG_TOTAL_BUF32 palabras uint32_t (dos píxeles
- *          RGB565 empaquetados por palabra), compatible con todas las funciones
- *          ILI9341_*_ImageBuffer(). Retorna NULL si SDRAM no fue habilitada
- *          o si el driver no ha sido inicializado.
+ * @details Llamar al salir del modo de doble buffer antes de usar funciones de dibujo
+ *          directo en pantalla (ILI9341_Fill, ILI9341_DrawPixel, etc.).
+ *          Si no hay DMA activo retorna inmediatamente sin efecto.
  *
- * @return Puntero al frame buffer en SDRAM, o NULL si no está disponible.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              si el bus quedó libre correctamente.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_TIMEOUT         si el DMA no terminó en 5 000 ms.
+ */
+ILI9341_Status_t ILI9341_Sync(void);
+
+/**
+ * @brief Retorna el puntero al buffer de dibujo activo en SDRAM (back buffer).
+ *
+ * @details Devuelve siempre el buffer sobre el que debe dibujar la CPU — el back buffer
+ *          en el esquema de doble buffer interno. El puntero cambia tras cada llamada a
+ *          ILI9341_Flush(), por lo que hay que invocarlo de nuevo en cada frame.
+ *          El buffer tiene formato IMG_TOTAL_BUF32 palabras uint32_t (dos píxeles RGB565
+ *          por palabra), compatible con todas las funciones ILI9341_*_ImageBuffer().
+ *          Retorna NULL si SDRAM no fue habilitada o si el driver no ha sido inicializado.
+ *
+ * @return Puntero al back buffer en SDRAM, o NULL si no está disponible.
  */
 uint32_t* ILI9341_GetFrameBuffer(void);
 
@@ -656,7 +852,7 @@ uint32_t* ILI9341_GetFrameBuffer(void);
  * @brief Desinicializa el driver LCD y libera los recursos periféricos.
  *
  * @details Marca el driver como no inicializado y pone a NULL los handles
- *          internos de SPI e I2C. Si HAL_SDRAM_MODULE_ENABLED está definido y
+ *          internos de SPI, I2C y DMA2D. Si HAL_SDRAM_MODULE_ENABLED está definido y
  *          la SDRAM fue habilitada en Init(), también llama a HAL_SDRAM_DeInit()
  *          y limpia el puntero al frame buffer. Tras esta llamada es necesario
  *          invocar ILI9341_Init() antes de usar cualquier otra función.

@@ -2,8 +2,8 @@
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![STM32](https://img.shields.io/badge/Platform-STM32F429--Discovery-black)](https://www.st.com/en/evaluation-tools/32f429idiscovery.html)
-[![Version](https://img.shields.io/badge/Version-1.1.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/ILI9341_Disc1)
-[![Protocol](https://img.shields.io/badge/Protocol-SPI%20%2B%20I2C%20%2B%20SDRAM%20%2B%20DMA2D-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/ILI9341_Disc1)
+[![Version](https://img.shields.io/badge/Version-1.2.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/ILI9341_Disc1)
+[![Protocol](https://img.shields.io/badge/Protocol-SPI%20%2B%20I2C%20%2B%20SDRAM%20%2B%20DMA2D%20%2B%20SPI--DMA-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/ILI9341_Disc1)
 
 ---
 
@@ -21,6 +21,7 @@
   - [Configuración SDRAM (opcional)](#configuración-sdram-opcional)
     - [Configuración](#configuración)
   - [Configuración DMA2D (opcional)](#configuración-dma2d-opcional)
+  - [Configuración DMA SPI TX (para DisplayImage y Flush)](#configuración-dma-spi-tx-para-displayimage-y-flush)
   - [Instalación](#instalación)
   - [Uso Básico](#uso-básico)
     - [1. Inicialización](#1-inicialización)
@@ -43,29 +44,43 @@
       - [`ILI9341_DrawLine()` - Dibujar Línea](#ili9341_drawline---dibujar-línea)
       - [`ILI9341_DrawRectangle()` - Dibujar Rectángulo](#ili9341_drawrectangle---dibujar-rectángulo)
       - [`ILI9341_DrawFilledRectangle()` - Dibujar Rectángulo Relleno](#ili9341_drawfilledrectangle---dibujar-rectángulo-relleno)
+      - [`ILI9341_DrawRoundRect()` - Dibujar Rectángulo con Esquinas Redondeadas](#ili9341_drawroundrect---dibujar-rectángulo-con-esquinas-redondeadas)
+      - [`ILI9341_DrawFilledRoundRect()` - Dibujar Rectángulo Redondeado Relleno](#ili9341_drawfilledroundrect---dibujar-rectángulo-redondeado-relleno)
       - [`ILI9341_DrawCircle()` - Dibujar Círculo](#ili9341_drawcircle---dibujar-círculo)
       - [`ILI9341_DrawFilledCircle()` - Dibujar Círculo Relleno](#ili9341_drawfilledcircle---dibujar-círculo-relleno)
+      - [`ILI9341_DrawTriangle()` - Dibujar Triángulo](#ili9341_drawtriangle---dibujar-triángulo)
+      - [`ILI9341_DrawFilledTriangle()` - Dibujar Triángulo Relleno](#ili9341_drawfilledtriangle---dibujar-triángulo-relleno)
       - [`ILI9341_Putc()` - Renderizar Carácter](#ili9341_putc---renderizar-carácter)
       - [`ILI9341_Puts()` - Renderizar Cadena](#ili9341_puts---renderizar-cadena)
       - [`ILI9341_GetStringSize()` - Calcular Tamaño de Cadena](#ili9341_getstringsize---calcular-tamaño-de-cadena)
       - [`ILI9341_DisplayImage()` - Transferir Frame Buffer](#ili9341_displayimage---transferir-frame-buffer)
       - [Funciones de Frame Buffer fuera de Pantalla](#funciones-de-frame-buffer-fuera-de-pantalla)
+      - [`ILI9341_DrawRoundRect_ImageBuffer()` - Rectángulo Redondeado en Buffer](#ili9341_drawroundrect_imagebuffer---rectángulo-redondeado-en-buffer)
+      - [`ILI9341_DrawFilledRoundRect_ImageBuffer()` - Rectángulo Redondeado Relleno en Buffer](#ili9341_drawfilledroundrect_imagebuffer---rectángulo-redondeado-relleno-en-buffer)
+      - [`ILI9341_DrawTriangle_ImageBuffer()` - Triángulo en Buffer](#ili9341_drawtriangle_imagebuffer---triángulo-en-buffer)
+      - [`ILI9341_DrawFilledTriangle_ImageBuffer()` - Triángulo Relleno en Buffer](#ili9341_drawfilledtriangle_imagebuffer---triángulo-relleno-en-buffer)
       - [`ILI9341_BlitImage()` - Copiar Imagen con DMA2D *(solo DMA2D)*](#ili9341_blitimage---copiar-imagen-con-dma2d-solo-dma2d)
       - [`ILI9341_Flush()` - Volcar Frame Buffer SDRAM *(solo SDRAM)*](#ili9341_flush---volcar-frame-buffer-sdram-solo-sdram)
+      - [`ILI9341_Sync()` - Sincronizar DMA con el bus SPI *(solo SDRAM)*](#ili9341_sync---sincronizar-dma-con-el-bus-spi-solo-sdram)
       - [`ILI9341_GetFrameBuffer()` - Obtener Puntero al Frame Buffer SDRAM *(solo SDRAM)*](#ili9341_getframebuffer---obtener-puntero-al-frame-buffer-sdram-solo-sdram)
       - [`ILI9341_TP_Config()` - Configurar Panel Táctil](#ili9341_tp_config---configurar-panel-táctil)
       - [`ILI9341_TP_GetState()` - Obtener Estado del Toque](#ili9341_tp_getstate---obtener-estado-del-toque)
   - [Colores Predefinidos](#colores-predefinidos)
   - [Licencia](#licencia)
   - [Changelog](#changelog)
-    - [\[1.1.0\] - 14-06-2026](#110---14-06-2026)
+    - [\[1.2.0\] - 15-06-2026](#120---15-06-2026)
       - [Added](#added)
       - [Changed](#changed)
       - [Fixed](#fixed)
-    - [\[1.0.1\]](#101)
-      - [Fixed](#fixed-1)
-    - [\[1.0.0\] - 08-06-2026](#100---08-06-2026)
+      - [Migration notes](#migration-notes)
+    - [\[1.1.0\] - 14-06-2026](#110---14-06-2026)
       - [Added](#added-1)
+      - [Changed](#changed-1)
+      - [Fixed](#fixed-1)
+    - [\[1.0.1\]](#101)
+      - [Fixed](#fixed-2)
+    - [\[1.0.0\] - 08-06-2026](#100---08-06-2026)
+      - [Added](#added-2)
 
 ---
 
@@ -80,9 +95,10 @@ Diseñada para ser portable y robusta: toda función pública (incluidas las var
 ## Características
 
 - **Comunicación SPI optimizada**: Inicialización a 2 Mbit/s para la secuencia de configuración del chip; tras `ILI9341_Init()` el preescalador se eleva automáticamente a 45 Mbit/s para máxima velocidad de refresco.
-- **Escrituras SPI optimizadas mediante acceso directo al registro `DR`**: `ILI9341_Fill()`, `ILI9341_DrawFilledRectangle()`, `ILI9341_Putc()` e `ILI9341_DisplayImage()` acceden directamente al registro `DR` del SPI. El sondeo de TXE usa un contador de iteraciones (`SPI_ILI9341_WaitTXE`) en lugar de `HAL_GetTick()`, eliminando una llamada a función y una lectura de tick por byte en los bucles críticos de volcado.
+- **Escrituras SPI optimizadas mediante acceso directo al registro `DR`**: `ILI9341_Fill()`, `ILI9341_DrawFilledRectangle()` e `ILI9341_Putc()` acceden directamente al registro `DR` del SPI. El sondeo de TXE usa un contador de iteraciones (`SPI_ILI9341_WaitTXE`) en lugar de `HAL_GetTick()`, eliminando una llamada a función y una lectura de tick por byte en los bucles críticos de volcado.
+- **Volcado de frame buffer por DMA SPI**: `ILI9341_DisplayImage()` e `ILI9341_Flush()` transfieren los 76 800 píxeles del frame buffer a la pantalla usando **DMA2\_Stream6** vinculado a SPI5\_TX en modo 16 bits. El SPI en modo 16 bits serializa cada `uint16_t` MSB-first, produciendo automáticamente el orden big-endian esperado por el ILI9341 sin swap manual de bytes. La transferencia se divide en dos tramos de 38 400 píxeles para respetar el límite de 65 535 items del registro NDTR del DMA.
 - **Aceleración DMA2D** *(requiere `HAL_DMA2D_MODULE_ENABLED`)*: `ILI9341_Init()` acepta un `DMA2D_HandleTypeDef*` opcional; si no es NULL, configura el periférico DMA2D una sola vez y lo reutiliza en modo R2M (relleno) para `ILI9341_DrawFilledRectangle_ImageBuffer()` y en modo M2M (copia) para `ILI9341_BlitImage()`. Si se pasa NULL, ambas operaciones usan el camino CPU.
-- **Primitivas de dibujo completas**: Píxeles, líneas (algoritmo de Bresenham), rectángulos (contorno y relleno) y círculos (contorno y relleno) directamente sobre la pantalla.
+- **Primitivas de dibujo completas**: Píxeles, líneas (algoritmo de Bresenham), rectángulos (contorno y relleno), círculos (contorno y relleno) y triángulos (contorno y relleno por scanline) directamente sobre la pantalla.
 - **Renderizado de texto**: `ILI9341_Putc()` / `ILI9341_Puts()` con soporte de saltos de línea, retorno de carro y fuentes de ancho variable mediante `LCD_FontDef_t`.
 - **Frame buffer fuera de pantalla (RAM)**: Juego completo de funciones `*_ImageBuffer()` que operan sobre un array `uint32_t[38 400]` en RAM interna, empaquetando dos píxeles RGB565 por palabra de 32 bits. Todas estas funciones retornan `ILI9341_Status_t` para detectar errores (puntero NULL, fallo DMA2D). Ideal para composición de imagen sin parpadeo.
 - **Frame buffer en SDRAM** *(requiere `HAL_SDRAM_MODULE_ENABLED`)*: `ILI9341_Init()` acepta un `SDRAM_HandleTypeDef*` opcional; si no es NULL, inicializa la IS42S16400J y reserva los primeros 153 600 bytes de `0xD0000000` como frame buffer interno. `ILI9341_Flush()` vuelca el buffer a pantalla con una sola llamada.
@@ -225,6 +241,36 @@ Habilita el periférico **DMA2D** en CubeMX: basta con marcarlo como *Activated*
 
 ---
 
+## Configuración DMA SPI TX (para DisplayImage y Flush)
+
+El volcado del frame buffer por DMA se activa al configurar **DMA2\_Stream6** como canal TX de SPI5 en CubeMX. No requiere ninguna macro de compilación adicional; la librería detecta en tiempo de ejecución si `hspi5.hdmatx` está enlazado.
+
+En la pestaña **SPI5 → DMA Settings** de CubeMX:
+
+| Parámetro | Valor |
+|-----------|-------|
+| **Request** | SPI5_TX |
+| **Stream** | DMA2\_Stream6 (automático) |
+| **Channel** | Channel 7 (automático) |
+| **Direction** | Memory To Peripheral |
+| **Mode** | Normal |
+| **Priority** | High |
+| **Peripheral Data Width** | **Half Word** |
+| **Memory Data Width** | **Half Word** |
+| **Memory Increment** | Enabled ✓ |
+| **Peripheral Increment** | Disabled |
+
+> [!IMPORTANT]
+> Tanto **Peripheral Data Width** como **Memory Data Width** deben configurarse en **Half Word** (16 bits). Esto es fundamental: el SPI se reconfigura a 16 bits justo antes del DMA para que el periférico envíe cada píxel RGB565 MSB-first (big-endian), de modo que no se necesita reordenar bytes desde el frame buffer. Con ancho de 8 bits el byte order sería incorrecto.
+
+> [!NOTE]
+> CubeMX genera el enlace `hspi5.hdmatx = &hdma_spi5_tx` dentro de `HAL_SPI_MspInit()` (en `stm32f4xx_hal_msp.c`) y el handler `DMA2_Stream6_IRQHandler` en `stm32f4xx_it.c`. Verifica que la llamada a `MX_DMA_Init()` aparezca **antes** de `MX_SPI5_Init()` en `main.c`.
+
+> [!WARNING]
+> La función `HAL_SPI_TxCpltCallback` está definida dentro de la librería. Si tu proyecto ya define este callback para otro propósito, obtendrás un error de símbolo duplicado en el enlazado. En ese caso, mueve el cuerpo del callback al tuyo propio y llama a `ILI9341_SPI_FlushDoneNotify()` — o bien gestiona los dos handles SPI con una condición `if`.
+
+---
+
 ## Instalación
 
 1. Copia `ILI9341_Disc1.c`, `ILI9341_Disc1.h` y `lcd_fonts.h` a tu proyecto (ej: `Librerias/ILI9341_Disc1/`).
@@ -312,11 +358,23 @@ ILI9341_DrawRectangle(20, 20, 220, 100, ILI9341_COLOR_GREEN);
 /* Dibujar un rectángulo relleno */
 ILI9341_DrawFilledRectangle(20, 120, 220, 200, ILI9341_COLOR_YELLOW);
 
+/* Dibujar el contorno de un rectángulo con esquinas redondeadas (radio = 12) */
+ILI9341_DrawRoundRect(20, 220, 220, 300, 12, ILI9341_COLOR_ORANGE);
+
+/* Dibujar un rectángulo redondeado relleno */
+ILI9341_DrawFilledRoundRect(20, 220, 220, 300, 12, ILI9341_COLOR_ORANGE);
+
 /* Dibujar el contorno de un círculo */
 ILI9341_DrawCircle(120, 160, 50, ILI9341_COLOR_CYAN);
 
 /* Dibujar un círculo relleno */
 ILI9341_DrawFilledCircle(120, 160, 30, ILI9341_COLOR_MAGENTA);
+
+/* Dibujar el contorno de un triángulo */
+ILI9341_DrawTriangle(10, 10, 230, 10, 120, 150, ILI9341_COLOR_RED);
+
+/* Dibujar un triángulo relleno */
+ILI9341_DrawFilledTriangle(10, 170, 230, 170, 120, 310, ILI9341_COLOR_BLUE);
 
 /* Rotar la pantalla a modo apaisado */
 ILI9341_Rotate(ILI9341_Orientation_Landscape_1);
@@ -636,6 +694,48 @@ ILI9341_Status_t ILI9341_DrawFilledRectangle(uint16_t x0, uint16_t y0,
 
 ---
 
+#### `ILI9341_DrawRoundRect()` - Dibujar Rectángulo con Esquinas Redondeadas
+
+Dibuja el contorno de un rectángulo con esquinas redondeadas. Las esquinas se forman con arcos de cuarto de círculo de radio `r` usando el algoritmo de Bresenham. Si `r` supera la mitad del lado más corto se recorta automáticamente; con `r = 0` es equivalente a `ILI9341_DrawRectangle()`.
+
+```c
+ILI9341_Status_t ILI9341_DrawRoundRect(uint16_t x0, uint16_t y0,
+                                        uint16_t x1, uint16_t y1,
+                                        uint16_t r, uint16_t color);
+```
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `x0`, `y0` | `uint16_t` | Esquina superior izquierda |
+| `x1`, `y1` | `uint16_t` | Esquina inferior derecha |
+| `r` | `uint16_t` | Radio de las esquinas en píxeles |
+| `color` | `uint16_t` | Color del contorno en formato RGB565 |
+
+**Retorna**: `ILI9341_OK`, `ILI9341_NOT_INITIALIZED` o `ILI9341_ERROR`.
+
+---
+
+#### `ILI9341_DrawFilledRoundRect()` - Dibujar Rectángulo Redondeado Relleno
+
+Dibuja un rectángulo relleno con esquinas redondeadas. Internamente combina una franja central con `ILI9341_DrawFilledRectangle()` y rellena los arcos superior e inferior con tramos horizontales generados por Bresenham, sin dejar huecos ni solapar píxeles. Con `r = 0` es equivalente a `ILI9341_DrawFilledRectangle()`.
+
+```c
+ILI9341_Status_t ILI9341_DrawFilledRoundRect(uint16_t x0, uint16_t y0,
+                                              uint16_t x1, uint16_t y1,
+                                              uint16_t r, uint16_t color);
+```
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `x0`, `y0` | `uint16_t` | Esquina superior izquierda |
+| `x1`, `y1` | `uint16_t` | Esquina inferior derecha |
+| `r` | `uint16_t` | Radio de las esquinas en píxeles |
+| `color` | `uint16_t` | Color de relleno en formato RGB565 |
+
+**Retorna**: `ILI9341_OK`, `ILI9341_NOT_INITIALIZED`, `ILI9341_ERROR` o `ILI9341_TIMEOUT`.
+
+---
+
 #### `ILI9341_DrawCircle()` - Dibujar Círculo
 
 Dibuja el contorno de un círculo usando el algoritmo de punto medio (Bresenham).
@@ -661,6 +761,50 @@ ILI9341_Status_t ILI9341_DrawCircle(int16_t x0, int16_t y0,
 ILI9341_Status_t ILI9341_DrawFilledCircle(int16_t x0, int16_t y0,
                                                int16_t r, uint16_t color);
 ```
+
+**Retorna**: `ILI9341_OK`, `ILI9341_NOT_INITIALIZED`, `ILI9341_ERROR` o `ILI9341_TIMEOUT`.
+
+---
+
+#### `ILI9341_DrawTriangle()` - Dibujar Triángulo
+
+Dibuja el contorno de un triángulo definido por tres vértices trazando las tres aristas con el algoritmo de Bresenham (delega en `ILI9341_DrawLine()`).
+
+```c
+ILI9341_Status_t ILI9341_DrawTriangle(uint16_t x0, uint16_t y0,
+                                       uint16_t x1, uint16_t y1,
+                                       uint16_t x2, uint16_t y2,
+                                       uint16_t color);
+```
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `x0`, `y0` | `uint16_t` | Primer vértice |
+| `x1`, `y1` | `uint16_t` | Segundo vértice |
+| `x2`, `y2` | `uint16_t` | Tercer vértice |
+| `color` | `uint16_t` | Color RGB565 del contorno |
+
+**Retorna**: `ILI9341_OK`, `ILI9341_NOT_INITIALIZED`, `ILI9341_ERROR` o `ILI9341_TIMEOUT`.
+
+---
+
+#### `ILI9341_DrawFilledTriangle()` - Dibujar Triángulo Relleno
+
+Dibuja un triángulo relleno usando un algoritmo de scanline. Los tres vértices se ordenan por coordenada Y y se interpolan los bordes con aritmética `int32_t` pura (sin punto flotante), garantizando cobertura exacta de todos los píxeles interiores. Los triángulos degenerados (los tres vértices en la misma fila) se reducen a un tramo horizontal.
+
+```c
+ILI9341_Status_t ILI9341_DrawFilledTriangle(uint16_t x0, uint16_t y0,
+                                             uint16_t x1, uint16_t y1,
+                                             uint16_t x2, uint16_t y2,
+                                             uint16_t color);
+```
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `x0`, `y0` | `uint16_t` | Primer vértice |
+| `x1`, `y1` | `uint16_t` | Segundo vértice |
+| `x2`, `y2` | `uint16_t` | Tercer vértice |
+| `color` | `uint16_t` | Color RGB565 del relleno |
 
 **Retorna**: `ILI9341_OK`, `ILI9341_NOT_INITIALIZED`, `ILI9341_ERROR` o `ILI9341_TIMEOUT`.
 
@@ -722,7 +866,12 @@ void ILI9341_GetStringSize(char* str, LCD_FontDef_t* font,
 
 #### `ILI9341_DisplayImage()` - Transferir Frame Buffer
 
-Transfiere un frame buffer RGB565 de pantalla completa a la LCD mediante acceso directo al registro `DR` del SPI para máxima velocidad. Cada palabra `uint32_t` contiene **dos píxeles RGB565**: el píxel de índice par en los bits `[15:0]` (word bajo) y el de índice impar en los bits `[31:16]` (word alto).
+Transfiere un frame buffer RGB565 de pantalla completa a la LCD mediante **DMA SPI en modo 16 bits** (dos tramos de 38 400 píxeles). El SPI se reconfigura temporalmente a 16 bits antes del DMA y se restaura a 8 bits al terminar; el resto de las funciones del driver no se ve afectado. El periférico serializa cada `uint16_t` MSB-first, produciendo el byte order big-endian esperado por el ILI9341 directamente desde el frame buffer sin reordenar bytes.
+
+Cada palabra `uint32_t` del buffer contiene **dos píxeles RGB565**: el píxel de índice par en los bits `[15:0]` (word bajo) y el de índice impar en los bits `[31:16]` (word alto).
+
+> [!NOTE]
+> Requiere que **DMA2\_Stream6** esté configurado para SPI5\_TX con ancho Half Word en CubeMX (ver [Configuración DMA SPI TX](#configuración-dma-spi-tx-para-displayimage-y-flush)).
 
 ```c
 ILI9341_Status_t ILI9341_DisplayImage(uint32_t image[IMG_TOTAL_BUF32]);
@@ -732,7 +881,7 @@ ILI9341_Status_t ILI9341_DisplayImage(uint32_t image[IMG_TOTAL_BUF32]);
 |-----------|------|-------------|
 | `image` | `uint32_t[38400]` | Frame buffer con `IMG_TOTAL_BUF32` = 38 400 palabras (153 600 bytes) |
 
-**Retorna**: `ILI9341_OK` si todos los píxeles se enviaron, `ILI9341_NOT_INITIALIZED`, `ILI9341_ERROR` si el SPI estaba ocupado, `ILI9341_TIMEOUT` si el bus se bloqueó.
+**Retorna**: `ILI9341_OK` si todos los píxeles se enviaron, `ILI9341_NOT_INITIALIZED`, `ILI9341_ERROR` si el DMA no pudo iniciarse, `ILI9341_TIMEOUT` si el bus se bloqueó durante la transferencia.
 
 ---
 
@@ -751,9 +900,91 @@ Todas retornan `ILI9341_Status_t` (`ILI9341_OK`, `ILI9341_INVALID_PARAM` o `ILI9
 | `ILI9341_DrawLine_ImageBuffer(x0, y0, x1, y1, color, image)` | Dibuja una línea (Bresenham) |
 | `ILI9341_DrawRectangle_ImageBuffer(x0, y0, x1, y1, color, image)` | Contorno de rectángulo |
 | `ILI9341_DrawFilledRectangle_ImageBuffer(x0, y0, x1, y1, color, image)` | Rectángulo relleno (DMA2D R2M si disponible) |
+| `ILI9341_DrawRoundRect_ImageBuffer(x0, y0, x1, y1, r, color, image)` | Contorno de rectángulo redondeado (Bresenham) |
+| `ILI9341_DrawFilledRoundRect_ImageBuffer(x0, y0, x1, y1, r, color, image)` | Rectángulo redondeado relleno (franja central con DMA2D si disponible + arcos por CPU) |
 | `ILI9341_DrawFilledCircle_ImageBuffer(x0, y0, r, color, image)` | Círculo relleno |
+| `ILI9341_DrawTriangle_ImageBuffer(x0, y0, x1, y1, x2, y2, color, image)` | Contorno de triángulo (tres llamadas a `DrawLine_ImageBuffer`) |
+| `ILI9341_DrawFilledTriangle_ImageBuffer(x0, y0, x1, y1, x2, y2, color, image)` | Triángulo relleno (scanline, aritmética entera) |
 | `ILI9341_Putc_ImageBuffer(x, y, c, font, fg, image)` | Carácter (sin fondo) |
 | `ILI9341_Puts_ImageBuffer(x, y, str, font, fg, image)` | Cadena (sin fondo) |
+
+---
+
+#### `ILI9341_DrawRoundRect_ImageBuffer()` - Rectángulo Redondeado en Buffer
+
+Misma lógica que `ILI9341_DrawRoundRect()` pero escribe directamente en el frame buffer. `r` se recorta a `min(ancho, alto) / 2`; con `r = 0` delega en `ILI9341_DrawRectangle_ImageBuffer()`.
+
+```c
+ILI9341_Status_t ILI9341_DrawRoundRect_ImageBuffer(uint16_t x0, uint16_t y0,
+                                                    uint16_t x1, uint16_t y1,
+                                                    uint16_t r, uint16_t color,
+                                                    uint32_t image[IMG_TOTAL_BUF32]);
+```
+
+**Retorna**: `ILI9341_OK` o `ILI9341_INVALID_PARAM` si `image` es NULL.
+
+---
+
+#### `ILI9341_DrawFilledRoundRect_ImageBuffer()` - Rectángulo Redondeado Relleno en Buffer
+
+Misma lógica que `ILI9341_DrawFilledRoundRect()` pero sobre el frame buffer. La franja central se dibuja con `ILI9341_DrawFilledRectangle_ImageBuffer()` (que usa DMA2D R2M cuando está disponible); los arcos superior e inferior se rellenan con tramos horizontales de Bresenham vía CPU.
+
+```c
+ILI9341_Status_t ILI9341_DrawFilledRoundRect_ImageBuffer(uint16_t x0, uint16_t y0,
+                                                          uint16_t x1, uint16_t y1,
+                                                          uint16_t r, uint16_t color,
+                                                          uint32_t image[IMG_TOTAL_BUF32]);
+```
+
+**Retorna**: `ILI9341_OK`, `ILI9341_INVALID_PARAM` si `image` es NULL, `ILI9341_ERROR` si falla la transferencia DMA2D de la franja central.
+
+---
+
+#### `ILI9341_DrawTriangle_ImageBuffer()` - Triángulo en Buffer
+
+Dibuja el contorno de un triángulo en el frame buffer trazando las tres aristas con Bresenham (delega en `ILI9341_DrawLine_ImageBuffer()`).
+
+```c
+ILI9341_Status_t ILI9341_DrawTriangle_ImageBuffer(uint16_t x0, uint16_t y0,
+                                                   uint16_t x1, uint16_t y1,
+                                                   uint16_t x2, uint16_t y2,
+                                                   uint16_t color,
+                                                   uint32_t image[IMG_TOTAL_BUF32]);
+```
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `x0`, `y0` | `uint16_t` | Primer vértice |
+| `x1`, `y1` | `uint16_t` | Segundo vértice |
+| `x2`, `y2` | `uint16_t` | Tercer vértice |
+| `color` | `uint16_t` | Color RGB565 del contorno |
+| `image` | `uint32_t[38400]` | Frame buffer destino |
+
+**Retorna**: `ILI9341_OK`, `ILI9341_INVALID_PARAM` si `image` es NULL.
+
+---
+
+#### `ILI9341_DrawFilledTriangle_ImageBuffer()` - Triángulo Relleno en Buffer
+
+Misma lógica que `ILI9341_DrawFilledTriangle()` pero escribe directamente en el frame buffer. El relleno usa aritmética `int32_t` pura (sin punto flotante) e internamente llama a la función helper privada `DrawHSpanClipped_ImageBuffer()`.
+
+```c
+ILI9341_Status_t ILI9341_DrawFilledTriangle_ImageBuffer(uint16_t x0, uint16_t y0,
+                                                         uint16_t x1, uint16_t y1,
+                                                         uint16_t x2, uint16_t y2,
+                                                         uint16_t color,
+                                                         uint32_t image[IMG_TOTAL_BUF32]);
+```
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `x0`, `y0` | `uint16_t` | Primer vértice |
+| `x1`, `y1` | `uint16_t` | Segundo vértice |
+| `x2`, `y2` | `uint16_t` | Tercer vértice |
+| `color` | `uint16_t` | Color RGB565 del relleno |
+| `image` | `uint32_t[38400]` | Frame buffer destino |
+
+**Retorna**: `ILI9341_OK`, `ILI9341_INVALID_PARAM` si `image` es NULL.
 
 ---
 
@@ -790,6 +1021,35 @@ ILI9341_Status_t ILI9341_Flush(void);
 ```
 
 **Retorna**: `ILI9341_OK`, `ILI9341_NOT_INITIALIZED`, `ILI9341_INVALID_PARAM` (si la SDRAM no fue habilitada), `ILI9341_TIMEOUT` o `ILI9341_ERROR`.
+
+---
+
+#### `ILI9341_Sync()` - Sincronizar DMA con el bus SPI *(solo SDRAM)*
+
+Espera a que concluya el DMA en curso y restaura el bus SPI al modo 8 bits. Si no hay DMA activo retorna inmediatamente sin efecto.
+
+Debe llamarse al salir del modo de doble buffer antes de usar funciones de dibujo directo en pantalla (`ILI9341_Fill`, `ILI9341_DrawPixel`, `ILI9341_DrawFilledRectangle`, etc.). Sin esta llamada, el SPI permanece en modo 16 bits y CS queda bajo, lo que corrompe los comandos enviados por las funciones directas.
+
+```c
+ILI9341_Status_t ILI9341_Sync(void);
+```
+
+**Uso típico al salir de una animación SDRAM:**
+
+```c
+/* Bucle de animación */
+for (int frame = 0; frame < N; frame++) {
+    uint32_t* fb = ILI9341_GetFrameBuffer();   /* puntero fresco en cada frame */
+    draw_scene(fb);
+    ILI9341_Flush();
+}
+
+/* Al salir del modo doble buffer, sincronizar antes de usar SPI directo */
+ILI9341_Sync();
+ILI9341_Fill(ILI9341_COLOR_BLACK);   /* ahora es seguro */
+```
+
+**Retorna**: `ILI9341_OK` si el bus quedó libre correctamente, `ILI9341_NOT_INITIALIZED` si el driver no está inicializado, `ILI9341_TIMEOUT` si el DMA no terminó en 5 000 ms.
 
 ---
 
@@ -865,6 +1125,51 @@ Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](../../LI
 
 Todos los cambios notables de esta librería se documentan en esta sección.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
+
+---
+
+### [1.2.0] - 15-06-2026
+
+#### Added
+
+- **Rectángulos con esquinas redondeadas** — cuatro nuevas primitivas de dibujo que combinan arcos de cuarto de círculo (algoritmo de Bresenham) con segmentos rectos para producir esquinas suaves:
+  - `ILI9341_DrawRoundRect()`: contorno sobre pantalla. Traza cuatro segmentos rectos y cuatro arcos de cuarto de círculo, uno por esquina. El radio `r` se recorta automáticamente a `min(ancho, alto) / 2`; con `r = 0` delega en `ILI9341_DrawRectangle()`.
+  - `ILI9341_DrawFilledRoundRect()`: relleno sobre pantalla. Dibuja la franja central con `ILI9341_DrawFilledRectangle()` (acceso directo al `DR` del SPI) y cubre los arcos superior e inferior con tramos horizontales generados por un único bucle Bresenham.
+  - `ILI9341_DrawRoundRect_ImageBuffer()`: versión para frame buffer del contorno. Usa la función helper privada `DrawPixelClipped_ImageBuffer` para trazar los arcos con recorte a los límites del panel.
+  - `ILI9341_DrawFilledRoundRect_ImageBuffer()`: versión para frame buffer del relleno. La franja central hereda la aceleración DMA2D R2M de `ILI9341_DrawFilledRectangle_ImageBuffer()` cuando el handle DMA2D fue inyectado en `ILI9341_Init()`; los arcos se rellenan siempre por CPU.
+- Helper privado `DrawPixelClipped_ImageBuffer()`: análogo a `DrawPixelClipped()` pero para frame buffer; recorta coordenadas `int16_t` antes de delegar en `ILI9341_DrawPixel_ImageBuffer()`.
+- **Triángulos** — cuatro nuevas primitivas que completan el conjunto de polígonos básicos:
+  - `ILI9341_DrawTriangle()`: contorno sobre pantalla. Traza las tres aristas delegando en `ILI9341_DrawLine()` (Bresenham con acceso directo al `DR` del SPI).
+  - `ILI9341_DrawFilledTriangle()`: relleno sobre pantalla. Ordena los tres vértices por coordenada Y y rellena fila a fila interpolando los bordes largo (a→c) y cortos (a→b / b→c) con división entera `int32_t` sin punto flotante. Los triángulos degenerados (collineales) se reducen a un único tramo horizontal. Protección explícita contra división por cero en triángulos de tope plano.
+  - `ILI9341_DrawTriangle_ImageBuffer()`: contorno en frame buffer. Delega en `ILI9341_DrawLine_ImageBuffer()`.
+  - `ILI9341_DrawFilledTriangle_ImageBuffer()`: relleno en frame buffer. Misma lógica de scanline que la versión directa pero usa la función helper privada `DrawHSpanClipped_ImageBuffer()`.
+
+- **Volcado de frame buffer por DMA SPI** (`ILI9341_DisplayImage` / `ILI9341_Flush`): la transferencia de los 76 800 píxeles al ILI9341 ahora usa DMA2\_Stream6 vinculado a SPI5\_TX, eliminando el loop de sondeo byte a byte anterior.
+  - Función privada `ILI9341_SPI_SetDataSize()`: cambia el bit `DFF` del registro `CR1` y actualiza `Init.DataSize` sin pasar por `HAL_SPI_DeInit/Init`, manteniendo el enlace DMA intacto.
+  - Función privada `ILI9341_SPI_WaitDMAdone()`: poll bloqueante con timeout sobre la bandera `ILI9341_spi_dma_done`; llama a `HAL_SPI_DMAStop()` si se agota el tiempo.
+  - Callback `HAL_SPI_TxCpltCallback()` (override del símbolo `__weak` del HAL): encadena automáticamente el segundo tramo DMA al terminar el primero (pipelining); señaliza `spi_dma_done` al completar el segundo.
+- **`ILI9341_Sync()`** *(solo SDRAM)*: nueva función pública que espera a que concluya el DMA en curso y restaura el bus SPI a 8 bits. Necesaria al salir del modo de doble buffer (`ILI9341_Flush`) para volver a usar funciones de dibujo directo en pantalla sin corrupción de comandos SPI.
+- Sección **Configuración DMA SPI TX** en el README con tabla de parámetros de CubeMX y notas sobre byte order y conflictos de callback.
+
+#### Changed
+
+- `ILI9341_DisplayImage()`: reemplaza el loop de polling `SPI_ILI9341_WaitTXE` por dos llamadas `HAL_SPI_Transmit_DMA` de 38 400 píxeles cada una en modo SPI 16 bits. El SPI se devuelve a 8 bits tras el volcado para que el resto del driver funcione sin cambios.
+- La transferencia se divide en **dos tramos de 38 400 píxeles** para respetar el límite máximo de 65 535 items del registro NDTR del DMA de STM32F4.
+
+#### Fixed
+
+- **`HAL_SPI_TxCpltCallback`** — la segunda llamada a `HAL_SPI_Transmit_DMA` (encadenamiento del segundo tramo en modo pipelining) no verificaba su valor de retorno. Si fallaba, `ILI9341_dma_state` quedaba en `2` y `spi_dma_done` nunca se activaba, causando un stall de 5 s en el siguiente `ILI9341_Flush()`. Ahora en caso de fallo se señaliza `spi_dma_done = 1` y se resetea `dma_state = 0` para desbloquear el waiter limpiamente.
+- **`ILI9341_SPI_WaitDMAdone`** — ante un timeout, `ILI9341_dma_state` no se reseteaba a `0` tras `HAL_SPI_DMAStop()`. Todas las llamadas subsiguientes a `ILI9341_FlushAsync()` retornaban `ILI9341_ERROR` por el guard `dma_state != 0`, dejando el driver permanentemente inutilizable tras un único timeout. Ahora se resetea `dma_state = 0` dentro del bloque de timeout.
+- **`ILI9341_dma_px2` / `ILI9341_dma_half`** — declaradas `volatile`; son escritas en contexto normal y leídas desde el ISR `HAL_SPI_TxCpltCallback`, por lo que requieren `volatile` para garantizar visibilidad según el estándar C.
+- **Guards `HAL_SDRAM_MODULE_ENABLED` en funciones `*_ImageBuffer()`** — todas las funciones del grupo `_ImageBuffer` (declaraciones en `.h`, implementaciones en `.c` y los helpers privados `DrawHSpanClipped_ImageBuffer` / `DrawPixelClipped_ImageBuffer`) carecían del guard `#ifdef HAL_SDRAM_MODULE_ENABLED`, por lo que se compilaban aunque el periférico FMC-SDRAM estuviese deshabilitado. Ahora el bloque completo queda protegido: sin `HAL_SDRAM_MODULE_ENABLED` las funciones no se declaran ni se compilan.
+
+#### Migration notes
+
+- Requiere añadir **DMA2\_Stream6 / Channel 7** a SPI5\_TX en CubeMX con ancho de dato **Half Word** en memoria y periférico.
+- La llamada a `MX_DMA_Init()` debe aparecer antes de `MX_SPI5_Init()` en `main.c` (CubeMX la coloca así por defecto al regenerar código).
+- Si el proyecto define `HAL_SPI_TxCpltCallback` para otro uso, hay conflicto de símbolo; ver nota en la sección de configuración.
+- Al salir de un bucle de animación basado en `ILI9341_Flush()` para volver a funciones directas (p.ej. `ILI9341_Fill`), llamar a `ILI9341_Sync()` antes de la primera función directa.
+- Las funciones `*_ImageBuffer()` ahora requieren `HAL_SDRAM_MODULE_ENABLED` para compilar. Proyectos que las usasen con un buffer estático en SRAM (sin FMC-SDRAM habilitado) deben habilitar el periférico en CubeMX o envolver sus llamadas en `#ifdef HAL_SDRAM_MODULE_ENABLED`.
 
 ---
 
