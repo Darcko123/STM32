@@ -10,15 +10,12 @@
 #ifndef DS3231_H
 #define DS3231_H
 
-/**
- * @brief Incluir el encabezado adecuado según la familia STM32 utilizada.
- * Por ejemplo:
- * - Para STM32F1xx: "stm32f1xx_hal.h"
- * - Para STM32F4xx: "stm32f4xx_hal.h"
- */
-#include "stm32f4xx_hal.h"
+// ============================================================================
+// INCLUDES
+// ============================================================================
+
+#include "main.h"
 #include <stdint.h>
-#include <stdbool.h>
 
 // ============================================================================
 // MACROS Y CONSTANTES DE COMANDOS DS3231
@@ -27,16 +24,16 @@
 /**
  * @brief Dirección I2C del módulo RTC DS3231.
  */
-#define DS3231_ADDRESS 0xD0
+#define DS3231_ADDRESS              0xD0
 
-#define DS3231_REG_SECONDS 0x00
-#define DS3231_REG_ALARM1_SECONDS 0x07
-#define DS3231_REG_ALARM2_MINUTES 0x0B
-#define DS3231_TEMP_REG      0x11    /**< Registro MSB de temperatura (parte entera, con signo) */
-#define DS3231_TEMP_REG_FRAC 0x12    /**< Registro LSB de temperatura (fracción, bits [7:6] → 0.25°C/bit) */
+#define DS3231_REG_SECONDS          0x00
+#define DS3231_REG_ALARM1_SECONDS   0x07
+#define DS3231_REG_ALARM2_MINUTES   0x0B
+#define DS3231_TEMP_REG             0x11    /**< Registro MSB de temperatura (parte entera, con signo) */
+#define DS3231_TEMP_REG_FRAC        0x12    /**< Registro LSB de temperatura (fracción, bits [7:6] → 0.25°C/bit) */
 
 // Timeout
-#define DS3231_MAX_BUSY_TIMEOUT 500     /**< milisegundos*/
+#define DS3231_MAX_BUSY_TIMEOUT     500     /**< milisegundos*/
 
 // ============================================================================
 // CONFIGURACIÓN TIEMPO (ESTRUCTURAS)
