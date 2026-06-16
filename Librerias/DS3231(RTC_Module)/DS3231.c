@@ -73,29 +73,29 @@ DS3231_Status_t DS3231_Init(I2C_HandleTypeDef* hi2c)
 /**
  * @brief Configura la hora y fecha en el módulo RTC.
  * 
- * @param hour Hora (0-23).
- * @param min Minutos (0-59).
- * @param sec Segundos (0-59).
- * @param dom Día del mes (1-31).
- * @param month Mes (1-12).
- * @param year Año (0-99).
+ * @param time Puntero a una estructura ds3231_time_t que contiene la hora y fecha a configurar.
  * @return DS3231_Status_t 
  */
-DS3231_Status_t DS3231_SetTime(uint8_t hour, uint8_t min, uint8_t sec, uint8_t dom, uint8_t month, uint8_t year)
+DS3231_Status_t DS3231_SetTime(ds3231_time_t *time)
 {
     if(DS3231_Initialized != 1)
     {
         return DS3231_NOT_INITIALIZED;
     }
 
+    if(time == NULL)
+    {
+        return DS3231_INVALID_PARAM;
+    }
+
     uint8_t set_time[7];
-    set_time[0] = decToBcd(sec);
-    set_time[1] = decToBcd(min);
-    set_time[2] = decToBcd(hour);
+    set_time[0] = decToBcd(time->seconds);
+    set_time[1] = decToBcd(time->minutes);
+    set_time[2] = decToBcd(time->hour);
     set_time[3] = 0x01; // Day of week fijo en 1 (no se usa; el DS3231 lo requiere en el registro)
-    set_time[4] = decToBcd(dom);
-    set_time[5] = decToBcd(month);
-    set_time[6] = decToBcd(year);
+    set_time[4] = decToBcd(time->dayofmonth);
+    set_time[5] = decToBcd(time->month);
+    set_time[6] = decToBcd(time->year);
 
     if(HAL_I2C_Mem_Write(DS3231_hi2c, DS3231_ADDRESS, DS3231_REG_SECONDS, 1, set_time, 7, DS3231_MAX_BUSY_TIMEOUT) != HAL_OK)
     {
@@ -118,6 +118,11 @@ DS3231_Status_t DS3231_GetTime(ds3231_time_t *time)
         return DS3231_NOT_INITIALIZED;
     }
 
+    if(time == NULL)
+    {
+        return DS3231_INVALID_PARAM;
+    }
+
     uint8_t get_time[7];
     if(HAL_I2C_Mem_Read(DS3231_hi2c, DS3231_ADDRESS, DS3231_REG_SECONDS, 1, get_time, 7, DS3231_MAX_BUSY_TIMEOUT) != HAL_OK)
     {
@@ -137,23 +142,26 @@ DS3231_Status_t DS3231_GetTime(ds3231_time_t *time)
 /**
  * @brief Configura la Alarma 1 en el módulo RTC.
  * 
- * @param hourAlarm Horas de la alarma.
- * @param minAlarm Minutos de la alarma.
- * @param secAlarm Segundos de la alarma.
+ * @param alarm1 Puntero a una estructura ALARM1 que contiene los valores de la alarma.
  * @return DS3231_Status_t 
  */
-DS3231_Status_t DS3231_SetAlarm1(uint8_t hourAlarm, uint8_t minAlarm, uint8_t secAlarm)
+DS3231_Status_t DS3231_SetAlarm1(ds3231_alarm1_t *alarm1)
 {
     if(DS3231_Initialized != 1)
     {
         return DS3231_NOT_INITIALIZED;
     }
 
+    if(alarm1 == NULL)
+    {
+        return DS3231_INVALID_PARAM;
+    }
+
     uint8_t set_alarm[3];
 
-    set_alarm[0] = decToBcd(secAlarm); 
-    set_alarm[1] = decToBcd(minAlarm); 
-    set_alarm[2] = decToBcd(hourAlarm); 
+    set_alarm[0] = decToBcd(alarm1->seconds); 
+    set_alarm[1] = decToBcd(alarm1->minutes); 
+    set_alarm[2] = decToBcd(alarm1->hour); 
 
     if(HAL_I2C_Mem_Write(DS3231_hi2c, DS3231_ADDRESS, DS3231_REG_ALARM1_SECONDS, 1, set_alarm, 3, DS3231_MAX_BUSY_TIMEOUT) != HAL_OK)
     {
@@ -177,6 +185,11 @@ DS3231_Status_t DS3231_GetAlarm1(ds3231_alarm1_t *alarma1)
         return DS3231_NOT_INITIALIZED;
     }
 
+    if(alarma1 == NULL)
+    {
+        return DS3231_INVALID_PARAM;
+    }
+
     uint8_t get_alarm[3];
 
     if(HAL_I2C_Mem_Read(DS3231_hi2c, DS3231_ADDRESS, DS3231_REG_ALARM1_SECONDS, 1, get_alarm, 3, DS3231_MAX_BUSY_TIMEOUT) != HAL_OK)
@@ -194,11 +207,10 @@ DS3231_Status_t DS3231_GetAlarm1(ds3231_alarm1_t *alarma1)
 /**
  * @brief Configura la Alarma 2 en el módulo RTC.
  * 
- * @param hourAlarm Horas de la alarma.
- * @param minAlarm Minutos de la alarma.
+ * @param[in] alarm2 Puntero a una estructura ALARM2 que contiene los valores de la alarma.
  * @return DS3231_Status_t 
  */
-DS3231_Status_t DS3231_SetAlarm2(uint8_t hourAlarm, uint8_t minAlarm)
+DS3231_Status_t DS3231_SetAlarm2(ds3231_alarm2_t *alarm2)
 {
 
     if(DS3231_Initialized != 1)
@@ -206,10 +218,15 @@ DS3231_Status_t DS3231_SetAlarm2(uint8_t hourAlarm, uint8_t minAlarm)
         return DS3231_NOT_INITIALIZED;
     }
 
+    if(alarm2 == NULL)
+    {
+        return DS3231_INVALID_PARAM;
+    }
+
     uint8_t set_alarm[2];
 
-    set_alarm[0] = decToBcd(minAlarm);
-    set_alarm[1] = decToBcd(hourAlarm);
+    set_alarm[0] = decToBcd(alarm2->minutes);
+    set_alarm[1] = decToBcd(alarm2->hour);
 
     if(HAL_I2C_Mem_Write(DS3231_hi2c, DS3231_ADDRESS, DS3231_REG_ALARM2_MINUTES, 1, set_alarm, 2, DS3231_MAX_BUSY_TIMEOUT) != HAL_OK)
     {

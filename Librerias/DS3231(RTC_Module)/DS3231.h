@@ -114,6 +114,7 @@ typedef enum {
 	DS3231_ERROR = 1,			/**< Error en la operación */
 	DS3231_TIMEOUT = 2,			/**< Timeout en la operación */
 	DS3231_NOT_INITIALIZED = 3,	/**< Módulo no inicializado */
+    DS3231_INVALID_PARAM = 4	/**< Parámetro inválido */
 }DS3231_Status_t;
 
 // ============================================================================
@@ -135,16 +136,10 @@ DS3231_Status_t DS3231_Init(I2C_HandleTypeDef* hi2c);
 /**
  * @brief Configura la hora y fecha del módulo RTC DS3231.
  *
- * @param hour  Hora (0-23)
- * @param min   Minutos (0-59)
- * @param sec   Segundos (0-59)
- * @param dom   Día del mes (1-31)
- * @param month Mes (1-12)
- * @param year  Año (0-99)
- *
+ * @param time Puntero a una estructura ds3231_time_t que contiene la hora y fecha a configurar.
  * @return DS3231_Status_t
  */
-DS3231_Status_t DS3231_SetTime(uint8_t hour, uint8_t min, uint8_t sec, uint8_t dom, uint8_t month, uint8_t year);
+DS3231_Status_t DS3231_SetTime(ds3231_time_t *time);
 
 /**
  * @brief Obtiene la hora y fecha actuales del módulo RTC DS3231.
@@ -157,19 +152,15 @@ DS3231_Status_t DS3231_GetTime(ds3231_time_t *time);
 /**
  * @brief Configura la Alarma 1 del módulo RTC DS3231.
  *
- * @param hourAlarm Horas de la alarma (0-23)
- * @param minAlarm  Minutos de la alarma (0-59)
- * @param secAlarm  Segundos de la alarma (0-59)
- *
+ * @param[in] alarm1 Puntero a una estructura ALARM1 que contiene los valores de la alarma.
  * @return DS3231_Status_t
  */
-DS3231_Status_t DS3231_SetAlarm1(uint8_t hourAlarm, uint8_t minAlarm, uint8_t secAlarm);
+DS3231_Status_t DS3231_SetAlarm1(ds3231_alarm1_t *alarm1);
 
 /**
  * @brief Obtiene la configuración actual de la Alarma 1.
  *
  * @param[out] alarma1 Puntero a la estructura ds3231_alarm1_t donde se almacenarán los datos.
- *
  * @return DS3231_Status_t
  */
 DS3231_Status_t DS3231_GetAlarm1(ds3231_alarm1_t *alarma1);
@@ -177,12 +168,10 @@ DS3231_Status_t DS3231_GetAlarm1(ds3231_alarm1_t *alarma1);
 /**
  * @brief Configura la Alarma 2 del módulo RTC DS3231.
  *
- * @param hourAlarm Horas de la alarma (0-23)
- * @param minAlarm  Minutos de la alarma (0-59)
- *
+ * @param[in] alarm2 Puntero a una estructura ALARM2 que contiene los valores de la alarma.
  * @return DS3231_Status_t
  */
-DS3231_Status_t DS3231_SetAlarm2(uint8_t hourAlarm, uint8_t minAlarm);
+DS3231_Status_t DS3231_SetAlarm2(ds3231_alarm2_t *alarm2);
 
 /**
  * @brief Obtiene la configuración actual de la Alarma 2.
