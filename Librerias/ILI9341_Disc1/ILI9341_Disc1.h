@@ -407,6 +407,48 @@ ILI9341_Status_t ILI9341_DrawRectangle(uint16_t x0, uint16_t y0, uint16_t x1, ui
 ILI9341_Status_t ILI9341_DrawFilledRectangle(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color);
 
 /**
+ * @brief Dibuja el contorno de un rectángulo con esquinas redondeadas en la pantalla LCD.
+ *
+ * @details Las esquinas se trazan con arcos de cuarto de círculo de radio @p r usando el
+ *          algoritmo de Bresenham. Si @p r supera la mitad del lado más corto se recorta
+ *          automáticamente; si se pasa 0 es equivalente a ILI9341_DrawRectangle().
+ *
+ * @param[in] x0    Coordenada X superior izquierda.
+ * @param[in] y0    Coordenada Y superior izquierda.
+ * @param[in] x1    Coordenada X inferior derecha.
+ * @param[in] y1    Coordenada Y inferior derecha.
+ * @param[in] r     Radio de las esquinas en píxeles.
+ * @param[in] color Color del contorno en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawRoundRect(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t r, uint16_t color);
+
+/**
+ * @brief Dibuja un rectángulo relleno con esquinas redondeadas en la pantalla LCD.
+ *
+ * @details Combina una franja central (rectángulo completo entre los centros de las
+ *          esquinas) con tramos horizontales generados por Bresenham para las zonas
+ *          de arco superior e inferior. Si @p r supera la mitad del lado más corto
+ *          se recorta automáticamente; si se pasa 0 es equivalente a
+ *          ILI9341_DrawFilledRectangle().
+ *
+ * @param[in] x0    Coordenada X superior izquierda.
+ * @param[in] y0    Coordenada Y superior izquierda.
+ * @param[in] x1    Coordenada X inferior derecha.
+ * @param[in] y1    Coordenada Y inferior derecha.
+ * @param[in] r     Radio de las esquinas en píxeles.
+ * @param[in] color Color de relleno en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawFilledRoundRect(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t r, uint16_t color);
+
+/**
  * @brief Dibuja el contorno de un círculo en la pantalla LCD.
  *
  * @param[in] x0    Coordenada X del centro.
@@ -582,6 +624,48 @@ ILI9341_Status_t ILI9341_DrawRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uin
  *         - ILI9341_ERROR           si falla la transferencia DMA2D (solo con HAL_DMA2D_MODULE_ENABLED).
  */
 ILI9341_Status_t ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+
+/**
+ * @brief Dibuja el contorno de un rectángulo con esquinas redondeadas en un frame buffer fuera de pantalla.
+ *
+ * @details Misma lógica que ILI9341_DrawRoundRect() pero escribe directamente en el frame
+ *          buffer en lugar de enviar por SPI. Las esquinas se trazan con arcos de cuarto
+ *          de círculo usando Bresenham; @p r se recorta a min(ancho,alto)/2.
+ *
+ * @param[in]     x0     Coordenada X superior izquierda.
+ * @param[in]     y0     Coordenada Y superior izquierda.
+ * @param[in]     x1     Coordenada X inferior derecha.
+ * @param[in]     y1     Coordenada Y inferior derecha.
+ * @param[in]     r      Radio de las esquinas en píxeles.
+ * @param[in]     color  Color del contorno en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK            en caso de éxito.
+ *         - ILI9341_INVALID_PARAM si @p image es NULL.
+ */
+ILI9341_Status_t ILI9341_DrawRoundRect_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t r, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+
+/**
+ * @brief Dibuja un rectángulo relleno con esquinas redondeadas en un frame buffer fuera de pantalla.
+ *
+ * @details Misma lógica que ILI9341_DrawFilledRoundRect() pero escribe directamente en el
+ *          frame buffer. La franja central se delega a ILI9341_DrawFilledRectangle_ImageBuffer()
+ *          (que usa DMA2D cuando está disponible); los arcos se rellenan con tramos horizontales
+ *          de Bresenham. @p r se recorta a min(ancho,alto)/2.
+ *
+ * @param[in]     x0     Coordenada X superior izquierda.
+ * @param[in]     y0     Coordenada Y superior izquierda.
+ * @param[in]     x1     Coordenada X inferior derecha.
+ * @param[in]     y1     Coordenada Y inferior derecha.
+ * @param[in]     r      Radio de las esquinas en píxeles.
+ * @param[in]     color  Color de relleno en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK            en caso de éxito.
+ *         - ILI9341_INVALID_PARAM si @p image es NULL.
+ *         - ILI9341_ERROR         si falla una transferencia DMA2D interna (solo con HAL_DMA2D_MODULE_ENABLED).
+ */
+ILI9341_Status_t ILI9341_DrawFilledRoundRect_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t r, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
 
 /**
  * @brief Dibuja un círculo relleno en un frame buffer fuera de pantalla.

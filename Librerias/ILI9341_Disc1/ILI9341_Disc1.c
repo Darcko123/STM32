@@ -95,6 +95,7 @@ static uint16_t ILI9341_TP_Read_Z(void);
 static ILI9341_Status_t DrawPixelClipped(int16_t x, int16_t y, uint16_t color);
 static ILI9341_Status_t DrawHSpanClipped(int16_t xL, int16_t xR, int16_t y, uint16_t color);
 static ILI9341_Status_t DrawHSpanClipped_ImageBuffer(int16_t xL, int16_t xR, int16_t y, uint16_t color, uint32_t* image);
+static ILI9341_Status_t DrawPixelClipped_ImageBuffer(int16_t x, int16_t y, uint16_t color, uint32_t* image);
 #ifdef HAL_DMA2D_MODULE_ENABLED
 static void ILI9341_DMA2D_SetMode(uint32_t mode, uint32_t output_offset);
 #endif
@@ -571,6 +572,16 @@ static ILI9341_Status_t DrawHSpanClipped_ImageBuffer(int16_t xL, int16_t xR, int
     if ((uint16_t)xR >= ILI9341_WIDTH) { xR = (int16_t)(ILI9341_WIDTH - 1U); }
     if (xL > xR) { return ILI9341_OK; }
     return ILI9341_DrawFilledRectangle_ImageBuffer((uint16_t)xL, (uint16_t)y, (uint16_t)xR, (uint16_t)y, color, image);
+}
+
+/**
+ * @brief Dibuja un píxel en (x, y) del frame buffer con recorte a los límites fijos del panel.
+ */
+static ILI9341_Status_t DrawPixelClipped_ImageBuffer(int16_t x, int16_t y, uint16_t color, uint32_t* image)
+{
+    if (x < 0 || y < 0 || (uint16_t)x >= ILI9341_WIDTH || (uint16_t)y >= ILI9341_HEIGHT)
+        return ILI9341_OK;
+    return ILI9341_DrawPixel_ImageBuffer((uint16_t)x, (uint16_t)y, color, image);
 }
 
 #ifdef HAL_DMA2D_MODULE_ENABLED
@@ -1141,6 +1152,157 @@ ILI9341_Status_t ILI9341_DrawRectangle(uint16_t x0, uint16_t y0, uint16_t x1, ui
     st  = st ? st : ILI9341_DrawLine(x1, y0, x1, y1, color); /* Derecha   */
     st  = st ? st : ILI9341_DrawLine(x0, y1, x1, y1, color); /* Inferior  */
     return st;
+}
+
+/**
+ * @brief Dibuja el contorno de un rectángulo con esquinas redondeadas en la pantalla LCD.
+ *
+ * @param[in] x0    Coordenada X superior izquierda.
+ * @param[in] y0    Coordenada Y superior izquierda.
+ * @param[in] x1    Coordenada X inferior derecha.
+ * @param[in] y1    Coordenada Y inferior derecha.
+ * @param[in] r     Radio de las esquinas en píxeles (se recorta a min(ancho,alto)/2).
+ * @param[in] color Color del contorno en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawRoundRect(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t r, uint16_t color)
+{
+    ILI9341_Status_t st;
+    int16_t f, ddF_x, ddF_y, x, y;
+    int16_t cx0, cx1, cy0, cy1;
+    uint16_t rmax;
+
+    if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
+
+    if (x0 > x1) { uint16_t _t = x0; x0 = x1; x1 = _t; }
+    if (y0 > y1) { uint16_t _t = y0; y0 = y1; y1 = _t; }
+
+    rmax = ((x1 - x0) < (y1 - y0)) ? (x1 - x0) / 2U : (y1 - y0) / 2U;
+    if (r > rmax) { r = rmax; }
+    if (r == 0U)  { return ILI9341_DrawRectangle(x0, y0, x1, y1, color); }
+
+    cx0 = (int16_t)x0 + (int16_t)r;
+    cx1 = (int16_t)x1 - (int16_t)r;
+    cy0 = (int16_t)y0 + (int16_t)r;
+    cy1 = (int16_t)y1 - (int16_t)r;
+
+    /* Segmentos rectos */
+    st  = ILI9341_DrawLine((uint16_t)cx0, y0, (uint16_t)cx1, y0, color);
+    st  = st ? st : ILI9341_DrawLine((uint16_t)cx0, y1, (uint16_t)cx1, y1, color);
+    st  = st ? st : ILI9341_DrawLine(x0, (uint16_t)cy0, x0, (uint16_t)cy1, color);
+    st  = st ? st : ILI9341_DrawLine(x1, (uint16_t)cy0, x1, (uint16_t)cy1, color);
+    if (st != ILI9341_OK) { return st; }
+
+    /* Bresenham — estado inicial (x=0, y=r): píxeles cardinales de cada esquina */
+    f     =  1 - (int16_t)r;
+    ddF_x =  1;
+    ddF_y = -2 * (int16_t)r;
+    x     =  0;
+    y     =  (int16_t)r;
+
+    st  = DrawPixelClipped(cx0,     cy0 - y, color); /* TL arriba   */
+    st  = st ? st : DrawPixelClipped(cx1,     cy0 - y, color); /* TR arriba   */
+    st  = st ? st : DrawPixelClipped(cx0,     cy1 + y, color); /* BL abajo    */
+    st  = st ? st : DrawPixelClipped(cx1,     cy1 + y, color); /* BR abajo    */
+    st  = st ? st : DrawPixelClipped(cx0 - y, cy0,     color); /* TL izquierda */
+    st  = st ? st : DrawPixelClipped(cx1 + y, cy0,     color); /* TR derecha  */
+    st  = st ? st : DrawPixelClipped(cx0 - y, cy1,     color); /* BL izquierda */
+    st  = st ? st : DrawPixelClipped(cx1 + y, cy1,     color); /* BR derecha  */
+    if (st != ILI9341_OK) { return st; }
+
+    while (x < y)
+    {
+        if (f >= 0) { y--; ddF_y += 2; f += ddF_y; }
+        x++;
+        ddF_x += 2;
+        f += ddF_x;
+
+        /* TL: cuadrante (-x,-y) y (-y,-x) */
+        st  = DrawPixelClipped(cx0 - x, cy0 - y, color);
+        st  = st ? st : DrawPixelClipped(cx0 - y, cy0 - x, color);
+        /* TR: cuadrante (+x,-y) y (+y,-x) */
+        st  = st ? st : DrawPixelClipped(cx1 + x, cy0 - y, color);
+        st  = st ? st : DrawPixelClipped(cx1 + y, cy0 - x, color);
+        /* BL: cuadrante (-x,+y) y (-y,+x) */
+        st  = st ? st : DrawPixelClipped(cx0 - x, cy1 + y, color);
+        st  = st ? st : DrawPixelClipped(cx0 - y, cy1 + x, color);
+        /* BR: cuadrante (+x,+y) y (+y,+x) */
+        st  = st ? st : DrawPixelClipped(cx1 + x, cy1 + y, color);
+        st  = st ? st : DrawPixelClipped(cx1 + y, cy1 + x, color);
+        if (st != ILI9341_OK) { return st; }
+    }
+    return ILI9341_OK;
+}
+
+/**
+ * @brief Dibuja un rectángulo relleno con esquinas redondeadas en la pantalla LCD.
+ *
+ * @param[in] x0    Coordenada X superior izquierda.
+ * @param[in] y0    Coordenada Y superior izquierda.
+ * @param[in] x1    Coordenada X inferior derecha.
+ * @param[in] y1    Coordenada Y inferior derecha.
+ * @param[in] r     Radio de las esquinas en píxeles (se recorta a min(ancho,alto)/2).
+ * @param[in] color Color de relleno en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawFilledRoundRect(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t r, uint16_t color)
+{
+    ILI9341_Status_t st;
+    int16_t f, ddF_x, ddF_y, x, y;
+    int16_t cx0, cx1, cy0, cy1;
+    uint16_t rmax;
+
+    if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
+
+    if (x0 > x1) { uint16_t _t = x0; x0 = x1; x1 = _t; }
+    if (y0 > y1) { uint16_t _t = y0; y0 = y1; y1 = _t; }
+
+    rmax = ((x1 - x0) < (y1 - y0)) ? (x1 - x0) / 2U : (y1 - y0) / 2U;
+    if (r > rmax) { r = rmax; }
+    if (r == 0U)  { return ILI9341_DrawFilledRectangle(x0, y0, x1, y1, color); }
+
+    cx0 = (int16_t)x0 + (int16_t)r;
+    cx1 = (int16_t)x1 - (int16_t)r;
+    cy0 = (int16_t)y0 + (int16_t)r;
+    cy1 = (int16_t)y1 - (int16_t)r;
+
+    /* Franja central de ancho completo */
+    st = ILI9341_DrawFilledRectangle(x0, (uint16_t)cy0, x1, (uint16_t)cy1, color);
+    if (st != ILI9341_OK) { return st; }
+
+    f     =  1 - (int16_t)r;
+    ddF_x =  1;
+    ddF_y = -2 * (int16_t)r;
+    x     =  0;
+    y     =  (int16_t)r;
+
+    /* Tramos cardinales (estado inicial Bresenham: x=0, y=r) */
+    st  = DrawHSpanClipped(cx0, cx1, cy0 - y, color); /* tope superior */
+    st  = st ? st : DrawHSpanClipped(cx0, cx1, cy1 + y, color); /* tope inferior */
+    if (st != ILI9341_OK) { return st; }
+
+    while (x < y)
+    {
+        if (f >= 0) { y--; ddF_y += 2; f += ddF_y; }
+        x++;
+        ddF_x += 2;
+        f += ddF_x;
+
+        /* Filas del arco de esquina (cy0-y y cy1+y): ancho ±x desde los centros */
+        st  = DrawHSpanClipped(cx0 - x, cx1 + x, cy0 - y, color);
+        st  = st ? st : DrawHSpanClipped(cx0 - x, cx1 + x, cy1 + y, color);
+        /* Filas del arco lateral (cy0-x y cy1+x): ancho ±y desde los centros */
+        st  = st ? st : DrawHSpanClipped(cx0 - y, cx1 + y, cy0 - x, color);
+        st  = st ? st : DrawHSpanClipped(cx0 - y, cx1 + y, cy1 + x, color);
+        if (st != ILI9341_OK) { return st; }
+    }
+    return ILI9341_OK;
 }
 
 /**
@@ -1819,6 +1981,150 @@ ILI9341_Status_t ILI9341_DrawRectangle_ImageBuffer(uint16_t x0, uint16_t y0, uin
     st  = st ? st : ILI9341_DrawLine_ImageBuffer(x1, y0, x1, y1, color, image); /* Derecha   */
     st  = st ? st : ILI9341_DrawLine_ImageBuffer(x0, y1, x1, y1, color, image); /* Inferior  */
     return st;
+}
+
+/**
+ * @brief Dibuja el contorno de un rectángulo con esquinas redondeadas en un frame buffer fuera de pantalla.
+ *
+ * @param[in]     x0     Coordenada X superior izquierda.
+ * @param[in]     y0     Coordenada Y superior izquierda.
+ * @param[in]     x1     Coordenada X inferior derecha.
+ * @param[in]     y1     Coordenada Y inferior derecha.
+ * @param[in]     r      Radio de las esquinas en píxeles (se recorta a min(ancho,alto)/2).
+ * @param[in]     color  Color del contorno en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK            en caso de éxito.
+ *         - ILI9341_INVALID_PARAM si @p image es NULL.
+ */
+ILI9341_Status_t ILI9341_DrawRoundRect_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t r, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
+{
+    ILI9341_Status_t st;
+    int16_t f, ddF_x, ddF_y, x, y;
+    int16_t cx0, cx1, cy0, cy1;
+    uint16_t rmax;
+
+    if (image == NULL) { return ILI9341_INVALID_PARAM; }
+
+    if (x0 > x1) { uint16_t _t = x0; x0 = x1; x1 = _t; }
+    if (y0 > y1) { uint16_t _t = y0; y0 = y1; y1 = _t; }
+
+    rmax = ((x1 - x0) < (y1 - y0)) ? (x1 - x0) / 2U : (y1 - y0) / 2U;
+    if (r > rmax) { r = rmax; }
+    if (r == 0U)  { return ILI9341_DrawRectangle_ImageBuffer(x0, y0, x1, y1, color, image); }
+
+    cx0 = (int16_t)x0 + (int16_t)r;
+    cx1 = (int16_t)x1 - (int16_t)r;
+    cy0 = (int16_t)y0 + (int16_t)r;
+    cy1 = (int16_t)y1 - (int16_t)r;
+
+    /* Segmentos rectos */
+    st  = ILI9341_DrawLine_ImageBuffer((uint16_t)cx0, y0, (uint16_t)cx1, y0, color, image);
+    st  = st ? st : ILI9341_DrawLine_ImageBuffer((uint16_t)cx0, y1, (uint16_t)cx1, y1, color, image);
+    st  = st ? st : ILI9341_DrawLine_ImageBuffer(x0, (uint16_t)cy0, x0, (uint16_t)cy1, color, image);
+    st  = st ? st : ILI9341_DrawLine_ImageBuffer(x1, (uint16_t)cy0, x1, (uint16_t)cy1, color, image);
+    if (st != ILI9341_OK) { return st; }
+
+    f     =  1 - (int16_t)r;
+    ddF_x =  1;
+    ddF_y = -2 * (int16_t)r;
+    x     =  0;
+    y     =  (int16_t)r;
+
+    st  = DrawPixelClipped_ImageBuffer(cx0,     cy0 - y, color, image);
+    st  = st ? st : DrawPixelClipped_ImageBuffer(cx1,     cy0 - y, color, image);
+    st  = st ? st : DrawPixelClipped_ImageBuffer(cx0,     cy1 + y, color, image);
+    st  = st ? st : DrawPixelClipped_ImageBuffer(cx1,     cy1 + y, color, image);
+    st  = st ? st : DrawPixelClipped_ImageBuffer(cx0 - y, cy0,     color, image);
+    st  = st ? st : DrawPixelClipped_ImageBuffer(cx1 + y, cy0,     color, image);
+    st  = st ? st : DrawPixelClipped_ImageBuffer(cx0 - y, cy1,     color, image);
+    st  = st ? st : DrawPixelClipped_ImageBuffer(cx1 + y, cy1,     color, image);
+    if (st != ILI9341_OK) { return st; }
+
+    while (x < y)
+    {
+        if (f >= 0) { y--; ddF_y += 2; f += ddF_y; }
+        x++;
+        ddF_x += 2;
+        f += ddF_x;
+
+        st  = DrawPixelClipped_ImageBuffer(cx0 - x, cy0 - y, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer(cx0 - y, cy0 - x, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer(cx1 + x, cy0 - y, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer(cx1 + y, cy0 - x, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer(cx0 - x, cy1 + y, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer(cx0 - y, cy1 + x, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer(cx1 + x, cy1 + y, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer(cx1 + y, cy1 + x, color, image);
+        if (st != ILI9341_OK) { return st; }
+    }
+    return ILI9341_OK;
+}
+
+/**
+ * @brief Dibuja un rectángulo relleno con esquinas redondeadas en un frame buffer fuera de pantalla.
+ *
+ * @param[in]     x0     Coordenada X superior izquierda.
+ * @param[in]     y0     Coordenada Y superior izquierda.
+ * @param[in]     x1     Coordenada X inferior derecha.
+ * @param[in]     y1     Coordenada Y inferior derecha.
+ * @param[in]     r      Radio de las esquinas en píxeles (se recorta a min(ancho,alto)/2).
+ * @param[in]     color  Color de relleno en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK            en caso de éxito.
+ *         - ILI9341_INVALID_PARAM si @p image es NULL.
+ *         - ILI9341_ERROR         si falla una transferencia DMA2D interna (solo con HAL_DMA2D_MODULE_ENABLED).
+ */
+ILI9341_Status_t ILI9341_DrawFilledRoundRect_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t r, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
+{
+    ILI9341_Status_t st;
+    int16_t f, ddF_x, ddF_y, x, y;
+    int16_t cx0, cx1, cy0, cy1;
+    uint16_t rmax;
+
+    if (image == NULL) { return ILI9341_INVALID_PARAM; }
+
+    if (x0 > x1) { uint16_t _t = x0; x0 = x1; x1 = _t; }
+    if (y0 > y1) { uint16_t _t = y0; y0 = y1; y1 = _t; }
+
+    rmax = ((x1 - x0) < (y1 - y0)) ? (x1 - x0) / 2U : (y1 - y0) / 2U;
+    if (r > rmax) { r = rmax; }
+    if (r == 0U)  { return ILI9341_DrawFilledRectangle_ImageBuffer(x0, y0, x1, y1, color, image); }
+
+    cx0 = (int16_t)x0 + (int16_t)r;
+    cx1 = (int16_t)x1 - (int16_t)r;
+    cy0 = (int16_t)y0 + (int16_t)r;
+    cy1 = (int16_t)y1 - (int16_t)r;
+
+    /* Franja central de ancho completo */
+    st = ILI9341_DrawFilledRectangle_ImageBuffer(x0, (uint16_t)cy0, x1, (uint16_t)cy1, color, image);
+    if (st != ILI9341_OK) { return st; }
+
+    f     =  1 - (int16_t)r;
+    ddF_x =  1;
+    ddF_y = -2 * (int16_t)r;
+    x     =  0;
+    y     =  (int16_t)r;
+
+    st  = DrawHSpanClipped_ImageBuffer(cx0, cx1, cy0 - y, color, image);
+    st  = st ? st : DrawHSpanClipped_ImageBuffer(cx0, cx1, cy1 + y, color, image);
+    if (st != ILI9341_OK) { return st; }
+
+    while (x < y)
+    {
+        if (f >= 0) { y--; ddF_y += 2; f += ddF_y; }
+        x++;
+        ddF_x += 2;
+        f += ddF_x;
+
+        st  = DrawHSpanClipped_ImageBuffer(cx0 - x, cx1 + x, cy0 - y, color, image);
+        st  = st ? st : DrawHSpanClipped_ImageBuffer(cx0 - x, cx1 + x, cy1 + y, color, image);
+        st  = st ? st : DrawHSpanClipped_ImageBuffer(cx0 - y, cx1 + y, cy0 - x, color, image);
+        st  = st ? st : DrawHSpanClipped_ImageBuffer(cx0 - y, cx1 + y, cy1 + x, color, image);
+        if (st != ILI9341_OK) { return st; }
+    }
+    return ILI9341_OK;
 }
 
 /**
