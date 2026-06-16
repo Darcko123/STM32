@@ -21,8 +21,8 @@
  *
  * @origin El código de este driver se basa en la librería Petr Machala, Tilen Majerle, 2014.
  * @author Dr. Luis Antonio Raygoza Pérez & Ing. Daniel Ruiz
- * @date June 14, 2026
- * @version 1.1.0
+ * @date June 15, 2026
+ * @version 1.3.0
  */
 
 #ifndef ILI9341_DISC1_H
@@ -476,6 +476,43 @@ ILI9341_Status_t ILI9341_DrawCircle(int16_t x0, int16_t y0, int16_t r, uint16_t 
  */
 ILI9341_Status_t ILI9341_DrawFilledCircle(int16_t x0, int16_t y0, int16_t r, uint16_t color);
 
+/**
+ * @brief Dibuja el contorno de un triángulo en la pantalla LCD.
+ *
+ * @param[in] x0    Coordenada X del primer vértice.
+ * @param[in] y0    Coordenada Y del primer vértice.
+ * @param[in] x1    Coordenada X del segundo vértice.
+ * @param[in] y1    Coordenada Y del segundo vértice.
+ * @param[in] x2    Coordenada X del tercer vértice.
+ * @param[in] y2    Coordenada Y del tercer vértice.
+ * @param[in] color Color de la línea en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawTriangle(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color);
+
+/**
+ * @brief Dibuja un triángulo relleno en la pantalla LCD.
+ *
+ * @details Ordena los vértices por coordenada Y y rellena con tramos horizontales
+ *          usando interpolación entera. Los tramos se recortan al borde de pantalla.
+ *
+ * @param[in] x0    Coordenada X del primer vértice.
+ * @param[in] y0    Coordenada Y del primer vértice.
+ * @param[in] x1    Coordenada X del segundo vértice.
+ * @param[in] y1    Coordenada Y del segundo vértice.
+ * @param[in] x2    Coordenada X del tercer vértice.
+ * @param[in] y2    Coordenada Y del tercer vértice.
+ * @param[in] color Color de relleno en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawFilledTriangle(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color);
+
 /* --- Texto en pantalla ---------------------------------------------------- */
 
 /**
@@ -681,6 +718,43 @@ ILI9341_Status_t ILI9341_DrawFilledRoundRect_ImageBuffer(uint16_t x0, uint16_t y
  *         - ILI9341_ERROR           si falla una transferencia DMA2D interna (solo con HAL_DMA2D_MODULE_ENABLED).
  */
 ILI9341_Status_t ILI9341_DrawFilledCircle_ImageBuffer(int16_t x0, int16_t y0, int16_t r, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+
+/**
+ * @brief Dibuja el contorno de un triángulo en un frame buffer fuera de pantalla.
+ *
+ * @param[in]     x0     Coordenada X del primer vértice.
+ * @param[in]     y0     Coordenada Y del primer vértice.
+ * @param[in]     x1     Coordenada X del segundo vértice.
+ * @param[in]     y1     Coordenada Y del segundo vértice.
+ * @param[in]     x2     Coordenada X del tercer vértice.
+ * @param[in]     y2     Coordenada Y del tercer vértice.
+ * @param[in]     color  Color de la línea en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK            en caso de éxito.
+ *         - ILI9341_INVALID_PARAM si @p image es NULL.
+ */
+ILI9341_Status_t ILI9341_DrawTriangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+
+/**
+ * @brief Dibuja un triángulo relleno en un frame buffer fuera de pantalla.
+ *
+ * @details Misma lógica que ILI9341_DrawFilledTriangle() pero escribe directamente
+ *          en el frame buffer. Los tramos se recortan a los límites fijos del panel.
+ *
+ * @param[in]     x0     Coordenada X del primer vértice.
+ * @param[in]     y0     Coordenada Y del primer vértice.
+ * @param[in]     x1     Coordenada X del segundo vértice.
+ * @param[in]     y1     Coordenada Y del segundo vértice.
+ * @param[in]     x2     Coordenada X del tercer vértice.
+ * @param[in]     y2     Coordenada Y del tercer vértice.
+ * @param[in]     color  Color de relleno en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK            en caso de éxito.
+ *         - ILI9341_INVALID_PARAM si @p image es NULL.
+ */
+ILI9341_Status_t ILI9341_DrawFilledTriangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
 
 #ifdef HAL_DMA2D_MODULE_ENABLED
 /**

@@ -5,8 +5,8 @@
  *
  * @origin El código de este driver se basa en la librería Petr Machala, Tilen Majerle, 2014.
  * @author Dr. Luis Antonio Raygoza Pérez & Ing. Daniel Ruiz
- * @date June 14, 2026
- * @version 1.1.0
+ * @date June 15, 2026
+ * @version 1.3.0
  */
 
 #include "ILI9341_Disc1.h"
@@ -1519,6 +1519,93 @@ ILI9341_Status_t ILI9341_DrawFilledCircle(int16_t x0, int16_t y0, int16_t r, uin
 }
 
 /**
+ * @brief Dibuja el contorno de un triángulo en la pantalla LCD.
+ *
+ * @param[in] x0    Coordenada X del primer vértice.
+ * @param[in] y0    Coordenada Y del primer vértice.
+ * @param[in] x1    Coordenada X del segundo vértice.
+ * @param[in] y1    Coordenada Y del segundo vértice.
+ * @param[in] x2    Coordenada X del tercer vértice.
+ * @param[in] y2    Coordenada Y del tercer vértice.
+ * @param[in] color Color de la línea en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawTriangle(uint16_t x0, uint16_t y0,
+                                       uint16_t x1, uint16_t y1,
+                                       uint16_t x2, uint16_t y2,
+                                       uint16_t color)
+{
+    ILI9341_Status_t st;
+    if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
+    st  = ILI9341_DrawLine(x0, y0, x1, y1, color);
+    st  = st ? st : ILI9341_DrawLine(x1, y1, x2, y2, color);
+    st  = st ? st : ILI9341_DrawLine(x2, y2, x0, y0, color);
+    return st;
+}
+
+/**
+ * @brief Dibuja un triángulo relleno en la pantalla LCD.
+ *
+ * @details Ordena los vértices por coordenada Y y rellena con tramos horizontales
+ *          usando interpolación entera. Los tramos se recortan al borde de pantalla.
+ *
+ * @param[in] x0    Coordenada X del primer vértice.
+ * @param[in] y0    Coordenada Y del primer vértice.
+ * @param[in] x1    Coordenada X del segundo vértice.
+ * @param[in] y1    Coordenada Y del segundo vértice.
+ * @param[in] x2    Coordenada X del tercer vértice.
+ * @param[in] y2    Coordenada Y del tercer vértice.
+ * @param[in] color Color de relleno en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawFilledTriangle(uint16_t x0, uint16_t y0,
+                                             uint16_t x1, uint16_t y1,
+                                             uint16_t x2, uint16_t y2,
+                                             uint16_t color)
+{
+    ILI9341_Status_t st;
+    int32_t ax, ay, bx, by, cx, cy, tmp;
+    int32_t y, xa, xb;
+
+    if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
+
+    ax = (int32_t)x0; ay = (int32_t)y0;
+    bx = (int32_t)x1; by = (int32_t)y1;
+    cx = (int32_t)x2; cy = (int32_t)y2;
+
+    /* Ordenar vértices por Y: ay <= by <= cy */
+    if (ay > by) { tmp = ax; ax = bx; bx = tmp; tmp = ay; ay = by; by = tmp; }
+    if (by > cy) { tmp = bx; bx = cx; cx = tmp; tmp = by; by = cy; cy = tmp; }
+    if (ay > by) { tmp = ax; ax = bx; bx = tmp; tmp = ay; ay = by; by = tmp; }
+
+    /* Triángulo degenerado: todos los vértices en la misma fila */
+    if (ay == cy)
+    {
+        return DrawHSpanClipped((int16_t)ax, (int16_t)cx, (int16_t)ay, color);
+    }
+
+    for (y = ay; y <= cy; y++)
+    {
+        /* Interpolación sobre el lado largo (a→c, siempre presente) */
+        xa = ax + (cx - ax) * (y - ay) / (cy - ay);
+        /* Interpolación sobre el lado corto activo según la mitad del triángulo */
+        if (y <= by)
+            xb = (ay == by) ? bx : ax + (bx - ax) * (y - ay) / (by - ay);
+        else
+            xb = bx + (cx - bx) * (y - by) / (cy - by);
+        st = DrawHSpanClipped((int16_t)xa, (int16_t)xb, (int16_t)y, color);
+        if (st != ILI9341_OK) { return st; }
+    }
+    return ILI9341_OK;
+}
+
+/**
  * @brief Renderiza un carácter en la pantalla LCD.
  *
  * @param[in] x          Coordenada X superior izquierda de la celda del carácter.
@@ -2245,6 +2332,85 @@ ILI9341_Status_t ILI9341_DrawFilledCircle_ImageBuffer(int16_t x0, int16_t y0, in
         st  = st ? st : DrawHSpanClipped_ImageBuffer(x0 - x, x0 + x, y0 - y, color, image);
         st  = st ? st : DrawHSpanClipped_ImageBuffer(x0 - y, x0 + y, y0 + x, color, image);
         st  = st ? st : DrawHSpanClipped_ImageBuffer(x0 - y, x0 + y, y0 - x, color, image);
+        if (st != ILI9341_OK) { return st; }
+    }
+    return ILI9341_OK;
+}
+
+/**
+ * @brief Dibuja el contorno de un triángulo en un frame buffer fuera de pantalla.
+ *
+ * @param[in]     x0     Coordenada X del primer vértice.
+ * @param[in]     y0     Coordenada Y del primer vértice.
+ * @param[in]     x1     Coordenada X del segundo vértice.
+ * @param[in]     y1     Coordenada Y del segundo vértice.
+ * @param[in]     x2     Coordenada X del tercer vértice.
+ * @param[in]     y2     Coordenada Y del tercer vértice.
+ * @param[in]     color  Color de la línea en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ */
+ILI9341_Status_t ILI9341_DrawTriangle_ImageBuffer(uint16_t x0, uint16_t y0,
+                                                   uint16_t x1, uint16_t y1,
+                                                   uint16_t x2, uint16_t y2,
+                                                   uint16_t color,
+                                                   uint32_t image[IMG_TOTAL_BUF32])
+{
+    ILI9341_Status_t st;
+    if (image == NULL) { return ILI9341_INVALID_PARAM; }
+    st  = ILI9341_DrawLine_ImageBuffer(x0, y0, x1, y1, color, image);
+    st  = st ? st : ILI9341_DrawLine_ImageBuffer(x1, y1, x2, y2, color, image);
+    st  = st ? st : ILI9341_DrawLine_ImageBuffer(x2, y2, x0, y0, color, image);
+    return st;
+}
+
+/**
+ * @brief Dibuja un triángulo relleno en un frame buffer fuera de pantalla.
+ *
+ * @details Misma lógica que ILI9341_DrawFilledTriangle() pero escribe directamente
+ *          en el frame buffer. Los tramos se recortan a los límites fijos del panel.
+ *
+ * @param[in]     x0     Coordenada X del primer vértice.
+ * @param[in]     y0     Coordenada Y del primer vértice.
+ * @param[in]     x1     Coordenada X del segundo vértice.
+ * @param[in]     y1     Coordenada Y del segundo vértice.
+ * @param[in]     x2     Coordenada X del tercer vértice.
+ * @param[in]     y2     Coordenada Y del tercer vértice.
+ * @param[in]     color  Color de relleno en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ */
+ILI9341_Status_t ILI9341_DrawFilledTriangle_ImageBuffer(uint16_t x0, uint16_t y0,
+                                                         uint16_t x1, uint16_t y1,
+                                                         uint16_t x2, uint16_t y2,
+                                                         uint16_t color,
+                                                         uint32_t image[IMG_TOTAL_BUF32])
+{
+    ILI9341_Status_t st;
+    int32_t ax, ay, bx, by, cx, cy, tmp;
+    int32_t y, xa, xb;
+
+    if (image == NULL) { return ILI9341_INVALID_PARAM; }
+
+    ax = (int32_t)x0; ay = (int32_t)y0;
+    bx = (int32_t)x1; by = (int32_t)y1;
+    cx = (int32_t)x2; cy = (int32_t)y2;
+
+    if (ay > by) { tmp = ax; ax = bx; bx = tmp; tmp = ay; ay = by; by = tmp; }
+    if (by > cy) { tmp = bx; bx = cx; cx = tmp; tmp = by; by = cy; cy = tmp; }
+    if (ay > by) { tmp = ax; ax = bx; bx = tmp; tmp = ay; ay = by; by = tmp; }
+
+    if (ay == cy)
+    {
+        return DrawHSpanClipped_ImageBuffer((int16_t)ax, (int16_t)cx, (int16_t)ay, color, image);
+    }
+
+    for (y = ay; y <= cy; y++)
+    {
+        xa = ax + (cx - ax) * (y - ay) / (cy - ay);
+        if (y <= by)
+            xb = (ay == by) ? bx : ax + (bx - ax) * (y - ay) / (by - ay);
+        else
+            xb = bx + (cx - bx) * (y - by) / (cy - by);
+        st = DrawHSpanClipped_ImageBuffer((int16_t)xa, (int16_t)xb, (int16_t)y, color, image);
         if (st != ILI9341_OK) { return st; }
     }
     return ILI9341_OK;
