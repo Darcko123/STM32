@@ -3,8 +3,8 @@
  * @brief Librería para la gestión del módulo RTC DS3231 mediante comunicación I2C.
  *
  * @author Daniel Ruiz
- * @date April 9, 2026
- * @version 2.0.0
+ * @date Junio 16, 2026
+ * @version 2.1.0
  */
 
 #ifndef DS3231_H
@@ -57,7 +57,7 @@ typedef struct
     uint8_t dayofmonth;
     uint8_t month;
     uint8_t year;
-} ds3231_time_t;
+} DS3231_Time_t;
 
 /**
  * @brief Estructura para la configuración de la Alarma 1.
@@ -71,7 +71,7 @@ typedef struct
     uint8_t seconds;
     uint8_t minutes;
     uint8_t hour;
-} ds3231_alarm1_t;
+} DS3231_Alarm1_t;
 
 /**
  * @brief Estructura para la configuración de la Alarma 2.
@@ -83,7 +83,7 @@ typedef struct
 {
     uint8_t minutes;
     uint8_t hour;
-} ds3231_alarm2_t;
+} DS3231_Alarm2_t;
 
 /**
  * @brief Estructura para la temperatura interna del DS3231.
@@ -98,7 +98,7 @@ typedef struct
     int8_t  integer;    /**< Parte entera (°C), rango: -128..+127 */
     uint8_t fraction;   /**< Parte fraccionaria en centésimas: 0, 25, 50 ó 75 */
     int16_t raw;        /**< Temperatura escalada ×100 (centésimas de °C) */
-} ds3231_temp_t;
+} DS3231_Temp_t;
 
 // ============================================================================
 // ENUMERACIONES Y ESTRUCTURAS
@@ -140,18 +140,18 @@ DS3231_Status_t DS3231_DeInit(void);
 /**
  * @brief Configura la hora y fecha del módulo RTC DS3231.
  *
- * @param time Puntero a una estructura ds3231_time_t que contiene la hora y fecha a configurar.
+ * @param time Puntero a una estructura DS3231_Time_t que contiene la hora y fecha a configurar.
  * @return DS3231_Status_t
  */
-DS3231_Status_t DS3231_SetTime(ds3231_time_t *time);
+DS3231_Status_t DS3231_SetTime(DS3231_Time_t *time);
 
 /**
  * @brief Obtiene la hora y fecha actuales del módulo RTC DS3231.
  *
- * @param[out] time Puntero a la estructura ds3231_time_t donde se almacenarán los datos.
+ * @param[out] time Puntero a la estructura DS3231_Time_t donde se almacenarán los datos.
  * @return DS3231_Status_t
  */
-DS3231_Status_t DS3231_GetTime(ds3231_time_t *time);
+DS3231_Status_t DS3231_GetTime(DS3231_Time_t *time);
 
 /**
  * @brief Configura la Alarma 1 del módulo RTC DS3231.
@@ -159,15 +159,15 @@ DS3231_Status_t DS3231_GetTime(ds3231_time_t *time);
  * @param[in] alarm1 Puntero a una estructura ALARM1 que contiene los valores de la alarma.
  * @return DS3231_Status_t
  */
-DS3231_Status_t DS3231_SetAlarm1(ds3231_alarm1_t *alarm1);
+DS3231_Status_t DS3231_SetAlarm1(DS3231_Alarm1_t *alarm1);
 
 /**
  * @brief Obtiene la configuración actual de la Alarma 1.
  *
- * @param[out] alarma1 Puntero a la estructura ds3231_alarm1_t donde se almacenarán los datos.
+ * @param[out] alarma1 Puntero a la estructura DS3231_Alarm1_t donde se almacenarán los datos.
  * @return DS3231_Status_t
  */
-DS3231_Status_t DS3231_GetAlarm1(ds3231_alarm1_t *alarma1);
+DS3231_Status_t DS3231_GetAlarm1(DS3231_Alarm1_t *alarma1);
 
 /**
  * @brief Configura la Alarma 2 del módulo RTC DS3231.
@@ -175,16 +175,16 @@ DS3231_Status_t DS3231_GetAlarm1(ds3231_alarm1_t *alarma1);
  * @param[in] alarm2 Puntero a una estructura ALARM2 que contiene los valores de la alarma.
  * @return DS3231_Status_t
  */
-DS3231_Status_t DS3231_SetAlarm2(ds3231_alarm2_t *alarm2);
+DS3231_Status_t DS3231_SetAlarm2(DS3231_Alarm2_t *alarm2);
 
 /**
  * @brief Obtiene la configuración actual de la Alarma 2.
  *
- * @param[out] alarma2 Puntero a la estructura ds3231_alarm2_t donde se almacenarán los datos.
+ * @param[out] alarma2 Puntero a la estructura DS3231_Alarm2_t donde se almacenarán los datos.
  *
  * @return DS3231_Status_t
  */
-DS3231_Status_t DS3231_GetAlarm2(ds3231_alarm2_t *alarma2);
+DS3231_Status_t DS3231_GetAlarm2(DS3231_Alarm2_t *alarma2);
 
 /**
  * @brief Lee la temperatura interna del sensor DS3231.
@@ -197,14 +197,14 @@ DS3231_Status_t DS3231_GetAlarm2(ds3231_alarm2_t *alarma2);
  *          Los datos se leen de los registros 0x11 (MSB, parte entera en
  *          complemento a dos) y 0x12 (LSB, bits [7:6] para la fracción).
  *
- * @param[out] temp Puntero a la estructura ds3231_temp_t donde se almacenarán
+ * @param[out] temp Puntero a la estructura DS3231_Temp_t donde se almacenarán
  *                  los valores de temperatura.
  * @return DS3231_Status_t
  *   - DS3231_OK             : Lectura exitosa.
  *   - DS3231_ERROR          : Fallo en la comunicación I2C.
  *   - DS3231_NOT_INITIALIZED: El módulo no fue inicializado previamente.
  */
-DS3231_Status_t DS3231_GetTemperature(ds3231_temp_t *temp);
+DS3231_Status_t DS3231_GetTemperature(DS3231_Temp_t *temp);
 
 #ifdef __cplusplus
 }

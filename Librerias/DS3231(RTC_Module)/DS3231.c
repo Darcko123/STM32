@@ -4,7 +4,7 @@
  *
  * @author Daniel Ruiz
  * @date Junio 16, 2026
- * @version 2.0.0
+ * @version 2.1.0
  */
 
 #include "DS3231.h"
@@ -86,10 +86,10 @@ DS3231_Status_t DS3231_DeInit(void)
 /**
  * @brief Configura la hora y fecha en el módulo RTC.
  * 
- * @param time Puntero a una estructura ds3231_time_t que contiene la hora y fecha a configurar.
+ * @param time Puntero a una estructura DS3231_Time_t que contiene la hora y fecha a configurar.
  * @return DS3231_Status_t
  */
-DS3231_Status_t DS3231_SetTime(ds3231_time_t *time)
+DS3231_Status_t DS3231_SetTime(DS3231_Time_t *time)
 {
     if(DS3231_Initialized != 1)
     {
@@ -124,7 +124,7 @@ DS3231_Status_t DS3231_SetTime(ds3231_time_t *time)
   * @param time Puntero a una estructura TIME para almacenar la hora y fecha.
   * @return DS3231_Status_t
   */
-DS3231_Status_t DS3231_GetTime(ds3231_time_t *time)
+DS3231_Status_t DS3231_GetTime(DS3231_Time_t *time)
 {
     if(DS3231_Initialized != 1)
     {
@@ -158,7 +158,7 @@ DS3231_Status_t DS3231_GetTime(ds3231_time_t *time)
  * @param alarm1 Puntero a una estructura ALARM1 que contiene los valores de la alarma.
  * @return DS3231_Status_t
  */
-DS3231_Status_t DS3231_SetAlarm1(ds3231_alarm1_t *alarm1)
+DS3231_Status_t DS3231_SetAlarm1(DS3231_Alarm1_t *alarm1)
 {
     if(DS3231_Initialized != 1)
     {
@@ -190,7 +190,7 @@ DS3231_Status_t DS3231_SetAlarm1(ds3231_alarm1_t *alarm1)
  * @param alarma1 Puntero a una estructura ALARM1 para almacenar los datos.
  * @return DS3231_Status_t
  */
-DS3231_Status_t DS3231_GetAlarm1(ds3231_alarm1_t *alarma1)
+DS3231_Status_t DS3231_GetAlarm1(DS3231_Alarm1_t *alarma1)
 {
     if(DS3231_Initialized != 1)
     {
@@ -222,7 +222,7 @@ DS3231_Status_t DS3231_GetAlarm1(ds3231_alarm1_t *alarma1)
  * @param[in] alarm2 Puntero a una estructura ALARM2 que contiene los valores de la alarma.
  * @return DS3231_Status_t
  */
-DS3231_Status_t DS3231_SetAlarm2(ds3231_alarm2_t *alarm2)
+DS3231_Status_t DS3231_SetAlarm2(DS3231_Alarm2_t *alarm2)
 {
     if(DS3231_Initialized != 1)
     {
@@ -253,7 +253,7 @@ DS3231_Status_t DS3231_SetAlarm2(ds3231_alarm2_t *alarm2)
  * @param alarma2 Puntero a una estructura ALARM2 para almacenar los datos.
  * @return DS3231_Status_t
  */
-DS3231_Status_t DS3231_GetAlarm2(ds3231_alarm2_t *alarma2)
+DS3231_Status_t DS3231_GetAlarm2(DS3231_Alarm2_t *alarma2)
 {
     if(DS3231_Initialized != 1)
     {
@@ -301,11 +301,11 @@ DS3231_Status_t DS3231_GetAlarm2(ds3231_alarm2_t *alarma2)
  *
  *            printf("%d.%02d °C", temp.integer, temp.fraction);
  *
- * @param[out] temp Puntero a la estructura ds3231_temp_t donde se guardarán
+ * @param[out] temp Puntero a la estructura DS3231_Temp_t donde se guardarán
  *                  los valores leídos.
  * @return DS3231_Status_t
  */
-DS3231_Status_t DS3231_GetTemperature(ds3231_temp_t *temp)
+DS3231_Status_t DS3231_GetTemperature(DS3231_Temp_t *temp)
 {
     if(DS3231_Initialized != 1)
     {

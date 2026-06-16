@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![STM32](https://img.shields.io/badge/Platform-STM32F411-black)](https://www.st.com/en/microcontrollers-microprocessors/stm32f4-series.html)
-[![Version](https://img.shields.io/badge/Version-2.0.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/DS3231(RTC_Module))
+[![Version](https://img.shields.io/badge/Version-2.1.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/DS3231(RTC_Module))
 [![Protocol](https://img.shields.io/badge/Protocol-I2C-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/DS3231(RTC_Module))
 
 ---
@@ -31,6 +31,7 @@
       - [`ds3231_temp_t` - Temperatura Interna](#ds3231_temp_t---temperatura-interna)
     - [Funciones Públicas](#funciones-públicas)
       - [`DS3231_Init()` - Inicialización del Driver](#ds3231_init---inicialización-del-driver)
+      - [`DS3231_DeInit()` - Desinicialización del Driver](#ds3231_deinit---desinicialización-del-driver)
       - [`DS3231_SetTime()` - Configurar Fecha y Hora](#ds3231_settime---configurar-fecha-y-hora)
       - [`DS3231_GetTime()` - Obtener Fecha y Hora](#ds3231_gettime---obtener-fecha-y-hora)
       - [`DS3231_SetAlarm1()` / `DS3231_GetAlarm1()` - Alarma 1](#ds3231_setalarm1--ds3231_getalarm1---alarma-1)
@@ -38,14 +39,18 @@
       - [`DS3231_GetTemperature()` - Leer Temperatura](#ds3231_gettemperature---leer-temperatura)
   - [Licencia](#licencia)
   - [Changelog](#changelog)
-    - [\[2.0.0\] - 09-04-2026](#200---09-04-2026)
+    - [\[2.1.0\] - 16-06-2026](#210---16-06-2026)
       - [Added](#added)
       - [Changed](#changed)
-    - [\[1.1.0\] - 22-09-2025](#110---22-09-2025)
+      - [Migration Notes](#migration-notes)
+    - [\[2.0.0\] - 09-04-2026](#200---09-04-2026)
       - [Added](#added-1)
       - [Changed](#changed-1)
-    - [\[1.0.0\] - 07-01-2025](#100---07-01-2025)
+    - [\[1.1.0\] - 22-09-2025](#110---22-09-2025)
       - [Added](#added-2)
+      - [Changed](#changed-2)
+    - [\[1.0.0\] - 07-01-2025](#100---07-01-2025)
+      - [Added](#added-3)
 
 ---
 
@@ -135,7 +140,9 @@ if (status != DS3231_OK) {
 ds3231_time_t current_time;
 
 // Establecer la hora: 14:30:45, 15 de agosto de 2025
-if (DS3231_SetTime(14, 30, 45, 15, 8, 25) != DS3231_OK) {
+ds3231_time_t new_time = { .hour = 14, .minutes = 30, .seconds = 45,
+                           .dayofmonth = 15, .month = 8, .year = 25 };
+if (DS3231_SetTime(&new_time) != DS3231_OK) {
     // Error al configurar la hora
 }
 
@@ -152,7 +159,8 @@ if (DS3231_GetTime(&current_time) == DS3231_OK) {
 ds3231_alarm1_t alarm1_cfg;
 
 // Configurar Alarma 1 para las 08:30:15
-if (DS3231_SetAlarm1(8, 30, 15) != DS3231_OK) {
+ds3231_alarm1_t alarm1 = { .hour = 8, .minutes = 30, .seconds = 15 };
+if (DS3231_SetAlarm1(&alarm1) != DS3231_OK) {
     // Error al configurar la alarma
 }
 
@@ -168,7 +176,8 @@ if (DS3231_GetAlarm1(&alarm1_cfg) == DS3231_OK) {
 ds3231_alarm2_t alarm2_cfg;
 
 // Configurar Alarma 2 para las 09:45 (sin segundos)
-if (DS3231_SetAlarm2(9, 45) != DS3231_OK) {
+ds3231_alarm2_t alarm2 = { .hour = 9, .minutes = 45 };
+if (DS3231_SetAlarm2(&alarm2) != DS3231_OK) {
     // Error al configurar la alarma
 }
 
@@ -208,15 +217,17 @@ typedef enum {
     DS3231_ERROR = 1,           /**< Error en la operación */
     DS3231_TIMEOUT = 2,         /**< Timeout en la operación */
     DS3231_NOT_INITIALIZED = 3, /**< Módulo no inicializado */
+    DS3231_INVALID_PARAM = 4,   /**< Parámetro inválido (puntero NULL) */
 } DS3231_Status_t;
 ```
 
 | Valor | Código | Significado |
 |-------|--------|-------------|
 | `DS3231_OK` | 0 | Operación completada sin errores |
-| `DS3231_ERROR` | 1 | Error de I2C, parámetro inválido o condición inesperada |
+| `DS3231_ERROR` | 1 | Error de I2C o condición inesperada |
 | `DS3231_TIMEOUT` | 2 | Timeout de software o timeout interno del chip |
 | `DS3231_NOT_INITIALIZED` | 3 | `DS3231_Init()` no se llamó o falló |
+| `DS3231_INVALID_PARAM` | 4 | Se pasó un puntero NULL como parámetro de salida |
 
 ---
 
@@ -328,25 +339,31 @@ DS3231_Status_t DS3231_Init(I2C_HandleTypeDef* hi2c);
 
 ---
 
+#### `DS3231_DeInit()` - Desinicialización del Driver
+
+Libera los recursos del driver, restableciendo el handle I2C y la bandera de inicialización. Útil al apagar el periférico o reasignarlo.
+
+```c
+DS3231_Status_t DS3231_DeInit(void);
+```
+
+**Retorna**: Siempre `DS3231_OK`.
+
+---
+
 #### `DS3231_SetTime()` - Configurar Fecha y Hora
 
 Configura la fecha y hora en el RTC. Los valores se convierten automáticamente a BCD antes de ser escritos en el chip.
 
 ```c
-DS3231_Status_t DS3231_SetTime(uint8_t hour, uint8_t min, uint8_t sec, uint8_t dom, uint8_t month, uint8_t year);
+DS3231_Status_t DS3231_SetTime(ds3231_time_t *time);
 ```
 
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| time | ds3231_time_t* | Puntero a la estructura con la fecha y hora a configurar |
 
-| Parámetro | Tipo | Descripción | Rango |
-|-----------|------|-------------|-------|
-| hour | uint8_t | Hora | 0-23 |
-| min | uint8_t | Minutos | 0-59 |
-| sec | uint8_t | Segundos | 0-59 |
-| dom | uint8_t | Día del mes | 1-31 |
-| month | uint8_t | Mes | 1-12 |
-| year | uint8_t | Año (últimos dos dígitos) | 0-99 |
-
-**Retorna**: `DS3231_OK` si la operación fue exitosa, `DS3231_ERROR` si la comunicación I2C falla, `DS3231_NOT_INITIALIZED` si el módulo no fue inicializado.
+**Retorna**: `DS3231_OK` si la operación fue exitosa, `DS3231_INVALID_PARAM` si `time` es NULL, `DS3231_ERROR` si la comunicación I2C falla, `DS3231_NOT_INITIALIZED` si el módulo no fue inicializado.
 
 > [!NOTE]
 > El día de la semana es gestionado automáticamente por el DS3231. La librería escribe un valor fijo (1) en este registro, ya que la mayoría de las aplicaciones no lo utilizan.
@@ -362,27 +379,27 @@ DS3231_Status_t DS3231_GetTime(ds3231_time_t *time);
 |-----------|------|-------------|
 | time | ds3231_time_t* | Puntero a la estructura donde se almacenarán los valores leídos |
 
-**Retorna**: `DS3231_OK` si la lectura fue exitosa, `DS3231_ERROR` si falla la comunicación I2C o `time` es NULL, `DS3231_NOT_INITIALIZED` si el módulo no fue inicializado.
+**Retorna**: `DS3231_OK` si la lectura fue exitosa, `DS3231_INVALID_PARAM` si `time` es NULL, `DS3231_ERROR` si falla la comunicación I2C, `DS3231_NOT_INITIALIZED` si el módulo no fue inicializado.
 
 #### `DS3231_SetAlarm1()` / `DS3231_GetAlarm1()` - Alarma 1
 Configura o lee la Alarma 1 del DS3231. La Alarma 1 permite configurar segundos, minutos y hora.
 
 ```c
-DS3231_Status_t DS3231_SetAlarm1(uint8_t hourAlarm, uint8_t minAlarm, uint8_t secAlarm);
+DS3231_Status_t DS3231_SetAlarm1(ds3231_alarm1_t *alarm1);
 DS3231_Status_t DS3231_GetAlarm1(ds3231_alarm1_t *alarma1);
 ```
 
-**Retorna**: Los mismos códigos que las funciones anteriores.
+**Retorna**: `DS3231_OK` si la operación fue exitosa, `DS3231_INVALID_PARAM` si el puntero es NULL, `DS3231_ERROR` si falla la comunicación I2C, `DS3231_NOT_INITIALIZED` si el módulo no fue inicializado.
 
 #### `DS3231_SetAlarm2()` / `DS3231_GetAlarm2()` - Alarma 2
 Configura o lee la Alarma 2 del DS3231. La Alarma 2 no soporta segundos, solo minutos y hora.
 
 ```c
-DS3231_Status_t DS3231_SetAlarm2(uint8_t hourAlarm, uint8_t minAlarm);
+DS3231_Status_t DS3231_SetAlarm2(ds3231_alarm2_t *alarm2);
 DS3231_Status_t DS3231_GetAlarm2(ds3231_alarm2_t *alarma2);
 ```
 
-**Retorna**: Los mismos códigos que las funciones anteriores.
+**Retorna**: `DS3231_OK` si la operación fue exitosa, `DS3231_INVALID_PARAM` si el puntero es NULL, `DS3231_ERROR` si falla la comunicación I2C, `DS3231_NOT_INITIALIZED` si el módulo no fue inicializado.
 
 #### `DS3231_GetTemperature()` - Leer Temperatura
 Lee la temperatura interna del sensor del DS3231. El valor se actualiza automáticamente cada 64 segundos.
@@ -408,6 +425,25 @@ Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](/LICENSE
 
 Todos los cambios notables de esta librería se documentan en esta sección.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
+
+---
+
+### [2.1.0] - 16-06-2026
+
+#### Added
+- Función `DS3231_DeInit()` para liberar el handle I2C y restablecer el estado del driver.
+- Nuevo código de retorno `DS3231_INVALID_PARAM` (valor 4) para diferenciar errores por puntero NULL de errores de comunicación I2C.
+
+#### Changed
+- `DS3231_SetTime()` ahora recibe un puntero a `ds3231_time_t` en lugar de parámetros individuales.
+- `DS3231_SetAlarm1()` ahora recibe un puntero a `ds3231_alarm1_t` en lugar de parámetros individuales.
+- `DS3231_SetAlarm2()` ahora recibe un puntero a `ds3231_alarm2_t` en lugar de parámetros individuales.
+- Las funciones `DS3231_GetTime()`, `DS3231_GetAlarm1()`, `DS3231_GetAlarm2()` y `DS3231_SetAlarm1/2()` retornan `DS3231_INVALID_PARAM` cuando se pasa un puntero NULL.
+- Actualización en los include para soportar múltiples familias STM32 (F1, F4, etc.) mediante la capa HAL. Ahora el usuario ya no necesita ajustar el `#include` del encabezado HAL en `DS3231.h` según su familia de microcontrolador.
+
+#### Migration Notes
+- Cambiar las estructuras a letras mayúsculas (`DS3231_time_t`, `DS3231_alarm1_t`, `DS3231_alarm2_t`) para mayor consistencia.
+- Asegurarse de manejar el nuevo código de error `DS3231_INVALID_PARAM` en el código de usuario para detectar punteros NULL.
 
 ---
 
