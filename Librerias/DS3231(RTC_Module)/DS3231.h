@@ -131,6 +131,13 @@ extern "C" {
 DS3231_Status_t DS3231_Init(I2C_HandleTypeDef* hi2c);
 
 /**
+ * @brief Desinicializa el driver DS3231 y libera los recursos
+ * 
+ * @return DS3231_Status_t Siempre retorna DS3231_OK
+ */
+DS3231_Status_t DS3231_DeInit(void);
+
+/**
  * @brief Configura la hora y fecha del módulo RTC DS3231.
  *
  * @param time Puntero a una estructura ds3231_time_t que contiene la hora y fecha a configurar.

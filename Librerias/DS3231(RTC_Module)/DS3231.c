@@ -50,12 +50,12 @@ static uint8_t bcdToDec(uint8_t val)
  * @brief Inicializa el sensor DS3231 (RTC)
  * 
  * @param hi2c Puntero al handler de I2C utilizado para comunicarse con el módulo RTC.
- * 
+ *
  * @details
  * - Configura el handler de I2C para la comunicación con el módulo RTC.
  * - No realiza configuraciones adicionales ya que el DS3231 está listo para usarse tras la alimentación.
- * 
- * @return DS3231_Status_t 
+ *
+ * @return DS3231_Status_t
  */
 DS3231_Status_t DS3231_Init(I2C_HandleTypeDef* hi2c)
 {
@@ -71,10 +71,23 @@ DS3231_Status_t DS3231_Init(I2C_HandleTypeDef* hi2c)
 }
 
 /**
+ * @brief Desinicializa el driver DS3231 y libera los recursos
+ *
+ * @return DS3231_Status_t Siempre retorna DS3231_OK
+ */
+DS3231_Status_t DS3231_DeInit(void)
+{
+	DS3231_hi2c			= NULL;
+	DS3231_Initialized 	= 0U;
+
+	return DS3231_OK;
+}
+
+/**
  * @brief Configura la hora y fecha en el módulo RTC.
  * 
  * @param time Puntero a una estructura ds3231_time_t que contiene la hora y fecha a configurar.
- * @return DS3231_Status_t 
+ * @return DS3231_Status_t
  */
 DS3231_Status_t DS3231_SetTime(ds3231_time_t *time)
 {
@@ -107,9 +120,9 @@ DS3231_Status_t DS3231_SetTime(ds3231_time_t *time)
 
  /**
   * @brief Obtiene la hora y fecha actual desde el módulo RTC.
-  * 
+  *
   * @param time Puntero a una estructura TIME para almacenar la hora y fecha.
-  * @return DS3231_Status_t 
+  * @return DS3231_Status_t
   */
 DS3231_Status_t DS3231_GetTime(ds3231_time_t *time)
 {
@@ -143,7 +156,7 @@ DS3231_Status_t DS3231_GetTime(ds3231_time_t *time)
  * @brief Configura la Alarma 1 en el módulo RTC.
  * 
  * @param alarm1 Puntero a una estructura ALARM1 que contiene los valores de la alarma.
- * @return DS3231_Status_t 
+ * @return DS3231_Status_t
  */
 DS3231_Status_t DS3231_SetAlarm1(ds3231_alarm1_t *alarm1)
 {
@@ -159,9 +172,9 @@ DS3231_Status_t DS3231_SetAlarm1(ds3231_alarm1_t *alarm1)
 
     uint8_t set_alarm[3];
 
-    set_alarm[0] = decToBcd(alarm1->seconds); 
-    set_alarm[1] = decToBcd(alarm1->minutes); 
-    set_alarm[2] = decToBcd(alarm1->hour); 
+    set_alarm[0] = decToBcd(alarm1->seconds);
+    set_alarm[1] = decToBcd(alarm1->minutes);
+    set_alarm[2] = decToBcd(alarm1->hour);
 
     if(HAL_I2C_Mem_Write(DS3231_hi2c, DS3231_ADDRESS, DS3231_REG_ALARM1_SECONDS, 1, set_alarm, 3, DS3231_MAX_BUSY_TIMEOUT) != HAL_OK)
     {
@@ -175,7 +188,7 @@ DS3231_Status_t DS3231_SetAlarm1(ds3231_alarm1_t *alarm1)
  * @brief Obtiene los valores de Alarma 1.
  * 
  * @param alarma1 Puntero a una estructura ALARM1 para almacenar los datos.
- * @return DS3231_Status_t 
+ * @return DS3231_Status_t
  */
 DS3231_Status_t DS3231_GetAlarm1(ds3231_alarm1_t *alarma1)
 {
@@ -208,7 +221,7 @@ DS3231_Status_t DS3231_GetAlarm1(ds3231_alarm1_t *alarma1)
  * @brief Configura la Alarma 2 en el módulo RTC.
  * 
  * @param[in] alarm2 Puntero a una estructura ALARM2 que contiene los valores de la alarma.
- * @return DS3231_Status_t 
+ * @return DS3231_Status_t
  */
 DS3231_Status_t DS3231_SetAlarm2(ds3231_alarm2_t *alarm2)
 {
@@ -240,7 +253,7 @@ DS3231_Status_t DS3231_SetAlarm2(ds3231_alarm2_t *alarm2)
  * @brief Obtiene los valores de Alarma 2.
  * 
  * @param alarma2 Puntero a una estructura ALARM2 para almacenar los datos.
- * @return DS3231_Status_t 
+ * @return DS3231_Status_t
  */
 DS3231_Status_t DS3231_GetAlarm2(ds3231_alarm2_t *alarma2)
 {
