@@ -573,6 +573,8 @@ ILI9341_Status_t ILI9341_DisplayImage(uint32_t image[IMG_TOTAL_BUF32]);
 
 /* --- Frame buffer (escritura fuera de pantalla) --------------------------- */
 
+#ifdef HAL_SDRAM_MODULE_ENABLED
+
 /**
  * @brief Escribe un píxel en un frame buffer fuera de pantalla.
  *
@@ -755,6 +757,8 @@ ILI9341_Status_t ILI9341_DrawTriangle_ImageBuffer(uint16_t x0, uint16_t y0, uint
  *         - ILI9341_INVALID_PARAM si @p image es NULL.
  */
 ILI9341_Status_t ILI9341_DrawFilledTriangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+
+#endif /* HAL_SDRAM_MODULE_ENABLED */
 
 #ifdef HAL_DMA2D_MODULE_ENABLED
 /**

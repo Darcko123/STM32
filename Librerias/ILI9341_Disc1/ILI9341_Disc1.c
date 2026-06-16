@@ -94,8 +94,10 @@ static uint16_t ILI9341_TP_Read_Z(void);
 #endif /* HAL_I2C_MODULE_ENABLED */
 static ILI9341_Status_t DrawPixelClipped(int16_t x, int16_t y, uint16_t color);
 static ILI9341_Status_t DrawHSpanClipped(int16_t xL, int16_t xR, int16_t y, uint16_t color);
+#ifdef HAL_SDRAM_MODULE_ENABLED
 static ILI9341_Status_t DrawHSpanClipped_ImageBuffer(int16_t xL, int16_t xR, int16_t y, uint16_t color, uint32_t* image);
 static ILI9341_Status_t DrawPixelClipped_ImageBuffer(int16_t x, int16_t y, uint16_t color, uint32_t* image);
+#endif /* HAL_SDRAM_MODULE_ENABLED */
 #ifdef HAL_DMA2D_MODULE_ENABLED
 static void ILI9341_DMA2D_SetMode(uint32_t mode, uint32_t output_offset);
 #endif
@@ -563,6 +565,7 @@ static ILI9341_Status_t DrawHSpanClipped(int16_t xL, int16_t xR, int16_t y, uint
  * @param color Color del tramo en formato RGB565.
  * @param image Frame buffer destino.
  */
+#ifdef HAL_SDRAM_MODULE_ENABLED
 static ILI9341_Status_t DrawHSpanClipped_ImageBuffer(int16_t xL, int16_t xR, int16_t y, uint16_t color, uint32_t* image)
 {
     int16_t tmp;
@@ -583,6 +586,7 @@ static ILI9341_Status_t DrawPixelClipped_ImageBuffer(int16_t x, int16_t y, uint1
         return ILI9341_OK;
     return ILI9341_DrawPixel_ImageBuffer((uint16_t)x, (uint16_t)y, color, image);
 }
+#endif /* HAL_SDRAM_MODULE_ENABLED */
 
 #ifdef HAL_DMA2D_MODULE_ENABLED
 /**
@@ -1894,6 +1898,8 @@ ILI9341_Status_t ILI9341_DisplayImage(uint32_t image[IMG_TOTAL_BUF32])
     return ILI9341_OK;
 }
 
+#ifdef HAL_SDRAM_MODULE_ENABLED
+
 /**
  * @brief Escribe un píxel en un frame buffer fuera de pantalla.
  *
@@ -2415,6 +2421,8 @@ ILI9341_Status_t ILI9341_DrawFilledTriangle_ImageBuffer(uint16_t x0, uint16_t y0
     }
     return ILI9341_OK;
 }
+
+#endif /* HAL_SDRAM_MODULE_ENABLED */
 
 #ifdef HAL_DMA2D_MODULE_ENABLED
 /**
