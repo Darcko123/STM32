@@ -262,6 +262,11 @@ DS3231_Status_t DS3231_GetAlarm2(ds3231_alarm2_t *alarma2)
         return DS3231_NOT_INITIALIZED;
     }
 
+    if(alarma2 == NULL)
+    {
+        return DS3231_INVALID_PARAM;
+    }
+
     uint8_t get_alarm[2];
 
     if(HAL_I2C_Mem_Read(DS3231_hi2c, DS3231_ADDRESS, DS3231_REG_ALARM2_MINUTES, 1, get_alarm, 2, DS3231_MAX_BUSY_TIMEOUT) != HAL_OK)
