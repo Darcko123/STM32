@@ -4,8 +4,8 @@
  * @brief Implementación de la librería para el sensor de temperatura y humedad SI7021 utilizando I2C en STM32.
  *
  * @author Daniel Ruiz
- * @date Abril 10, 2026
- * @version 2.0.0
+ * @date Junio 16, 2026
+ * @version 2.1.0
  */
 
 #include "SI7021.h"

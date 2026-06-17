@@ -4,19 +4,17 @@
  * @brief Librería para el sensor de temperatura y humedad SI7021 utilizando I2C en STM32.
  *
  * @author Daniel Ruiz
- * @date Abril 10, 2026
- * @version 2.0.0
+ * @date Junio 16, 2026
+ * @version 2.1.0
  */
 
 #ifndef __SI7021_H
 #define __SI7021_H
 
-/**
- * @brief Incluir el encabezado adecuado según la familia STM32 utilizada.
- * Por ejemplo:
- * - Para STM32F1xx: "stm32f1xx_hal.h"
- * - Para STM32F4xx: "stm32f4xx_hal.h"
- */
+// ============================================================================
+// INCLUDES
+// ============================================================================
+
 #include "main.h"
 
 // ============================================================================
@@ -73,7 +71,7 @@ extern "C" {
 /**
  * @brief Inicializa el sensor SI7021.
  * 
- * @param hi2c Puntero al handñe de I2C utilizado para comunicarse con el módulo SI7021.
+ * @param hi2c Puntero al handle de I2C utilizado para comunicarse con el módulo SI7021.
  * @return SI7021_Status_t Estado de la inicialización (OK, ERROR, etc.)
  */
 SI7021_Status_t SI7021_Init(I2C_HandleTypeDef* hi2c);
