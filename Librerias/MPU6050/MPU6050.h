@@ -56,6 +56,24 @@ typedef enum {
     MPU6050_INVALID_PARAM   = 4     /**< Parámetro inválido */
 }MPU6050_Status_t;
 
+/**
+ * @brief Datos de medición del acelerómetro del MPU6050.
+ */
+typedef struct {
+    float x;    /**< Valor de aceleración en el eje X. */
+    float y;    /**< Valor de aceleración en el eje Y. */
+    float z;    /**< Valor de aceleración en el eje Z. */
+} MPU6050_Accel_t;
+
+/**
+ * @brief Datos de medición del giroscopio del MPU6050.
+ */
+typedef struct {
+    float x;    /**< Valor de velocidad angular en el eje X. */
+    float y;    /**< Valor de velocidad angular en el eje Y. */
+    float z;    /**< Valor de velocidad angular en el eje Z. */
+} MPU6050_Gyro_t;
+
 // ============================================================================
 // PROTOTIPOS DE FUNCIONES PÚBLICAS
 // ============================================================================
@@ -86,7 +104,7 @@ MPU6050_Status_t MPU6050_Init(I2C_HandleTypeDef* hi2c);
  * 
  * @note Los valores se devuelven en unidades dependientes de la configuración del rango.
  */
-MPU6050_Status_t MPU6050_Read_Accel(float *Ax, float *Ay, float *Az);
+MPU6050_Status_t MPU6050_Read_Accel(MPU6050_Accel_t *accel);
 
 /**
  * @brief Lee los valores del giroscopio en los tres ejes.
@@ -99,7 +117,7 @@ MPU6050_Status_t MPU6050_Read_Accel(float *Ax, float *Ay, float *Az);
  * 
  * @note Los valores se devuelven en unidades dependientes de la configuración del rango.
  */
-MPU6050_Status_t MPU6050_Read_Gyro(float *Gx, float *Gy, float *Gz);
+MPU6050_Status_t MPU6050_Read_Gyro(MPU6050_Gyro_t *gyro);
 
 /*---------------------------------------------------------*/
 
