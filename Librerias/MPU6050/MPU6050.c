@@ -1,24 +1,24 @@
-/*
- * MPU6050.c
- *
- *  @brief    Implementación de funciones para el manejo del acelerómetro MPU6050
- *  @author   Daniel Ruiz
- *  @date     23 de septiembre de 2024
- *  @version  2.0.1
- *
- *  @details  
- *  Este archivo contiene las definiciones de las funciones para inicializar y leer datos 
- *  del acelerómetro y giroscopio MPU6050 mediante la interfaz I2C en un microcontrolador STM32.
+/**
+ * @file MPU6050.c
+ * @brief Implementación de funciones para el manejo del acelerómetro MPU6050
+ * 
+ * @details Este archivo contiene las definiciones de las funciones para inicializar
+ *          y leer datos del acelerómetro y giroscopio MPU6050 mediante la interfaz 
+ *          I2C en un microcontrolador STM32.
+ * 
+ * @author   Daniel Ruiz
+ * @date     23 de septiembre de 2024
+ * @version  2.0.1
  */
 
 #include "MPU6050.h"
 
-static I2C_HandleTypeDef* MPU6050_hi2c;     /**< Manejador de la interfaz I2C utilizado para comunicarse con el MPU6050 */
-static uint8_t MPU6050_Initialized = 0;      /**< Bandera para verificar si el sensor está inicializado */
-
 // ============================================================================
 // VARIABLES PRIVADAS
 // ============================================================================
+
+static I2C_HandleTypeDef*   MPU6050_hi2c        = NULL; /**< Manejador de la interfaz I2C utilizado para comunicarse con el MPU6050 */
+static uint8_t              MPU6050_Initialized = 0U;   /**< Bandera para verificar si el sensor está inicializado */
 
 /** @brief Almacenan valores RAW del acelerómetro. */
 static int16_t Accel_X_RAW = 0, Accel_Y_RAW = 0, Accel_Z_RAW = 0;
@@ -26,7 +26,9 @@ static int16_t Accel_X_RAW = 0, Accel_Y_RAW = 0, Accel_Z_RAW = 0;
 /** @brief Almacenan valores RAW del giroscopio. */
 static int16_t Gyro_X_RAW = 0, Gyro_Y_RAW = 0, Gyro_Z_RAW = 0;
 
-/*-----------------------------------------------------------*/
+// ============================================================================
+// FUNCIONES PÚBLICAS
+// ============================================================================
 
 /**
  * @brief  Inicializa el sensor MPU6050.
