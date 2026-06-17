@@ -48,7 +48,7 @@ typedef struct
 {
     float humedad;      /**< Humedad relativa (%RH) */
     float temperatura;  /**< Temperatura en grados Celsius (°C) */
-} si7021_data_t;
+} SI7021_Data_t;
 
 // ============================================================================
 // ENUMERACIONES Y ESTRUCTURAS
