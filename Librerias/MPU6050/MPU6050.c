@@ -259,3 +259,58 @@ MPU6050_Status_t MPU6050_Read_Temp(float *temp)
 
     return MPU6050_OK;
 }
+
+/**
+ * @brief Activa o desactiva el modo de bajo consumo (sleep) del MPU6050.
+ *
+ * @param[in] enable 1 para activar el modo sleep, 0 para despertar el sensor.
+ *
+ * @return MPU6050_Status_t Estado de la operación
+ *
+ * @details
+ * - Lee el registro PWR_MGMT_1 y modifica únicamente el bit SLEEP,
+ *   preservando el resto de la configuración (clock source, etc.).
+ */
+MPU6050_Status_t MPU6050_Set_Sleep_Mode(uint8_t enable)
+{
+    HAL_StatusTypeDef hal_status;
+    uint8_t data;
+
+    // Verificación de inicialización
+    if(MPU6050_Initialized == 0)     { return MPU6050_NOT_INITIALIZED; }
+    if((enable < 0) || (enable > 1)) { return MPU6050_INVALID_PARAM; }
+
+    // Leer valor actual del registro PWR_MGMT_1
+    hal_status = HAL_I2C_Mem_Read(MPU6050_hi2c, MPU6050_ADDRESS, PWR_MGMT_1_REG, 1, &data, 1, 1000);
+    if(hal_status == HAL_TIMEOUT)
+    {
+        return MPU6050_TIMEOUT;
+    }
+    else if (hal_status != HAL_OK)
+    {
+        return MPU6050_ERROR;
+    }
+
+    // Modificar únicamente el bit SLEEP, preservando el resto de la configuración
+    if(enable)
+    {
+        data |= PWR_MGMT_1_SLEEP_BIT;
+    }
+    else
+    {
+        data &= ~PWR_MGMT_1_SLEEP_BIT;
+    }
+
+    // Escribir el valor actualizado en el registro PWR_MGMT_1
+    hal_status = HAL_I2C_Mem_Write(MPU6050_hi2c, MPU6050_ADDRESS, PWR_MGMT_1_REG, 1, &data, 1, 1000);
+    if(hal_status == HAL_TIMEOUT)
+    {
+        return MPU6050_TIMEOUT;
+    }
+    else if (hal_status != HAL_OK)
+    {
+        return MPU6050_ERROR;
+    }
+
+    return MPU6050_OK;
+}

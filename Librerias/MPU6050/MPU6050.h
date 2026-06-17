@@ -39,6 +39,7 @@
 #define TEMP_OUT_H_REG      0x41    /**< Registro de datos de temperatura (parte alta). */
 #define GYRO_XOUT_H_REG     0x43    /**< Registro de datos del giroscopio en el eje X (parte alta). */
 #define PWR_MGMT_1_REG      0x6B    /**< Registro de gestión de energía 1. */
+#define PWR_MGMT_1_SLEEP_BIT (1U << 6)  /**< Bit SLEEP del registro PWR_MGMT_1. */
 
 #define WHO_AM_I_REG        0x75    /**< Registro de identificación del dispositivo. */
 
@@ -127,6 +128,15 @@ MPU6050_Status_t MPU6050_Read_Gyro(MPU6050_Gyro_t *gyro);
  * @return MPU6050_Status_t Estado de la operación
  */
 MPU6050_Status_t MPU6050_Read_Temp(float *temp);
+
+/**
+ * @brief Activa o desactiva el modo de bajo consumo (sleep) del MPU6050 sin reinicializar el sensor.
+ *
+ * @param[in] enable 1 para activar el modo sleep, 0 para despertar el sensor.
+ *
+ * @return MPU6050_Status_t Estado de la operación
+ */
+MPU6050_Status_t MPU6050_Set_Sleep_Mode(uint8_t enable);
 
 /*---------------------------------------------------------*/
 
