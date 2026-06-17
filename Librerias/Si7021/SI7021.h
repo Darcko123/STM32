@@ -61,6 +61,7 @@ typedef enum {
 	SI7021_ERROR = 1,			/**< Error en la operación */
 	SI7021_TIMEOUT = 2,			/**< Timeout en la operación */
 	SI7021_NOT_INITIALIZED = 3,	/**< Módulo no inicializado */
+    SI7021_INVALID_PARAM = 4,	/**< Parámetro inválido */
 }SI7021_Status_t;
 
 // ============================================================================
@@ -82,10 +83,10 @@ SI7021_Status_t SI7021_Init(I2C_HandleTypeDef* hi2c);
  /**
  * @brief Lee los valores de temperatura y humedad del sensor SI7021.
   * 
-  * @param environment Puntero a una estructura `si7021_data_t` donde se almacenarán los valores de temperatura y humedad leídos del sensor.
+  * @param environment Puntero a una estructura `SI7021_Data_t` donde se almacenarán los valores de temperatura y humedad leídos del sensor.
   * @return SI7021_Status_t 
   */
-SI7021_Status_t SI7021_Get(si7021_data_t *environment);
+SI7021_Status_t SI7021_Get(SI7021_Data_t *environment);
 
 #ifdef __cplusplus
 }
