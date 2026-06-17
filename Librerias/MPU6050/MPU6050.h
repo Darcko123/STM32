@@ -104,26 +104,18 @@ MPU6050_Status_t MPU6050_DeInit(void);
 /**
  * @brief Lee los valores de aceleración en los tres ejes.
  * 
- * @param[out] Ax Puntero donde se almacenará el valor de aceleración en el eje X.
- * @param[out] Ay Puntero donde se almacenará el valor de aceleración en el eje Y.
- * @param[out] Az Puntero donde se almacenará el valor de aceleración en el eje Z.
+ * @param[out] accel Puntero a la estructura donde se almacenarán los valores de aceleración.
  * 
  * @return MPU6050_Status_t Estado de la operación
- * 
- * @note Los valores se devuelven en unidades dependientes de la configuración del rango.
  */
 MPU6050_Status_t MPU6050_Read_Accel(MPU6050_Accel_t *accel);
 
 /**
  * @brief Lee los valores del giroscopio en los tres ejes.
  * 
- * @param[out] Gx Puntero donde se almacenará el valor del giroscopio en el eje X.
- * @param[out] Gy Puntero donde se almacenará el valor del giroscopio en el eje Y.
- * @param[out] Gz Puntero donde se almacenará el valor del giroscopio en el eje Z.
+ * @param[out] gyro Puntero a la estructura donde se almacenarán los valores de velocidad angular.
  * 
  * @return MPU6050_Status_t Estado de la operación
- * 
- * @note Los valores se devuelven en unidades dependientes de la configuración del rango.
  */
 MPU6050_Status_t MPU6050_Read_Gyro(MPU6050_Gyro_t *gyro);
 
