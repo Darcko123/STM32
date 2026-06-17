@@ -108,6 +108,19 @@ MPU6050_Status_t MPU6050_Init(I2C_HandleTypeDef* hi2c)
 }
 
 /**
+ * @brief Desinicializa el sensor MPU6050, liberando recursos y marcando el módulo como no inicializado.
+ * 
+ * @return MPU6050_Status_t Siempre retorna MPU6050_OK
+ */
+MPU6050_Status_t MPU6050_DeInit(void)
+{
+    MPU6050_hi2c         = NULL;    // Limpia el handler de I2C
+    MPU6050_Initialized  = 0U;      // Marca el módulo como no inicializado
+    
+    return MPU6050_OK;
+}
+
+/**
  * @brief Lee los valores del acelerómetro y los convierte a unidades 'g'.
  * 
  * @param[out] accel Puntero a la estructura donde se almacenarán los valores de aceleración en 'g'.
