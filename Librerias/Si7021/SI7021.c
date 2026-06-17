@@ -4,8 +4,8 @@
  * @brief Implementación de la librería para el sensor de temperatura y humedad SI7021 utilizando I2C en STM32.
  *
  * @author Daniel Ruiz
- * @date Abril 10, 2026
- * @version 2.0.0
+ * @date Junio 16, 2026
+ * @version 2.1.0
  */
 
 #include "SI7021.h"
@@ -39,7 +39,7 @@ SI7021_Status_t SI7021_Init(I2C_HandleTypeDef* hi2c)
 {
     if(hi2c == NULL)
     {
-        return SI7021_ERROR;
+        return SI7021_INVALID_PARAM;
     }
 
     // Asigna el handler de I2C proporcionado a la variable estática
@@ -60,14 +60,26 @@ SI7021_Status_t SI7021_Init(I2C_HandleTypeDef* hi2c)
 }
 
 /**
+ * @brief Desinicializa el sensor SI7021, liberando recursos y marcando el módulo como no inicializado.
+ * 
+ * @return SI7021_Status_t Siempre retorna SI7021_OK
+ */
+SI7021_Status_t SI7021_DeInit(void)
+{
+    SI7021_hi2c         = NULL; // Limpia el handler de I2C
+    SI7021_Initialized  = 0U;   // Marca el módulo como no inicializado
+    
+    return SI7021_OK;
+}
+
+/**
  * @brief Obtiene los valores de temperatura y humedad del sensor SI7021.
  *
- * @param[out] temp  Puntero para almacenar el valor de la temperatura (°C).
- * @param[out] humid Puntero para almacenar el valor de la humedad (%HR).
+ * @param[out] environment  Puntero para almacenar el valor de la temperatura (°C) y humedad (%HR).
  *
  * @note La fórmula de conversión está basada en el datasheet del SI7021.
  */
-SI7021_Status_t SI7021_Get(si7021_data_t *environment)
+SI7021_Status_t SI7021_Get(SI7021_Data_t *environment)
 {
     if(SI7021_Initialized != 1)
     {
@@ -76,7 +88,7 @@ SI7021_Status_t SI7021_Get(si7021_data_t *environment)
 
     if(environment == NULL)
     {
-        return SI7021_ERROR;
+        return SI7021_INVALID_PARAM;
     }
 
     uint8_t cmd;

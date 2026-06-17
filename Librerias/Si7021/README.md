@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![STM32](https://img.shields.io/badge/Platform-STM32F411-black)](https://www.st.com/en/microcontrollers-microprocessors/stm32f4-series.html)
-[![Version](https://img.shields.io/badge/Version-2.0.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/SI7021)
+[![Version](https://img.shields.io/badge/Version-2.1.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/SI7021)
 [![Protocol](https://img.shields.io/badge/Protocol-I2C-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/Si7021)
 
 ---
@@ -22,21 +22,25 @@
   - [API Reference](#api-reference)
     - [1. Tipos de Datos](#1-tipos-de-datos)
       - [`SI7021_Status_t` - Estados de Retorno](#si7021_status_t---estados-de-retorno)
-      - [`si7021_data_t` - Estructura de Datos](#si7021_data_t---estructura-de-datos)
+      - [`SI7021_Data_t` - Estructura de Datos](#si7021_data_t---estructura-de-datos)
     - [2. Funciones Públicas](#2-funciones-públicas)
       - [`SI7021_Init()` - Inicialización del Driver](#si7021_init---inicialización-del-driver)
+      - [`SI7021_DeInit()` - Liberación de Recursos](#si7021_deinit---liberación-de-recursos)
       - [`SI7021_Get()` - Obtención de Datos del Entorno](#si7021_get---obtención-de-datos-del-entorno)
   - [Licencia](#licencia)
   - [Changelog](#changelog)
-    - [\[2.0.0\] - 10-04-2026](#200---10-04-2026)
+    - [\[2.1.0\] - 16-06-2026](#210---16-06-2026)
       - [Added](#added)
-    - [\[1.2.0\] - 22-09-2025](#120---22-09-2025)
+      - [Changed](#changed)
+    - [\[2.0.0\] - 10-04-2026](#200---10-04-2026)
       - [Added](#added-1)
+    - [\[1.2.0\] - 22-09-2025](#120---22-09-2025)
+      - [Added](#added-2)
       - [Fixed](#fixed)
     - [\[1.1.0\] - 13-01-2025](#110---13-01-2025)
-      - [Changed](#changed)
+      - [Changed](#changed-1)
     - [\[1.0.0\] - 28-12-2024](#100---28-12-2024)
-      - [Added](#added-2)
+      - [Added](#added-3)
 
 ---
 
@@ -54,7 +58,7 @@ El sensor SI7021 es ampliamente utilizado en aplicaciones de monitoreo ambiental
 - **Reset por hardware**: Al inicializar, se envía el comando de reset para asegurar un estado conocido.
 - **Manejo robusto de errores**: Códigos de retorno específicos para error de I2C, timeout o módulo no inicializado (`SI7021_Status_t`).
 - **Cálculo automático**: Conversión de datos crudos a valores físicos utilizando las fórmulas del datasheet.
-- **Portabilidad**: Compatible con múltiples familias STM32 mediante la capa HAL. Solo requiere cambiar el `#include` del encabezado HAL en `SI7021.h`.
+- **Portabilidad**: Compatible con múltiples familias STM32 mediante la capa HAL. Incluye `main.h`, por lo que solo es necesario que el `main.h` generado por CubeMX/CubeIDE para tu familia STM32 esté presente en el proyecto.
 
 ---
 
@@ -94,13 +98,7 @@ Configura tu periférico I2C en CubeMX/STM32CubeIDE:
 
 ## Instalación
 1. Copia `SI7021.c` y `SI7021.h` a tu proyecto (ej: `Librerias/SI7021/`).
-2. Ajusta el `#include` del encabezado HAL en `SI7021.h` según tu familia STM32:
-  ```c
-  // STM32F1xx:
-  #include "stm32f1xx_hal.h"
-  // STM32F4xx:
-  #include "stm32f4xx_hal.h"
-  ```
+2. `SI7021.h` incluye `main.h`, por lo que no es necesario ajustar manualmente el encabezado HAL: CubeMX/CubeIDE ya genera el `main.h` con el `#include` correcto para tu familia STM32 (F1, F4, etc.).
 3. Incluye la librería en tu main.c o archivo principal:
   ```c
   #include "SI7021.h"
@@ -125,7 +123,7 @@ if (status != SI7021_OK) {
 ### 2. Adquisición de datos
 
 ```c
-si7021_data_t entorno;
+SI7021_Data_t entorno;
 
 // Leer temperatura y humedad
 if (SI7021_Get(&entorno) == SI7021_OK) {
@@ -152,19 +150,21 @@ typedef enum {
     SI7021_ERROR = 1,           /**< Error en la operación */
     SI7021_TIMEOUT = 2,         /**< Timeout en la operación */
     SI7021_NOT_INITIALIZED = 3, /**< Módulo no inicializado */
+    SI7021_INVALID_PARAM = 4,   /**< Parámetro inválido */
 } SI7021_Status_t;
 ```
 
 | Valor | Código | Significado |
 |-------|--------|-------------|
 | `SI7021_OK` | 0 | Operación completada sin errores |
-| `SI7021_ERROR` | 1 | Error de I2C, parámetro inválido o condición inesperada |
+| `SI7021_ERROR` | 1 | Error de comunicación I2C o condición inesperada |
 | `SI7021_TIMEOUT` | 2 | Timeout de software o timeout interno del chip |
 | `SI7021_NOT_INITIALIZED` | 3 | `SI7021_Init()` no se llamó o falló |
+| `SI7021_INVALID_PARAM` | 4 | Se pasó un puntero `NULL` como parámetro a la función |
 
 ---
 
-#### `si7021_data_t` - Estructura de Datos
+#### `SI7021_Data_t` - Estructura de Datos
 
 Estructura que encapsula los valores de temperatura y humedad relativa del entorno.
 
@@ -173,9 +173,9 @@ Estructura que encapsula los valores de temperatura y humedad relativa del entor
  * @brief Estructura para almacenar los datos de temperatura y humedad.
  */
 typedef struct {
-    float temperatura;  /**< Temperatura en grados Celsius (°C), rango: -40 a +125 */
     float humedad;      /**< Humedad relativa (%RH), rango: 0 a 100 */
-} si7021_data_t;
+    float temperatura;  /**< Temperatura en grados Celsius (°C), rango: -40 a +125 */
+} SI7021_Data_t;
 ```
 
 | Campo | Tipo | Rango | Unidad | Descripción |
@@ -199,7 +199,7 @@ SI7021_Status_t SI7021_Init(I2C_HandleTypeDef* hi2c);
 |-----------|------|-------------|
 | `hi2c` | `I2C_HandleTypeDef*`	| Handle del periférico I2C configurado |
 
-**Retorna**: `SI7021_OK` si el handle es válido y el reset fue exitoso, `SI7021_ERROR` si el handle es NULL o la comunicación I2C falla.
+**Retorna**: `SI7021_OK` si el handle es válido y el reset fue exitoso, `SI7021_INVALID_PARAM` si el handle es NULL, `SI7021_ERROR` si la comunicación I2C falla.
 
 **Secuencia interna:**
 1. Valida que el handle I2C no sea NULL.
@@ -210,19 +210,31 @@ SI7021_Status_t SI7021_Init(I2C_HandleTypeDef* hi2c);
 
 ---
 
+#### `SI7021_DeInit()` - Liberación de Recursos
+
+Desinicializa el driver, liberando el handle I2C almacenado y marcando el módulo como no inicializado. Tras llamar a esta función, es necesario volver a llamar a `SI7021_Init()` antes de usar `SI7021_Get()`.
+
+```c
+SI7021_Status_t SI7021_DeInit(void);
+```
+
+**Retorna**: Siempre retorna `SI7021_OK`.
+
+---
+
 #### `SI7021_Get()` - Obtención de Datos del Entorno
 
 Lee los valores de temperatura y humedad del sensor SI7021. Realiza dos conversiones independientes: primero temperatura, luego humedad. Cada conversión requiere un tiempo de espera de aproximadamente 25 ms.
 
 ```c
-SI7021_Status_t SI7021_Get(si7021_data_t *environment);
+SI7021_Status_t SI7021_Get(SI7021_Data_t *environment);
 ```
 
 | Parámetro	| Tipo | Descripción |
 |-----------|------|-------------|
-| `environment` | `si7021_data_t*` | Puntero a la estructura donde se almacenará la humedad y la temperatura |
+| `environment` | `SI7021_Data_t*` | Puntero a la estructura donde se almacenará la humedad y la temperatura |
 
-**Retorna**: `SI7021_OK` si la lectura fue exitosa, `SI7021_ERROR` si falla la comunicación I2C o `environment` es NULL, `SI7021_NOT_INITIALIZED` si el módulo no fue inicializado.
+**Retorna**: `SI7021_OK` si la lectura fue exitosa, `SI7021_INVALID_PARAM` si `environment` es NULL, `SI7021_ERROR` si falla la comunicación I2C, `SI7021_NOT_INITIALIZED` si el módulo no fue inicializado.
 
 ---
 
@@ -235,6 +247,19 @@ Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](/LICENSE
 
 Todos los cambios notables de esta librería se documentan en esta sección.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
+
+---
+
+### [2.1.0] - 16-06-2026
+
+#### Added
+- Función `SI7021_DeInit()` para liberar recursos y reiniciar el estado de inicialización.
+- Código de retorno `SI7021_INVALID_PARAM` para distinguir parámetros NULL de errores de comunicación I2C.
+
+#### Changed
+- Renombrada la estructura `si7021_data_t` a `SI7021_Data_t`.
+- `SI7021_Init()` y `SI7021_Get()` ahora retornan `SI7021_INVALID_PARAM` en lugar de `SI7021_ERROR` cuando se pasa un puntero NULL.
+- `SI7021.h` ahora incluye `main.h` en lugar del encabezado HAL específico de la familia STM32.
 
 ---
 

@@ -4,22 +4,18 @@
  * @brief Librería para el sensor de temperatura y humedad SI7021 utilizando I2C en STM32.
  *
  * @author Daniel Ruiz
- * @date Abril 10, 2026
- * @version 2.0.0
+ * @date Junio 16, 2026
+ * @version 2.1.0
  */
 
 #ifndef __SI7021_H
 #define __SI7021_H
 
-/**
- * @brief Incluir el encabezado adecuado según la familia STM32 utilizada.
- * Por ejemplo:
- * - Para STM32F1xx: "stm32f1xx_hal.h"
- * - Para STM32F4xx: "stm32f4xx_hal.h"
- */
-#include "stm32f4xx_hal.h"
-#include <stdint.h>
-#include <stdbool.h>
+// ============================================================================
+// INCLUDES
+// ============================================================================
+
+#include "main.h"
 
 // ============================================================================
 // MACROS Y CONSTANTES DE COMANDOS Si7021
@@ -48,7 +44,7 @@ typedef struct
 {
     float humedad;      /**< Humedad relativa (%RH) */
     float temperatura;  /**< Temperatura en grados Celsius (°C) */
-} si7021_data_t;
+} SI7021_Data_t;
 
 // ============================================================================
 // ENUMERACIONES Y ESTRUCTURAS
@@ -61,6 +57,7 @@ typedef enum {
 	SI7021_ERROR = 1,			/**< Error en la operación */
 	SI7021_TIMEOUT = 2,			/**< Timeout en la operación */
 	SI7021_NOT_INITIALIZED = 3,	/**< Módulo no inicializado */
+    SI7021_INVALID_PARAM = 4,	/**< Parámetro inválido */
 }SI7021_Status_t;
 
 // ============================================================================
@@ -74,18 +71,25 @@ extern "C" {
 /**
  * @brief Inicializa el sensor SI7021.
  * 
- * @param hi2c Puntero al handñe de I2C utilizado para comunicarse con el módulo SI7021.
+ * @param hi2c Puntero al handle de I2C utilizado para comunicarse con el módulo SI7021.
  * @return SI7021_Status_t Estado de la inicialización (OK, ERROR, etc.)
  */
 SI7021_Status_t SI7021_Init(I2C_HandleTypeDef* hi2c);
 
+/**
+ * @brief Desinicializa el sensor SI7021, liberando recursos y marcando el módulo como no inicializado.
+ * 
+ * @return SI7021_Status_t Siempre retorna SI7021_OK
+ */
+SI7021_Status_t SI7021_DeInit(void);
+
  /**
  * @brief Lee los valores de temperatura y humedad del sensor SI7021.
   * 
-  * @param environment Puntero a una estructura `si7021_data_t` donde se almacenarán los valores de temperatura y humedad leídos del sensor.
+  * @param environment Puntero a una estructura `SI7021_Data_t` donde se almacenarán los valores de temperatura y humedad leídos del sensor.
   * @return SI7021_Status_t 
   */
-SI7021_Status_t SI7021_Get(si7021_data_t *environment);
+SI7021_Status_t SI7021_Get(SI7021_Data_t *environment);
 
 #ifdef __cplusplus
 }
