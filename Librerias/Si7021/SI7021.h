@@ -17,9 +17,7 @@
  * - Para STM32F1xx: "stm32f1xx_hal.h"
  * - Para STM32F4xx: "stm32f4xx_hal.h"
  */
-#include "stm32f4xx_hal.h"
-#include <stdint.h>
-#include <stdbool.h>
+#include "main.h"
 
 // ============================================================================
 // MACROS Y CONSTANTES DE COMANDOS Si7021
@@ -79,6 +77,13 @@ extern "C" {
  * @return SI7021_Status_t Estado de la inicialización (OK, ERROR, etc.)
  */
 SI7021_Status_t SI7021_Init(I2C_HandleTypeDef* hi2c);
+
+/**
+ * @brief Desinicializa el sensor SI7021, liberando recursos y marcando el módulo como no inicializado.
+ * 
+ * @return SI7021_Status_t Siempre retorna SI7021_OK
+ */
+SI7021_Status_t SI7021_DeInit(void);
 
  /**
  * @brief Lee los valores de temperatura y humedad del sensor SI7021.

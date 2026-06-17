@@ -60,6 +60,19 @@ SI7021_Status_t SI7021_Init(I2C_HandleTypeDef* hi2c)
 }
 
 /**
+ * @brief Desinicializa el sensor SI7021, liberando recursos y marcando el módulo como no inicializado.
+ * 
+ * @return SI7021_Status_t Siempre retorna SI7021_OK
+ */
+SI7021_Status_t SI7021_DeInit(void)
+{
+    SI7021_hi2c         = NULL; // Limpia el handler de I2C
+    SI7021_Initialized  = 0U;   // Marca el módulo como no inicializado
+    
+    return SI7021_OK;
+}
+
+/**
  * @brief Obtiene los valores de temperatura y humedad del sensor SI7021.
  *
  * @param[out] environment  Puntero para almacenar el valor de la temperatura (°C) y humedad (%HR).
