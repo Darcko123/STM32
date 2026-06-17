@@ -39,7 +39,7 @@ SI7021_Status_t SI7021_Init(I2C_HandleTypeDef* hi2c)
 {
     if(hi2c == NULL)
     {
-        return SI7021_ERROR;
+        return SI7021_INVALID_PARAM;
     }
 
     // Asigna el handler de I2C proporcionado a la variable estática
@@ -62,12 +62,11 @@ SI7021_Status_t SI7021_Init(I2C_HandleTypeDef* hi2c)
 /**
  * @brief Obtiene los valores de temperatura y humedad del sensor SI7021.
  *
- * @param[out] temp  Puntero para almacenar el valor de la temperatura (°C).
- * @param[out] humid Puntero para almacenar el valor de la humedad (%HR).
+ * @param[out] environment  Puntero para almacenar el valor de la temperatura (°C) y humedad (%HR).
  *
  * @note La fórmula de conversión está basada en el datasheet del SI7021.
  */
-SI7021_Status_t SI7021_Get(si7021_data_t *environment)
+SI7021_Status_t SI7021_Get(SI7021_Data_t *environment)
 {
     if(SI7021_Initialized != 1)
     {
@@ -76,7 +75,7 @@ SI7021_Status_t SI7021_Get(si7021_data_t *environment)
 
     if(environment == NULL)
     {
-        return SI7021_ERROR;
+        return SI7021_INVALID_PARAM;
     }
 
     uint8_t cmd;
