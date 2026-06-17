@@ -50,12 +50,11 @@ MPU6050_Status_t MPU6050_Init(I2C_HandleTypeDef* hi2c)
     // Validar parámetros de entrada
     if(hi2c == NULL)
     {
-        return MPU6050_ERROR;
+        return MPU6050_INVALID_PARAM;
     }
 
     // Almacenar configuración para uso en funciones posteriores
     MPU6050_hi2c = hi2c;
-    MPU6050_Initialized = 0; // Marcar como no inicializado hasta completar el proceso
 
     // Comprobar conexión con el MPU6050 mediante el registro WHO_AM_I
     hal_status = HAL_I2C_Mem_Read(MPU6050_hi2c, MPU6050_ADDRESS, WHO_AM_I_REG, 1, &check, 1, 1000);
@@ -103,7 +102,7 @@ MPU6050_Status_t MPU6050_Init(I2C_HandleTypeDef* hi2c)
     }
 
     // Marcar como inicializado exitosamente
-    MPU6050_Initialized = 1;
+    MPU6050_Initialized = 1U;
 
     return MPU6050_OK;
 }
@@ -111,9 +110,7 @@ MPU6050_Status_t MPU6050_Init(I2C_HandleTypeDef* hi2c)
 /**
  * @brief Lee los valores del acelerómetro y los convierte a unidades 'g'.
  * 
- * @param[out] Ax Puntero para almacenar la aceleración en el eje X (en 'g').
- * @param[out] Ay Puntero para almacenar la aceleración en el eje Y (en 'g').
- * @param[out] Az Puntero para almacenar la aceleración en el eje Z (en 'g').
+ * @param[out] accel Puntero a la estructura donde se almacenarán los valores de aceleración en 'g'.
  * 
  * @return MPU6050_Status_t Estado de la operación
  * 
@@ -121,22 +118,16 @@ MPU6050_Status_t MPU6050_Init(I2C_HandleTypeDef* hi2c)
  * - Se leen 6 bytes correspondientes a los valores de los ejes X, Y y Z.
  * - Se convierten los valores RAW a aceleración usando el factor de escala (FS_SEL = 0 → 16384 LSB/g).
  */
-MPU6050_Status_t MPU6050_Read_Accel(float *Ax, float *Ay, float *Az)
+MPU6050_Status_t MPU6050_Read_Accel(MPU6050_Accel_t *accel)
 {
     HAL_StatusTypeDef hal_status;
     uint8_t Rec_Data[6];
 
     // Verificación de inicialización
-    if(MPU6050_Initialized == 0)
-    {
-        return MPU6050_NOT_INITIALIZED;
-    }
+    if(MPU6050_Initialized == 0) { return MPU6050_NOT_INITIALIZED; }
 
     // Validar puntero de salida
-    if(Ax == NULL || Ay == NULL || Az == NULL)
-    {
-        return MPU6050_ERROR;
-    }
+    if(accel == NULL) { return MPU6050_INVALID_PARAM; }
 
     // Leer 6 bytes de datos del acelerómetro
     hal_status = HAL_I2C_Mem_Read(MPU6050_hi2c, MPU6050_ADDRESS, ACCEL_XOUT_H_REG, 1, Rec_Data, 6, 1000);
@@ -156,9 +147,9 @@ MPU6050_Status_t MPU6050_Read_Accel(float *Ax, float *Ay, float *Az)
     Accel_Z_RAW = (int16_t)(Rec_Data[4] << 8 | Rec_Data[5]);
 
     // Convertir valores RAW a aceleración en 'g'
-    *Ax = Accel_X_RAW / 16384.0;
-    *Ay = Accel_Y_RAW / 16384.0;
-    *Az = Accel_Z_RAW / 16384.0;
+    accel->x = Accel_X_RAW / 16384.0;
+    accel->y = Accel_Y_RAW / 16384.0;
+    accel->z = Accel_Z_RAW / 16384.0;
 
     return MPU6050_OK;
 }
@@ -166,9 +157,7 @@ MPU6050_Status_t MPU6050_Read_Accel(float *Ax, float *Ay, float *Az)
 /**
  * @brief Lee los valores del giroscopio y los convierte a unidades 'dps'.
  * 
- * @param[out] Gx Puntero para almacenar la velocidad angular en el eje X (en 'dps').
- * @param[out] Gy Puntero para almacenar la velocidad angular en el eje Y (en 'dps').
- * @param[out] Gz Puntero para almacenar la velocidad angular en el eje Z (en 'dps').
+ * @param[out] gyro Puntero a la estructura donde se almacenarán los valores de velocidad angular en 'dps'.
  * 
  * @return MPU6050_Status_t Estado de la operación
  * 
@@ -176,22 +165,16 @@ MPU6050_Status_t MPU6050_Read_Accel(float *Ax, float *Ay, float *Az)
  * - Se leen 6 bytes correspondientes a los valores de los ejes X, Y y Z.
  * - Se convierten los valores RAW a velocidad angular usando el factor de escala (FS_SEL = 0 → 131 LSB/dps).
  */
-MPU6050_Status_t MPU6050_Read_Gyro(float *Gx, float *Gy, float *Gz)
+MPU6050_Status_t MPU6050_Read_Gyro(MPU6050_Gyro_t *gyro)
 {
     HAL_StatusTypeDef hal_status;
     uint8_t Rec_Data[6];
 
     // Verificación de inicialización
-    if(MPU6050_Initialized == 0)
-    {
-        return MPU6050_NOT_INITIALIZED;
-    }
+    if(MPU6050_Initialized == 0) { return MPU6050_NOT_INITIALIZED; }
 
     // Validar puntero de salida
-    if(Gx == NULL || Gy == NULL || Gz == NULL)
-    {
-        return MPU6050_ERROR;
-    }
+    if(gyro == NULL) { return MPU6050_INVALID_PARAM; }
 
     // Leer 6 bytes de datos del giroscopio
     hal_status = HAL_I2C_Mem_Read(MPU6050_hi2c, MPU6050_ADDRESS, GYRO_XOUT_H_REG, 1, Rec_Data, 6, 1000);
@@ -211,9 +194,9 @@ MPU6050_Status_t MPU6050_Read_Gyro(float *Gx, float *Gy, float *Gz)
     Gyro_Z_RAW = (int16_t)(Rec_Data[4] << 8 | Rec_Data[5]);
 
     // Convertir valores RAW a velocidad angular en 'dps'
-    *Gx = Gyro_X_RAW / 131.0;
-    *Gy = Gyro_Y_RAW / 131.0;
-    *Gz = Gyro_Z_RAW / 131.0;
+    gyro->x = Gyro_X_RAW / 131.0;
+    gyro->y = Gyro_Y_RAW / 131.0;
+    gyro->z = Gyro_Z_RAW / 131.0;
 
     return MPU6050_OK;
 }
