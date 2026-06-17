@@ -119,6 +119,15 @@ MPU6050_Status_t MPU6050_Read_Accel(MPU6050_Accel_t *accel);
  */
 MPU6050_Status_t MPU6050_Read_Gyro(MPU6050_Gyro_t *gyro);
 
+/**
+ * @brief Lee la temperatura del sensor MPU6050.
+ *
+ * @param[out] temp Puntero a la variable donde se almacenará la temperatura en grados Celsius.
+ *
+ * @return MPU6050_Status_t Estado de la operación
+ */
+MPU6050_Status_t MPU6050_Read_Temp(float *temp);
+
 /*---------------------------------------------------------*/
 
 #ifdef __cplusplus

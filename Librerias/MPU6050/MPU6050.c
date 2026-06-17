@@ -26,6 +26,9 @@ static int16_t Accel_X_RAW = 0, Accel_Y_RAW = 0, Accel_Z_RAW = 0;
 /** @brief Almacenan valores RAW del giroscopio. */
 static int16_t Gyro_X_RAW = 0, Gyro_Y_RAW = 0, Gyro_Z_RAW = 0;
 
+/** @brief Almacena el valor RAW de la temperatura. */
+static int16_t Temp_RAW = 0;
+
 // ============================================================================
 // FUNCIONES PÚBLICAS
 // ============================================================================
@@ -210,6 +213,49 @@ MPU6050_Status_t MPU6050_Read_Gyro(MPU6050_Gyro_t *gyro)
     gyro->x = Gyro_X_RAW / 131.0;
     gyro->y = Gyro_Y_RAW / 131.0;
     gyro->z = Gyro_Z_RAW / 131.0;
+
+    return MPU6050_OK;
+}
+
+/**
+ * @brief Lee la temperatura del sensor y la convierte a grados Celsius.
+ *
+ * @param[out] temp Puntero a la variable donde se almacenará la temperatura en grados Celsius.
+ *
+ * @return MPU6050_Status_t Estado de la operación
+ *
+ * @details
+ * - Se leen 2 bytes correspondientes al registro de temperatura.
+ * - Se convierte el valor RAW a grados Celsius según la fórmula del datasheet: Temp = RAW/340 + 36.53.
+ */
+MPU6050_Status_t MPU6050_Read_Temp(float *temp)
+{
+    HAL_StatusTypeDef hal_status;
+    uint8_t Rec_Data[2];
+
+    // Verificación de inicialización
+    if(MPU6050_Initialized == 0) { return MPU6050_NOT_INITIALIZED; }
+
+    // Validar puntero de salida
+    if(temp == NULL) { return MPU6050_INVALID_PARAM; }
+
+    // Leer 2 bytes de datos de temperatura
+    hal_status = HAL_I2C_Mem_Read(MPU6050_hi2c, MPU6050_ADDRESS, TEMP_OUT_H_REG, 1, Rec_Data, 2, 1000);
+
+    if(hal_status == HAL_TIMEOUT)
+    {
+        return MPU6050_TIMEOUT;
+    }
+    else if (hal_status != HAL_OK)
+    {
+        return MPU6050_ERROR;
+    }
+
+    // Convertir datos RAW a valor entero de 16 bits
+    Temp_RAW = (int16_t)(Rec_Data[0] << 8 | Rec_Data[1]);
+
+    // Convertir valor RAW a grados Celsius
+    *temp = Temp_RAW / 340.0 + 36.53;
 
     return MPU6050_OK;
 }
