@@ -7,8 +7,8 @@
  *  Permite obtener valores de aceleración y giroscopio en los tres ejes (X, Y, Z).
  *  
  * @author   Daniel Ruiz
- * @date     23 de septiembre de 2024
- * @version  2.0.1
+ * @date     Junio 17, 2026
+ * @version  2.1.0
  *  
  */
 

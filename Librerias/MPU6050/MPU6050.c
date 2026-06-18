@@ -7,8 +7,8 @@
  *          I2C en un microcontrolador STM32.
  * 
  * @author   Daniel Ruiz
- * @date     23 de septiembre de 2024
- * @version  2.0.1
+ * @date     Junio 17, 2026
+ * @version  2.1.0
  */
 
 #include "MPU6050.h"
