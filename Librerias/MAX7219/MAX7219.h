@@ -12,13 +12,11 @@
 #ifndef MAX7219_H_
 #define MAX7219_H_
 
-/**
- * @brief Incluir el encabezado adecuado según la familia STM32 utilizada.
- * Por ejemplo:
- * - Para STM32F1xx: "stm32f1xx_hal.h"
- * - Para STM32F4xx: "stm32f4xx_hal.h"
- */
-#include "stm32f4xx_hal.h"
+// ============================================================================
+// INCLUDES
+// ============================================================================
+
+#include "main.h"
 #include <stdint.h>
 
 // ============================================================================
@@ -37,10 +35,11 @@ extern uint8_t bufferCol[NUM_DEV*8];	/**< Número de columnas respecto al númer
  * @brief Enumeración para estados de retorno del MAX7219.
  */
 typedef enum {
-	MAX7219_OK = 0,				/** Operación exitosa */
-	MAX7219_ERROR = 1,			/** Error en la operación */
-	MAX7219_TIMEOUT = 2,		/** Timeout en la operación */
-	MAX7219_NOT_INITIALIZED = 3	/** Sensor no inicializado */
+	MAX7219_OK = 0,					/** Operación exitosa */
+	MAX7219_ERROR = 1,				/** Error en la operación */
+	MAX7219_TIMEOUT = 2,			/** Timeout en la operación */
+	MAX7219_NOT_INITIALIZED = 3,	/** Sensor no inicializado */
+	MAX7219_INVALID_PARAM = 4		/** Parámetro inválido */
 }MAX7219_Status_t;
 
 // ============================================================================
