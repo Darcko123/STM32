@@ -263,7 +263,7 @@ MAX7219_Status_t MAX7219_Init(SPI_HandleTypeDef* hspi, GPIO_TypeDef* GPIOx, uint
     // Validar parámetros de entrada
     if(hspi == NULL || GPIOx == NULL || GPIO_PIN == 0)
     {
-        return MAX7219_ERROR;
+        return MAX7219_INVALID_PARAM;
     }
     
     // Almacenar configuración para uso en funciones posteriores
@@ -364,7 +364,7 @@ MAX7219_Status_t MAX7219_ScrollString(char *str, int delay)
     // Validar parámetro
     if(str == NULL)
     {
-        return MAX7219_ERROR;
+        return MAX7219_INVALID_PARAM;
     }
 
     while (*str)
@@ -402,7 +402,7 @@ MAX7219_Status_t MAX7219_PrintString(const char *str)
     // Validar parámetro
     if(str == NULL)
     {
-        return MAX7219_ERROR;
+        return MAX7219_INVALID_PARAM;
     }
 
     int strindx = 0; // Índice de caracteres de la cadena de entrada
