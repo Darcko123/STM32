@@ -111,6 +111,20 @@ MAX7219_Status_t MAX7219_ScrollString (char *str, int delay);
 MAX7219_Status_t MAX7219_PrintString(const char *str);
 
 /**
+ * @brief Enciende o apaga un píxel individual de la matriz de LEDs.
+ *
+ * Manipula directamente bufferCol para permitir dibujar gráficos/iconos arbitrarios,
+ * en lugar de limitarse a texto. La actualización de la pantalla es inmediata.
+ *
+ * @param x Columna del píxel (0 a NUM_DEV*8 - 1).
+ * @param y Fila del píxel dentro de la columna (0 a 7), donde el bit y de bufferCol[x] representa el píxel.
+ * @param state Distinto de 0 para encender el píxel, 0 para apagarlo.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_SetPixel(int x, int y, uint8_t state);
+
+/**
  * @brief Conjunto de fuentes para la pantalla de matriz de puntos MAX7219.
  *
  * Este array contiene el conjunto de fuentes de 8x8 para la pantalla de matriz de puntos MAX7219.
