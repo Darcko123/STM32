@@ -23,10 +23,10 @@
 // DEFINICIONES DE CONSTANTES
 // ============================================================================
 
-#define NUM_DEV 4       /**< Número de dispositivos MAX7219 en cascada */
-#define FONT_WIDTH 8    /**< Ancho de cada carácter en el conjunto de fuentes */
+#define MAX7219_MAX_DEV 4   /**< Número máximo de dispositivos MAX7219 en cascada soportados (define el tamaño del buffer estático) */
+#define FONT_WIDTH 8        /**< Ancho de cada carácter en el conjunto de fuentes */
 
-extern uint8_t bufferCol[NUM_DEV*8];	/**< Número de columnas respecto al número de dispositivos conectados en cascada */
+extern uint8_t bufferCol[MAX7219_MAX_DEV*8];	/**< Número de columnas respecto al número de dispositivos conectados en cascada */
 
 // ============================================================================
 // ENUMERACIONES Y ESTRUCTURAS
@@ -56,10 +56,11 @@ extern "C" {
  * @param hspi Puntero al manejador de la interfaz SPI utilizada para comunicarse con el módulo.
  * @param GPIOx Puerto GPIO del pin CS del MAX7219.
  * @param GPIO_PIN Pin GPIO del pin CS del MAX7219.
+ * @param numDevices Número de dispositivos MAX7219 conectados en cascada (1 a MAX7219_MAX_DEV).
  *
  * @return MAX7219_Status_t Estado de la operación.
  */
-MAX7219_Status_t MAX7219_Init(SPI_HandleTypeDef* hspi, GPIO_TypeDef* GPIOx, uint16_t GPIO_PIN);
+MAX7219_Status_t MAX7219_Init(SPI_HandleTypeDef* hspi, GPIO_TypeDef* GPIOx, uint16_t GPIO_PIN, uint8_t numDevices);
 
 /**
  * @brief Desinicializa el módulo MAX7219, apagando la pantalla y liberando la configuración almacenada.
@@ -116,7 +117,7 @@ MAX7219_Status_t MAX7219_PrintString(const char *str);
  * Manipula directamente bufferCol para permitir dibujar gráficos/iconos arbitrarios,
  * en lugar de limitarse a texto. La actualización de la pantalla es inmediata.
  *
- * @param x Columna del píxel (0 a NUM_DEV*8 - 1).
+ * @param x Columna del píxel (0 a número de dispositivos configurado en MAX7219_Init multiplicado por 8, menos 1).
  * @param y Fila del píxel dentro de la columna (0 a 7), donde el bit y de bufferCol[x] representa el píxel.
  * @param state Distinto de 0 para encender el píxel, 0 para apagarlo.
  *

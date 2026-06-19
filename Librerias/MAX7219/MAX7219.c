@@ -18,8 +18,9 @@ static SPI_HandleTypeDef*   MAX7219_hspi = NULL;     /**< Manejador de la interf
 static GPIO_TypeDef*        CS_GPIO_Port = NULL;     /**< Puerto GPIO del pin de datos del MAX7219 */
 static uint16_t             CS_Pin       = 0;        /**< Pin GPIO del pin de datos del MAX7219 */   
 static uint8_t              MAX7219_Initialized = 0; /**< Bandera para verificar si el módulo está inicializado */
+static uint8_t              NumDev = 0;            /**< Número de dispositivos MAX7219 conectados en cascada, configurado en MAX7219_Init */
 
-uint8_t              bufferCol[NUM_DEV*8] = {0}; /**< Buffer de columnas para la matriz de LEDs */
+uint8_t              bufferCol[MAX7219_MAX_DEV*8] = {0}; /**< Buffer de columnas para la matriz de LEDs */
 // ============================================================================
 // FUNCIONES PRIVADAS
 // ============================================================================
@@ -39,7 +40,7 @@ static MAX7219_Status_t max7219_cmd(uint8_t Addr, uint8_t data)
     uint16_t writeData = (Addr << 8) | data;
     HAL_GPIO_WritePin(CS_GPIO_Port, CS_Pin, 0);
     
-    for (int i = 0; i < NUM_DEV; i++)
+    for (int i = 0; i < NumDev; i++)
     {
         hal_status = HAL_SPI_Transmit(MAX7219_hspi, (uint8_t *)&writeData, 1, 100);
         if(hal_status == HAL_TIMEOUT)
@@ -62,7 +63,7 @@ static MAX7219_Status_t max7219_cmd(uint8_t Addr, uint8_t data)
 /**
  * @brief Escribe un byte de datos en una fila específica de la matriz de LEDs.
  * 
- * @param row La fila en la que se escribirá el dato (1 a NUM_DEV*8).
+ * @param row La fila en la que se escribirá el dato (1 a NumDev*8).
  * @param data El byte de datos que se escribirá en la fila.
  * 
  * @return MAX7219_Status_t Estado de la operación.
@@ -76,7 +77,7 @@ static MAX7219_Status_t max7219_write(int row, uint8_t data)
     uint16_t writeData = 0;
 
     HAL_GPIO_WritePin(CS_GPIO_Port, CS_Pin, 0);  // Habilitar el esclavo
-    for (int dev = 0; dev < NUM_DEV; dev++)
+    for (int dev = 0; dev < NumDev; dev++)
     {
         if (dev == devTarget)
         {
@@ -126,10 +127,10 @@ static MAX7219_Status_t flushBuffer(void)
 {
     MAX7219_Status_t status;
 
-    uint8_t bufferRow[NUM_DEV * 8] = {0};
+    uint8_t bufferRow[MAX7219_MAX_DEV * 8] = {0};
 
     // Convertir columnas en filas
-    for (int i = 0; i < NUM_DEV * 8; i++)
+    for (int i = 0; i < NumDev * 8; i++)
     {
         int dev = i / 8;
         for (int j = 0; j < 8; j++)
@@ -142,7 +143,7 @@ static MAX7219_Status_t flushBuffer(void)
     }
 
     // Escribir cada fila
-    for (int row = 1; row <= (NUM_DEV * 8); row++)
+    for (int row = 1; row <= (NumDev * 8); row++)
     {
         status = max7219_write(row, bufferRow[row - 1]);
 
@@ -166,7 +167,7 @@ static MAX7219_Status_t flushBuffer(void)
  */
 static MAX7219_Status_t ShiftLeft(void)
 {
-    for (int cnt = NUM_DEV * 8 - 2; cnt >= 0; cnt--)
+    for (int cnt = NumDev * 8 - 2; cnt >= 0; cnt--)
     {
         bufferCol[cnt + 1] = bufferCol[cnt];
     }
@@ -182,11 +183,11 @@ static MAX7219_Status_t ShiftLeft(void)
  */
 static MAX7219_Status_t ShiftRight(void)
 {
-    for (int cnt = 0; cnt < NUM_DEV * 8 - 1; cnt++)
+    for (int cnt = 0; cnt < NumDev * 8 - 1; cnt++)
     {
         bufferCol[cnt] = bufferCol[cnt + 1];
     }
-    bufferCol[NUM_DEV * 8 - 1] = 0;
+    bufferCol[NumDev * 8 - 1] = 0;
     
     return flushBuffer();
 }
@@ -253,23 +254,25 @@ static MAX7219_Status_t shiftchar(uint8_t ch, int delay)
  * @param hspi Puntero al manejador de la interfaz SPI utilizada para comunicarse con el módulo.
  * @param GPIOx Puerto GPIO del pin CS del MAX7219.
  * @param GPIO_PIN Pin GPIO del pin CS del MAX7219.
- * 
+ * @param numDevices Número de dispositivos MAX7219 conectados en cascada (1 a MAX7219_MAX_DEV).
+ *
  * @return MAX7219_Status_t Estado de la operación
  */
-MAX7219_Status_t MAX7219_Init(SPI_HandleTypeDef* hspi, GPIO_TypeDef* GPIOx, uint16_t GPIO_PIN)
+MAX7219_Status_t MAX7219_Init(SPI_HandleTypeDef* hspi, GPIO_TypeDef* GPIOx, uint16_t GPIO_PIN, uint8_t numDevices)
 {
     MAX7219_Status_t status;
-    
+
     // Validar parámetros de entrada
-    if(hspi == NULL || GPIOx == NULL || GPIO_PIN == 0)
+    if(hspi == NULL || GPIOx == NULL || GPIO_PIN == 0 || numDevices == 0 || numDevices > MAX7219_MAX_DEV)
     {
         return MAX7219_INVALID_PARAM;
     }
-    
+
     // Almacenar configuración para uso en funciones posteriores
     MAX7219_hspi = hspi;
     CS_GPIO_Port = GPIOx;
     CS_Pin       = GPIO_PIN;
+    NumDev       = numDevices;
     MAX7219_Initialized = 0;    // Marcar como no inicializada hasta que se termine el proceso
 
     // Sin decodificación (modo gráfico)
@@ -345,6 +348,7 @@ MAX7219_Status_t MAX7219_DeInit(void)
     MAX7219_hspi = NULL;
     CS_GPIO_Port = NULL;
     CS_Pin       = 0;
+    NumDev       = 0;
     MAX7219_Initialized = 0;
 
     return MAX7219_OK;
@@ -385,7 +389,7 @@ MAX7219_Status_t MAX7219_ClearDisplay(void)
     }
     
     // Limpiar el buffer
-    for (int i = 0; i < NUM_DEV * 8; i++)
+    for (int i = 0; i < NumDev * 8; i++)
     {
         bufferCol[i] = 0;
     }
@@ -458,7 +462,7 @@ MAX7219_Status_t MAX7219_PrintString(const char *str)
 
     int strindx = 0; // Índice de caracteres de la cadena de entrada
     
-    for (int k = NUM_DEV * 8 - 1; k >= 0; )
+    for (int k = NumDev * 8 - 1; k >= 0; )
     {
         int indx = 0; // Índice dentro de la fuente de caracteres
         
@@ -494,7 +498,7 @@ MAX7219_Status_t MAX7219_PrintString(const char *str)
  * Manipula directamente bufferCol para permitir dibujar gráficos/iconos arbitrarios,
  * en lugar de limitarse a texto. La actualización de la pantalla es inmediata.
  *
- * @param x Columna del píxel (0 a NUM_DEV*8 - 1).
+ * @param x Columna del píxel (0 a NumDev*8 - 1).
  * @param y Fila del píxel dentro de la columna (0 a 7), donde el bit y de bufferCol[x] representa el píxel.
  * @param state Distinto de 0 para encender el píxel, 0 para apagarlo.
  *
@@ -507,7 +511,7 @@ MAX7219_Status_t MAX7219_SetPixel(int x, int y, uint8_t state)
         return MAX7219_NOT_INITIALIZED;
     }
 
-    if(x < 0 || x >= NUM_DEV * 8 || y < 0 || y >= 8)
+    if(x < 0 || x >= NumDev * 8 || y < 0 || y >= 8)
     {
         return MAX7219_INVALID_PARAM;
     }
