@@ -321,8 +321,38 @@ MAX7219_Status_t MAX7219_Init(SPI_HandleTypeDef* hspi, GPIO_TypeDef* GPIOx, uint
 }
 
 /**
+ * @brief Desinicializa el módulo MAX7219, apagando la pantalla y liberando la configuración almacenada.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_DeInit(void)
+{
+    MAX7219_Status_t status;
+
+    if(!MAX7219_Initialized)
+    {
+        return MAX7219_NOT_INITIALIZED;
+    }
+
+    // Apagar la pantalla (modo shutdown)
+    status = max7219_cmd(0x0C, 0x00);
+    if(status != MAX7219_OK)
+    {
+        return status;
+    }
+
+    // Liberar configuración almacenada
+    MAX7219_hspi = NULL;
+    CS_GPIO_Port = NULL;
+    CS_Pin       = 0;
+    MAX7219_Initialized = 0;
+
+    return MAX7219_OK;
+}
+
+/**
  * @brief Apaga todos los LEDs de la matriz.
- * 
+ *
  * @return MAX7219_Status_t Estado de la operación.
  */
 MAX7219_Status_t MAX7219_ClearDisplay(void)

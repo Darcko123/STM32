@@ -62,6 +62,13 @@ extern "C" {
 MAX7219_Status_t MAX7219_Init(SPI_HandleTypeDef* hspi, GPIO_TypeDef* GPIOx, uint16_t GPIO_PIN);
 
 /**
+ * @brief Desinicializa el módulo MAX7219, apagando la pantalla y liberando la configuración almacenada.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_DeInit(void);
+
+/**
  * @brief Apaga todos los LEDs de la matriz.
  *
  * @return MAX7219_Status_t Estado de la operación.
