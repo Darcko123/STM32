@@ -24,10 +24,11 @@ static uint8_t      AHT10_Initialized  =   0;      /**< Bandera para verificar s
 /**
  * @brief Inicializa el sensor AHT10.
  *
- * Envía un comando de reset al sensor a través de I2C para asegurar que está en un estado conocido.
+ * Configura el sensor en "Normal Mode" y carga los coeficientes de calibración
+ * de fábrica a través de I2C, verificando el estado resultante.
  *
  * @param hi2c Puntero al manejador de la interfaz I2C previamente configurado.
- * 
+ *
  * @note Esta función debe ser llamada antes de realizar lecturas de temperatura y humedad.
  */
 AHT10_Status_t AHT10_Init(I2C_HandleTypeDef* hi2c)
@@ -74,6 +75,11 @@ AHT10_Status_t AHT10_Init(I2C_HandleTypeDef* hi2c)
         return AHT10_ERROR;
     }
 
+    if((status_byte & 0x80) != 0x00) // Revisar si el sensor sigue ocupado (bit 7)
+    {
+        return AHT10_ERROR;
+    }
+
     if((status_byte & 0x08) == 0x00) // Revisar si el bit 3 está a 1
     {
         return AHT10_ERROR;
@@ -89,7 +95,7 @@ AHT10_Status_t AHT10_Init(I2C_HandleTypeDef* hi2c)
  * 
  * @return AHT10_Status_t Siempre retorna AHT10_OK
  */
-AHT10_Status_t DeInit(void)
+AHT10_Status_t AHT10_DeInit(void)
 {
     AHT10_hi2c          = NULL; // Limpia el handler de I2C
     AHT10_Initialized   = 0U;

@@ -89,7 +89,7 @@ AHT10_Status_t AHT10_Init(I2C_HandleTypeDef* hi2c);
  * 
  * @return AHT10_Status_t Siempre retorna AHT10_OK
  */
-AHT10_Status_t DeInit(void);
+AHT10_Status_t AHT10_DeInit(void);
 
  /**
  * @brief Lee los valores de temperatura y humedad del sensor AHT10.
