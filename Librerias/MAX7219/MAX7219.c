@@ -62,7 +62,7 @@ static MAX7219_Status_t max7219_cmd(uint8_t Addr, uint8_t data)
 /**
  * @brief Escribe un byte de datos en una fila específica de la matriz de LEDs.
  * 
- * @param row La fila en la que se escribirá el dato (1-8).
+ * @param row La fila en la que se escribirá el dato (1 a NUM_DEV*8).
  * @param data El byte de datos que se escribirá en la fila.
  * 
  * @return MAX7219_Status_t Estado de la operación.

@@ -52,26 +52,29 @@ extern "C" {
 
 /**
  * @brief Inicializa la matriz de LEDs.
- * 
+ *
  * @param hspi Puntero al manejador de la interfaz SPI utilizada para comunicarse con el módulo.
- * 
- * @param GPIOx Puerto GPIO del pin de datos del DHT11.
- * @param GPIO_PIN Pin GPIO del pin de datos del DHT11.
- * 
- * 
+ * @param GPIOx Puerto GPIO del pin CS del MAX7219.
+ * @param GPIO_PIN Pin GPIO del pin CS del MAX7219.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
  */
 MAX7219_Status_t MAX7219_Init(SPI_HandleTypeDef* hspi, GPIO_TypeDef* GPIOx, uint16_t GPIO_PIN);
 
 /**
  * @brief Apaga todos los LEDs de la matriz.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
  */
 MAX7219_Status_t MAX7219_ClearDisplay(void);
 
 /**
  * @brief Muestra una cadena de caracteres en la matriz de LEDs con desplazamiento.
- * 
+ *
  * @param str Cadena de caracteres a mostrar.
  * @param delay Tiempo de retardo entre cada desplazamiento.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
  */
 MAX7219_Status_t MAX7219_ScrollString (char *str, int delay);
 
@@ -83,6 +86,8 @@ MAX7219_Status_t MAX7219_ScrollString (char *str, int delay);
  * columnas y se muestra en la pantalla.
  * 
  * @param str Puntero a la cadena de caracteres que se mostrará.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
  */
 MAX7219_Status_t MAX7219_PrintString(const char *str);
 
