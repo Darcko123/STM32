@@ -34,7 +34,7 @@ AHT10_Status_t AHT10_Init(I2C_HandleTypeDef* hi2c)
 {
     if(hi2c == NULL)
     {
-        return AHT10_ERROR;
+        return AHT10_INVALID_PARAM;
     }
 
     AHT10_hi2c = hi2c;
@@ -85,6 +85,19 @@ AHT10_Status_t AHT10_Init(I2C_HandleTypeDef* hi2c)
 }
 
 /**
+ * @brief Desinicializa el sensor AHT10, liberando recursos y marcando el módulo como no inicializado.
+ * 
+ * @return AHT10_Status_t Siempre retorna AHT10_OK
+ */
+AHT10_Status_t DeInit(void)
+{
+    AHT10_hi2c          = NULL; // Limpia el handler de I2C
+    AHT10_Initialized   = 0U;
+
+    return AHT10_OK;
+}
+
+/**
  * @brief Obtiene los valores de temperatura y humedad del sensor AHT10.
  *
  * @param[out] temp  Puntero para almacenar el valor de la temperatura (°C).
@@ -92,7 +105,7 @@ AHT10_Status_t AHT10_Init(I2C_HandleTypeDef* hi2c)
  *
  * @note La fórmula de conversión está basada en el datasheet del AHT10.
  */
-AHT10_Status_t AHT10_Get(aht10_data_t *environment)
+AHT10_Status_t AHT10_Get(AHT10_Data_t *environment)
 {
     if(AHT10_Initialized != 1)
     {
@@ -101,7 +114,7 @@ AHT10_Status_t AHT10_Get(aht10_data_t *environment)
 
     if(environment == NULL)
     {
-        return AHT10_ERROR;
+        return AHT10_INVALID_PARAM;
     }
 
     uint8_t cmd[3];
