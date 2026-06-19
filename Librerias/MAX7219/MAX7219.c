@@ -1,11 +1,11 @@
-/*
- * MAX7219.c
+/**
+ * @file MAX7219.c
  *
  * @brief Implementación de la librería para el control de una matriz de LEDs usando MAX7219 en STM32 mediante SPI.
  *
  * @author Daniel Ruiz
- * @date Jan 22, 2026
- * @version 2.0
+ * @date Junio 18, 2026
+ * @version 2.1.0
  */
 
 #include "MAX7219.h"

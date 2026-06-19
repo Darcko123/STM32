@@ -1,13 +1,13 @@
 /**
- * @file MAX7219.h
- * @brief Librería para la gestión de una matriz de leds basada en el integrado MAX7219 usando comunicación SPI.
- * 
- * Esta librería permite inicializar y controlar una matriz de LEDs utilizando el controlador MAX7219.
- * 
+ * @file MAX7219.c
+ *
+ * @brief Implementación de la librería para el control de una matriz de LEDs usando MAX7219 en STM32 mediante SPI.
+ *
  * @author Daniel Ruiz
- * @date Jan 22, 2026
- * @version 2.0
+ * @date Junio 18, 2026
+ * @version 2.1.0
  */
+
 
 #ifndef MAX7219_H_
 #define MAX7219_H_
