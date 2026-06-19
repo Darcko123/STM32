@@ -351,6 +351,27 @@ MAX7219_Status_t MAX7219_DeInit(void)
 }
 
 /**
+ * @brief Activa o desactiva el modo de bajo consumo (shutdown) del MAX7219 sin perder la configuración almacenada.
+ *
+ * A diferencia de MAX7219_DeInit, esta función no libera el manejador SPI ni el pin CS, por lo que
+ * el módulo puede reactivarse posteriormente sin necesidad de volver a llamar a MAX7219_Init.
+ *
+ * @param enable Distinto de 0 para entrar en modo de bajo consumo, 0 para volver al modo de operación normal.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_Set_Sleep(uint8_t enable)
+{
+    if(!MAX7219_Initialized)
+    {
+        return MAX7219_NOT_INITIALIZED;
+    }
+
+    // Registro 0x0C: 0x00 = modo shutdown, 0x01 = modo operación normal
+    return max7219_cmd(0x0C, enable ? 0x00 : 0x01);
+}
+
+/**
  * @brief Apaga todos los LEDs de la matriz.
  *
  * @return MAX7219_Status_t Estado de la operación.
