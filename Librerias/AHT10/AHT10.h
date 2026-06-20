@@ -4,22 +4,18 @@
  * @brief Librería para el sensor de temperatura y humedad AHT10 utilizando I2C en STM32
  * 
  * @author Daniel Ruiz
- * @date Abril 10, 2026
- * @version 0.1
+ * @date Junio 20, 2026
+ * @version 1.0.0
  */
 
  #ifndef AHT10_H
  #define AHT10_H
 
- /**
- * @brief Incluir el encabezado adecuado según la familia STM32 utilizada.
- * Por ejemplo:
- * - Para STM32F1xx: "stm32f1xx_hal.h"
- * - Para STM32F4xx: "stm32f4xx_hal.h"
- */
-#include "stm32f4xx_hal.h"
-#include <stdint.h>
-#include <stdbool.h>
+// ============================================================================
+// INCLUDES
+// ============================================================================
+
+#include "main.h"
 
 // ============================================================================
 // MACROS Y CONSTANTES DE COMANDOS AHT10
@@ -56,7 +52,7 @@ typedef struct
 {
     float humedad;      /**< Humedad relativa (%RH) */
     float temperatura;  /**< Temperatura en grados Celsius (°C) */
-} aht10_data_t;
+} AHT10_Data_t;
 
 // ============================================================================
 // ENUMERACIONES Y ESTRUCTURAS
@@ -69,6 +65,7 @@ typedef enum {
 	AHT10_ERROR = 1,			/**< Error en la operación */
 	AHT10_TIMEOUT = 2,			/**< Timeout en la operación */
 	AHT10_NOT_INITIALIZED = 3,	/**< Módulo no inicializado */
+    AHT10_INVALID_PARAM = 4     /**< Parámetro inválido */
 }AHT10_Status_t;
 
 // ============================================================================
@@ -82,18 +79,25 @@ extern "C" {
 /**
  * @brief Inicializa el sensor AHT10.
  * 
- * @param hi2c Puntero al handñe de I2C utilizado para comunicarse con el módulo AHT10.
+ * @param hi2c Puntero al handle de I2C utilizado para comunicarse con el módulo AHT10.
  * @return AHT10_Status_t Estado de la inicialización (OK, ERROR, etc.)
  */
 AHT10_Status_t AHT10_Init(I2C_HandleTypeDef* hi2c);
 
+/**
+ * @brief Desinicializa el sensor AHT10, liberando recursos y marcando el módulo como no inicializado.
+ * 
+ * @return AHT10_Status_t Siempre retorna AHT10_OK
+ */
+AHT10_Status_t AHT10_DeInit(void);
+
  /**
  * @brief Lee los valores de temperatura y humedad del sensor AHT10.
   * 
-  * @param environment Puntero a una estructura `aht10_data_t` donde se almacenarán los valores de temperatura y humedad leídos del sensor.
+  * @param environment Puntero a una estructura `AHT10_Data_t` donde se almacenarán los valores de temperatura y humedad leídos del sensor.
   * @return AHT10_Status_t 
   */
-AHT10_Status_t AHT10_Get(aht10_data_t *environment);
+AHT10_Status_t AHT10_Get(AHT10_Data_t *environment);
 
 #ifdef __cplusplus
 }
