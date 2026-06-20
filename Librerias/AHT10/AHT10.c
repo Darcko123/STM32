@@ -4,8 +4,8 @@
  * @brief Librería para el sensor de temperatura y humedad AHT10 utilizando I2C en STM32
  * 
  * @author Daniel Ruiz
- * @date Abril 10, 2026
- * @version 0.1
+ * @date Junio 20, 2026
+ * @version 1.0.0
  */
 
  #include "AHT10.h"
@@ -106,8 +106,8 @@ AHT10_Status_t AHT10_DeInit(void)
 /**
  * @brief Obtiene los valores de temperatura y humedad del sensor AHT10.
  *
- * @param[out] temp  Puntero para almacenar el valor de la temperatura (°C).
- * @param[out] humid Puntero para almacenar el valor de la humedad (%HR).
+ * @param[out] environment Puntero a una estructura `AHT10_Data_t` donde se
+ *                         almacenarán los valores de temperatura (°C) y humedad (%RH).
  *
  * @note La fórmula de conversión está basada en el datasheet del AHT10.
  */

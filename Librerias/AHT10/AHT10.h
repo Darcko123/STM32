@@ -4,8 +4,8 @@
  * @brief Librería para el sensor de temperatura y humedad AHT10 utilizando I2C en STM32
  * 
  * @author Daniel Ruiz
- * @date Abril 10, 2026
- * @version 0.1
+ * @date Junio 20, 2026
+ * @version 1.0.0
  */
 
  #ifndef AHT10_H
@@ -79,7 +79,7 @@ extern "C" {
 /**
  * @brief Inicializa el sensor AHT10.
  * 
- * @param hi2c Puntero al handñe de I2C utilizado para comunicarse con el módulo AHT10.
+ * @param hi2c Puntero al handle de I2C utilizado para comunicarse con el módulo AHT10.
  * @return AHT10_Status_t Estado de la inicialización (OK, ERROR, etc.)
  */
 AHT10_Status_t AHT10_Init(I2C_HandleTypeDef* hi2c);
