@@ -9,7 +9,6 @@
  */
 
 #include "PCA9685.h"
-#include <math.h>
 
 // ============================================================================
 // VARIABLES PRIVADAS
@@ -81,12 +80,6 @@ static PCA9685_Status_t PCA9685_SetPWMFrequency(uint16_t frequency)
     PCA9685_Status_t status;
     uint8_t prescale;
 
-    // Validar que el handler I2C esté inicializado
-    if(PCA9685_hi2c == NULL)
-    {
-        return PCA9685_ERROR;
-    }
-
     // Calcular el prescaler
     if(frequency >= 1526)
     {
@@ -154,13 +147,13 @@ PCA9685_Status_t PCA9685_Init(I2C_HandleTypeDef* hi2c, uint16_t frequency)
 
     if(hi2c == NULL)
     {
-        return PCA9685_ERROR;
+        return PCA9685_INVALID_PARAM;
     }
 
     // Validar rango de frecuencia
     if(frequency < 24 || frequency > 1526)
     {
-        return PCA9685_ERROR;
+        return PCA9685_INVALID_PARAM;
     }
 
     // Asignar el handler I2C
@@ -180,7 +173,21 @@ PCA9685_Status_t PCA9685_Init(I2C_HandleTypeDef* hi2c, uint16_t frequency)
         return status;
     }
 
-    PCA9685_Initialized = 1;
+    // Marcar como inicializado exitosamente
+    PCA9685_Initialized = 1U;
+
+    return PCA9685_OK;
+}
+
+/**
+ * @brief Desinicializa el módulo PCA9685 y libera recursos.
+ * 
+ * @return PCA9685_Status_t Estado de la operación (OK, ERROR, etc.)
+ */
+PCA9685_Status_t PCA9685_DeInit(void)
+{
+    PCA9685_hi2c        = NULL;     // Limpia el handler de I2C
+    PCA9685_Initialized = 0U;       // Marca el módulo como no inicializado
 
     return PCA9685_OK;
 }
@@ -205,21 +212,15 @@ PCA9685_Status_t PCA9685_SetPWM(uint8_t Channel, uint16_t OnTime, uint16_t OffTi
     uint8_t registerAddress;
     uint8_t pwm[4];
 
-    // Validar que el handler I2C esté inicializado
-    if(PCA9685_hi2c == NULL)
-    {
-        return PCA9685_ERROR;
-    }
-
     // Validar parámetros
     if(Channel > 15)
     {
-        return PCA9685_ERROR;
+        return PCA9685_INVALID_PARAM;
     }
 
     if(OnTime > 4095 || OffTime > 4095)
     {
-        return PCA9685_ERROR;
+        return PCA9685_INVALID_PARAM;
     }
 
     // Calcular dirección del registro
@@ -258,15 +259,15 @@ PCA9685_Status_t PCA9685_SetServoAngle(uint8_t Channel, float Angle)
     float Value;
 
     // Validar que el handler I2C esté inicializado
-    if(PCA9685_hi2c == NULL)
+    if(PCA9685_Initialized != 1U)
     {
-        return PCA9685_ERROR;
+        return PCA9685_NOT_INITIALIZED;
     }
 
     // Validar parámetros
     if(Channel > 15)
     {
-        return PCA9685_ERROR;
+        return PCA9685_INVALID_PARAM;
     }
 
     // Asegurar que el ángulo esté dentro del rango
@@ -325,9 +326,11 @@ PCA9685_Status_t PCA9685_InitSmoothServo(Servo_Smooth_t* servo, uint8_t channel,
     servo->updateInterval = updateInterval;
     servo->lastUpdateTime = HAL_GetTick();
     servo->isMoving       = false;
+    servo->lastError      = PCA9685_OK;
 
     // Establecer el ángulo inicial
     status = PCA9685_SetServoAngle(channel, initialAngle);
+    servo->lastError = status;
     if(status != PCA9685_OK)
     {
         return status;
@@ -391,9 +394,14 @@ PCA9685_Status_t PCA9685_SetSmoothAngle(Servo_Smooth_t* servo, float targetAngle
 /**
  * @brief Actualiza el movimiento suave del servomotor (debe llamarse periódicamente)
  *
+ * @note En caso de error de I2C el movimiento se detiene y la función retorna
+ * true; se debe revisar servo->lastError para distinguir esto de un movimiento
+ * completado exitosamente.
+ *
  * @param servo Puntero a la estructura Servo_Smooth_t
  *
- * @return true si el servomotor alcanzó el ángulo objetivo, false si aún está en movimiento
+ * @return true si el servomotor alcanzó el ángulo objetivo (o si ocurrió un
+ * error), false si aún está en movimiento
  */
 bool PCA9685_UpdateSmoothServo(Servo_Smooth_t* servo)
 {
@@ -433,6 +441,7 @@ bool PCA9685_UpdateSmoothServo(Servo_Smooth_t* servo)
 
         // Enviar el nuevo ángulo al servomotor
         status = PCA9685_SetServoAngle(servo->channel, newAngle);
+        servo->lastError = status;
         if(status != PCA9685_OK)
         {
             // En caso de error, detener el movimiento

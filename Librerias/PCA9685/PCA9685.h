@@ -15,6 +15,7 @@
 // ============================================================================
 
 #include "main.h"
+#include <math.h>
 #include <stdint.h>
 
 // ============================================================================
@@ -54,7 +55,7 @@ typedef enum {
     PCA9685_OK = 0,             /**< Operación exitosa */
     PCA9685_ERROR = 1,          /**< Error en la operación */
     PCA9685_TIMEOUT = 2,        /**< Timeout en la operación */
-    PCA9685_NOT_INITIALIZED = 3 /**< Módulo no inicializado */
+    PCA9685_NOT_INITIALIZED = 3,/**< Módulo no inicializado */
     PCA9685_INVALID_PARAM = 4   /**< Parámetro inválido */
 } PCA9685_Status_t;
 
@@ -69,6 +70,7 @@ typedef struct {
     uint32_t updateInterval;   /**< Intervalo entre actualizaciones en ms */
     uint32_t lastUpdateTime;   /**< Último tiempo de actualización */
     bool isMoving;             /**< Flag que indica si el servomotor está en movimiento */
+    PCA9685_Status_t lastError;/**< Estado de la última operación I2C realizada sobre este servo */
 } Servo_Smooth_t;
 
 // ============================================================================
@@ -88,6 +90,13 @@ extern "C" {
  * @return PCA9685_Status_t Estado de la operación (OK, ERROR, etc.)
  */
 PCA9685_Status_t PCA9685_Init(I2C_HandleTypeDef* hi2c, uint16_t frequency);
+
+/**
+ * @brief Desinicializa el módulo PCA9685 y libera recursos.
+ * 
+ * @return PCA9685_Status_t Estado de la operación (OK, ERROR, etc.)
+ */
+PCA9685_Status_t PCA9685_DeInit(void);
 
 /**
  * @brief Establece el tiempo de encendido y apagado para un canal PWM.
@@ -135,10 +144,15 @@ PCA9685_Status_t PCA9685_SetSmoothAngle(Servo_Smooth_t* servo, float targetAngle
 
 /**
  * @brief Actualiza el movimiento suave del servomotor (debe llamarse periódicamente).
- * 
+ *
+ * @note En caso de error de I2C el movimiento se detiene y la función retorna
+ * true; se debe revisar servo->lastError para distinguir esto de un movimiento
+ * completado exitosamente.
+ *
  * @param servo Puntero a la estructura Servo_Smooth_t.
- * 
- * @return true si el servomotor alcanzó el ángulo objetivo, false si aún está en movimiento.
+ *
+ * @return true si el servomotor alcanzó el ángulo objetivo (o si ocurrió un
+ * error), false si aún está en movimiento.
  */
 bool PCA9685_UpdateSmoothServo(Servo_Smooth_t* servo);
 
