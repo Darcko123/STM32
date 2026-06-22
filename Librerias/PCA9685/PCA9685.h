@@ -10,15 +10,12 @@
 #ifndef PCA9685_H
 #define PCA9685_H
 
-/**
- * @brief Incluir el encabezado adecuado según la familia STM32 utilizada.
- * Por ejemplo:
- * - Para STM32F1xx: "stm32f1xx_hal.h"
- * - Para STM32F4xx: "stm32f4xx_hal.h"
- */
-#include "stm32f4xx_hal.h"
+// ============================================================================
+// INCLUDES
+// ============================================================================
+
+#include "main.h"
 #include <stdint.h>
-#include <stdbool.h>
 
 // ============================================================================
 // MACROS Y CONSTANTES DE COMANDOS PCA9685
@@ -58,6 +55,7 @@ typedef enum {
     PCA9685_ERROR = 1,          /**< Error en la operación */
     PCA9685_TIMEOUT = 2,        /**< Timeout en la operación */
     PCA9685_NOT_INITIALIZED = 3 /**< Módulo no inicializado */
+    PCA9685_INVALID_PARAM = 4   /**< Parámetro inválido */
 } PCA9685_Status_t;
 
 /**
