@@ -281,6 +281,59 @@ static NV3007_Status_t NV3007_RunInitSequence(void)
     return NV3007_OK;
 }
 
+/**
+ * @brief Escribe un píxel sin gestionar el estado de inicialización (uso interno por las
+ *        demás funciones de dibujo, equivalente a writePixel() de Arduino_GFX).
+ */
+static NV3007_Status_t NV3007_WritePixelPreclipped(int16_t x, int16_t y, uint16_t color)
+{
+    NV3007_Status_t status = NV3007_WriteAddrWindow((uint16_t)x, (uint16_t)y, 1U, 1U);
+    return (status == NV3007_OK) ? NV3007_SendColor(color) : status;
+}
+
+/**
+ * @brief Dibuja una línea diagonal mediante el algoritmo de Bresenham, píxel a píxel.
+ *
+ * @details Traducción de Arduino_GFX::writeSlashLine(), usado internamente por
+ *          NV3007_DrawLine() cuando la línea no es perfectamente horizontal ni vertical.
+ */
+static NV3007_Status_t NV3007_DrawSlashLine(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint16_t color)
+{
+    NV3007_Status_t status = NV3007_OK;
+    int16_t dx, dy, err, step, tmp;
+    bool steep = ((y1 > y0) ? (y1 - y0) : (y0 - y1)) > ((x1 > x0) ? (x1 - x0) : (x0 - x1));
+
+    if (steep)
+    {
+        tmp = x0; x0 = y0; y0 = tmp;
+        tmp = x1; x1 = y1; y1 = tmp;
+    }
+
+    if (x0 > x1)
+    {
+        tmp = x0; x0 = x1; x1 = tmp;
+        tmp = y0; y0 = y1; y1 = tmp;
+    }
+
+    dx = x1 - x0;
+    dy = (y1 > y0) ? (y1 - y0) : (y0 - y1);
+    err = dx >> 1;
+    step = (y0 < y1) ? 1 : -1;
+
+    for (; (x0 <= x1) && (status == NV3007_OK); x0++)
+    {
+        status = steep ? NV3007_WritePixel(y0, x0, color) : NV3007_WritePixel(x0, y0, color);
+        err -= dy;
+        if (err < 0)
+        {
+            err += dx;
+            y0 += step;
+        }
+    }
+
+    return status;
+}
+
 // ============================================================================
 // FUNCIONES PÚBLICAS
 // ============================================================================
@@ -520,16 +573,6 @@ NV3007_Status_t NV3007_DisplayOff(void)
 // ============================================================================
 
 /**
- * @brief Escribe un píxel sin gestionar el estado de inicialización (uso interno por las
- *        demás funciones de dibujo, equivalente a writePixel() de Arduino_GFX).
- */
-static NV3007_Status_t NV3007_WritePixelPreclipped(int16_t x, int16_t y, uint16_t color)
-{
-    NV3007_Status_t status = NV3007_WriteAddrWindow((uint16_t)x, (uint16_t)y, 1U, 1U);
-    return (status == NV3007_OK) ? NV3007_SendColor(color) : status;
-}
-
-/**
  * @brief Escribe un píxel de color, recortando contra los límites de la pantalla.
  *
  * @param x Columna del píxel.
@@ -566,6 +609,59 @@ NV3007_Status_t NV3007_WritePixel(int16_t x, int16_t y, uint16_t color)
 NV3007_Status_t NV3007_DrawPixel(int16_t x, int16_t y, uint16_t color)
 {
     return NV3007_WritePixel(x, y, color);
+}
+
+/**
+ * @brief Rellena toda la pantalla con un color (alias de NV3007_WriteFilledRectangle
+ *        sobre el área completa, equivalente a Arduino_GFX::fillScreen()).
+ *
+ * @param color Color en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación.
+ */
+NV3007_Status_t NV3007_FillScreen(uint16_t color)
+{
+    if (!NV3007_Initialized)
+    {
+        return NV3007_NOT_INITIALIZED;
+    }
+
+    return NV3007_WriteFilledRectangle(0, 0, (int16_t)NV3007_Width, (int16_t)NV3007_Height, color);
+}
+
+/**
+ * @brief Dibuja una línea entre dos puntos, delegando en las variantes rápidas
+ *        horizontal/vertical cuando es posible (equivalente a Arduino_GFX::writeLine()).
+ *
+ * @param x0 Columna del punto inicial.
+ * @param y0 Fila del punto inicial.
+ * @param x1 Columna del punto final.
+ * @param y1 Fila del punto final.
+ * @param color Color en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación.
+ */
+NV3007_Status_t NV3007_DrawLine(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint16_t color)
+{
+    int16_t tmp;
+
+    if (!NV3007_Initialized)
+    {
+        return NV3007_NOT_INITIALIZED;
+    }
+
+    if (x0 == x1)
+    {
+        if (y0 > y1) { tmp = y0; y0 = y1; y1 = tmp; }
+        return NV3007_DrawFastVLine(x0, y0, y1 - y0 + 1, color);
+    }
+    else if (y0 == y1)
+    {
+        if (x0 > x1) { tmp = x0; x0 = x1; x1 = tmp; }
+        return NV3007_DrawFastHLine(x0, y0, x1 - x0 + 1, color);
+    }
+
+    return NV3007_DrawSlashLine(x0, y0, x1, y1, color);
 }
 
 /**
@@ -641,6 +737,34 @@ NV3007_Status_t NV3007_DrawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t c
 }
 
 /**
+ * @brief Dibuja un rectángulo sin relleno (equivalente a Arduino_GFX::drawRect()).
+ *
+ * @param x Columna de la esquina superior izquierda.
+ * @param y Fila de la esquina superior izquierda.
+ * @param w Ancho del rectángulo.
+ * @param h Alto del rectángulo.
+ * @param color Color en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación.
+ */
+NV3007_Status_t NV3007_DrawRectangle(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color)
+{
+    NV3007_Status_t status;
+
+    if (!NV3007_Initialized)
+    {
+        return NV3007_NOT_INITIALIZED;
+    }
+
+    status = NV3007_DrawFastHLine(x, y, w, color);
+    status = (status == NV3007_OK) ? NV3007_DrawFastHLine(x, y + h - 1, w, color) : status;
+    status = (status == NV3007_OK) ? NV3007_DrawFastVLine(x, y, h, color) : status;
+    status = (status == NV3007_OK) ? NV3007_DrawFastVLine(x + w - 1, y, h, color) : status;
+
+    return status;
+}
+
+/**
  * @brief Rellena un rectángulo con un color, recortando contra los límites de la pantalla.
  *
  * @details Traducción de Arduino_GFX::writeFillRect(): acepta w/h negativos (se normalizan
@@ -705,4 +829,214 @@ NV3007_Status_t NV3007_WriteFilledRectangle(int16_t x, int16_t y, int16_t w, int
 NV3007_Status_t NV3007_DrawFilledRectangle(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color)
 {
     return NV3007_WriteFilledRectangle(x, y, w, h, color);
+}
+
+/**
+ * @brief Dibuja un círculo sin relleno mediante el algoritmo de punto medio de Bresenham.
+ *
+ * @param x0 Columna del centro.
+ * @param y0 Fila del centro.
+ * @param r Radio del círculo.
+ * @param color Color en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación.
+ */
+NV3007_Status_t NV3007_DrawCircle(int16_t x0, int16_t y0, int16_t r, uint16_t color)
+{
+    NV3007_Status_t status;
+    int16_t f = 1 - r;
+    int16_t ddF_x = 1;
+    int16_t ddF_y = -2 * r;
+    int16_t x = 0;
+    int16_t y = r;
+
+    if (!NV3007_Initialized)
+    {
+        return NV3007_NOT_INITIALIZED;
+    }
+
+    status = NV3007_WritePixel(x0, y0 + r, color);
+    status = (status == NV3007_OK) ? NV3007_WritePixel(x0, y0 - r, color) : status;
+    status = (status == NV3007_OK) ? NV3007_WritePixel(x0 + r, y0, color) : status;
+    status = (status == NV3007_OK) ? NV3007_WritePixel(x0 - r, y0, color) : status;
+
+    while ((x < y) && (status == NV3007_OK))
+    {
+        if (f >= 0)
+        {
+            y--;
+            ddF_y += 2;
+            f += ddF_y;
+        }
+        x++;
+        ddF_x += 2;
+        f += ddF_x;
+
+        status = NV3007_WritePixel(x0 + x, y0 + y, color);
+        status = (status == NV3007_OK) ? NV3007_WritePixel(x0 - x, y0 + y, color) : status;
+        status = (status == NV3007_OK) ? NV3007_WritePixel(x0 + x, y0 - y, color) : status;
+        status = (status == NV3007_OK) ? NV3007_WritePixel(x0 - x, y0 - y, color) : status;
+        status = (status == NV3007_OK) ? NV3007_WritePixel(x0 + y, y0 + x, color) : status;
+        status = (status == NV3007_OK) ? NV3007_WritePixel(x0 - y, y0 + x, color) : status;
+        status = (status == NV3007_OK) ? NV3007_WritePixel(x0 + y, y0 - x, color) : status;
+        status = (status == NV3007_OK) ? NV3007_WritePixel(x0 - y, y0 - x, color) : status;
+    }
+
+    return status;
+}
+
+/**
+ * @brief Dibuja un círculo relleno usando líneas verticales como franjas
+ *        (equivalente a Arduino_GFX::fillCircle()).
+ *
+ * @param x0 Columna del centro.
+ * @param y0 Fila del centro.
+ * @param r Radio del círculo.
+ * @param color Color en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación.
+ */
+NV3007_Status_t NV3007_DrawFilledCircle(int16_t x0, int16_t y0, int16_t r, uint16_t color)
+{
+    NV3007_Status_t status;
+    int16_t f = 1 - r;
+    int16_t ddF_x = 1;
+    int16_t ddF_y = -2 * r;
+    int16_t x = 0;
+    int16_t y = r;
+
+    if (!NV3007_Initialized)
+    {
+        return NV3007_NOT_INITIALIZED;
+    }
+
+    status = NV3007_DrawFastVLine(x0, y0 - r, (2 * r) + 1, color);
+
+    while ((x < y) && (status == NV3007_OK))
+    {
+        if (f >= 0)
+        {
+            y--;
+            ddF_y += 2;
+            f += ddF_y;
+        }
+        x++;
+        ddF_x += 2;
+        f += ddF_x;
+
+        status = NV3007_DrawFastVLine(x0 + x, y0 - y, (2 * y) + 1, color);
+        status = (status == NV3007_OK) ? NV3007_DrawFastVLine(x0 - x, y0 - y, (2 * y) + 1, color) : status;
+        status = (status == NV3007_OK) ? NV3007_DrawFastVLine(x0 + y, y0 - x, (2 * x) + 1, color) : status;
+        status = (status == NV3007_OK) ? NV3007_DrawFastVLine(x0 - y, y0 - x, (2 * x) + 1, color) : status;
+    }
+
+    return status;
+}
+
+/**
+ * @brief Dibuja un triángulo sin relleno trazando sus tres lados
+ *        (equivalente a Arduino_GFX::drawTriangle()).
+ *
+ * @param x0 Columna del vértice 0.
+ * @param y0 Fila del vértice 0.
+ * @param x1 Columna del vértice 1.
+ * @param y1 Fila del vértice 1.
+ * @param x2 Columna del vértice 2.
+ * @param y2 Fila del vértice 2.
+ * @param color Color en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación.
+ */
+NV3007_Status_t NV3007_DrawTriangle(int16_t x0, int16_t y0, int16_t x1, int16_t y1, int16_t x2, int16_t y2, uint16_t color)
+{
+    NV3007_Status_t status;
+
+    if (!NV3007_Initialized)
+    {
+        return NV3007_NOT_INITIALIZED;
+    }
+
+    status = NV3007_DrawLine(x0, y0, x1, y1, color);
+    status = (status == NV3007_OK) ? NV3007_DrawLine(x1, y1, x2, y2, color) : status;
+    status = (status == NV3007_OK) ? NV3007_DrawLine(x2, y2, x0, y0, color) : status;
+
+    return status;
+}
+
+/**
+ * @brief Dibuja un triángulo relleno mediante barrido de líneas horizontales
+ *        (equivalente a Arduino_GFX::fillTriangle()).
+ *
+ * @param x0 Columna del vértice 0.
+ * @param y0 Fila del vértice 0.
+ * @param x1 Columna del vértice 1.
+ * @param y1 Fila del vértice 1.
+ * @param x2 Columna del vértice 2.
+ * @param y2 Fila del vértice 2.
+ * @param color Color en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación.
+ */
+NV3007_Status_t NV3007_DrawFilledTriangle(int16_t x0, int16_t y0, int16_t x1, int16_t y1, int16_t x2, int16_t y2, uint16_t color)
+{
+    NV3007_Status_t status = NV3007_OK;
+    int16_t a, b, y, last, tmp;
+    int16_t dx01, dy01, dx02, dy02, dx12, dy12;
+    int32_t sa, sb;
+
+    if (!NV3007_Initialized)
+    {
+        return NV3007_NOT_INITIALIZED;
+    }
+
+    /* Ordenar los vértices por Y (y2 >= y1 >= y0) */
+    if (y0 > y1) { tmp = y0; y0 = y1; y1 = tmp; tmp = x0; x0 = x1; x1 = tmp; }
+    if (y1 > y2) { tmp = y2; y2 = y1; y1 = tmp; tmp = x2; x2 = x1; x1 = tmp; }
+    if (y0 > y1) { tmp = y0; y0 = y1; y1 = tmp; tmp = x0; x0 = x1; x1 = tmp; }
+
+    if (y0 == y2)
+    {
+        /* Triángulo degenerado: los tres vértices están en la misma fila */
+        a = b = x0;
+        if (x1 < a) { a = x1; } else if (x1 > b) { b = x1; }
+        if (x2 < a) { a = x2; } else if (x2 > b) { b = x2; }
+        return NV3007_DrawFastHLine(a, y0, b - a + 1, color);
+    }
+
+    dx01 = x1 - x0;
+    dy01 = y1 - y0;
+    dx02 = x2 - x0;
+    dy02 = y2 - y0;
+    dx12 = x2 - x1;
+    dy12 = y2 - y1;
+    sa = 0;
+    sb = 0;
+
+    /* Mitad superior del triángulo: segmentos 0-1 y 0-2 */
+    last = (y1 == y2) ? y1 : (y1 - 1);
+
+    for (y = y0; (y <= last) && (status == NV3007_OK); y++)
+    {
+        a = x0 + (int16_t)(sa / dy01);
+        b = x0 + (int16_t)(sb / dy02);
+        sa += dx01;
+        sb += dx02;
+        if (a > b) { tmp = a; a = b; b = tmp; }
+        status = NV3007_DrawFastHLine(a, y, b - a + 1, color);
+    }
+
+    /* Mitad inferior del triángulo: segmentos 1-2 y 0-2 */
+    sa = (int32_t)dx12 * (y - y1);
+    sb = (int32_t)dx02 * (y - y0);
+    for (; (y <= y2) && (status == NV3007_OK); y++)
+    {
+        a = x1 + (int16_t)(sa / dy12);
+        b = x0 + (int16_t)(sb / dy02);
+        sa += dx12;
+        sb += dx02;
+        if (a > b) { tmp = a; a = b; b = tmp; }
+        status = NV3007_DrawFastHLine(a, y, b - a + 1, color);
+    }
+
+    return status;
 }
