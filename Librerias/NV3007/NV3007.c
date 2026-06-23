@@ -30,6 +30,9 @@ static uint16_t             NV3007_CurrentH         = 0U;   /**< Alto de la vent
 static uint16_t             NV3007_CurrentX         = 0xFFFFU; /**< Columna de inicio cacheada (0xFFFF = inválida, fuerza primer envío) */
 static uint16_t             NV3007_CurrentY         = 0xFFFFU; /**< Fila de inicio cacheada (0xFFFF = inválida, fuerza primer envío)      */
 
+static uint16_t             NV3007_Width            = NV3007_WIDTH;  /**< Ancho lógico de la pantalla, según la rotación activa */
+static uint16_t             NV3007_Height           = NV3007_HEIGHT; /**< Alto lógico de la pantalla, según la rotación activa  */
+
 // ============================================================================
 // FUNCIONES PRIVADAS
 // ============================================================================
@@ -86,6 +89,40 @@ static NV3007_Status_t NV3007_WriteCmdData16(uint8_t cmd, uint16_t data)
     NV3007_Status_t status = NV3007_SendCommand(cmd);
     status = (status == NV3007_OK) ? NV3007_SendData((uint8_t)(data >> 8)) : status;
     return (status == NV3007_OK) ? NV3007_SendData((uint8_t)(data & 0xFFU)) : status;
+}
+
+/**
+ * @brief Envía un único píxel de color (RGB565, MSB primero) tras NV3007_WriteAddrWindow().
+ */
+static NV3007_Status_t NV3007_SendColor(uint16_t color)
+{
+    uint8_t data[2] = { (uint8_t)(color >> 8), (uint8_t)(color & 0xFFU) };
+    return NV3007_SendData(data[0]) == NV3007_OK ? NV3007_SendData(data[1]) : NV3007_ERROR;
+}
+
+/**
+ * @brief Repite un color RGB565 @p count veces dentro de una única ráfaga SPI (CS permanece bajo).
+ *
+ * @details Equivalente a writeFillRectPreclipped() de Arduino_GFX, pero evitando el costo de
+ *          togglear CS por cada píxel: se asume que NV3007_WriteAddrWindow() ya dejó al panel
+ *          en RAMWR y se mantiene la transacción abierta durante todo el volcado.
+ */
+static NV3007_Status_t NV3007_FillColor(uint16_t color, uint32_t count)
+{
+    uint8_t buf[2] = { (uint8_t)(color >> 8), (uint8_t)(color & 0xFFU) };
+    NV3007_Status_t status = NV3007_OK;
+    uint32_t i;
+
+    HAL_GPIO_WritePin(NV3007_DC_GPIO_Port, NV3007_DC_Pin, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(NV3007_CS_GPIO_Port, NV3007_CS_Pin, GPIO_PIN_RESET);
+    for (i = 0U; i < count; i++)
+    {
+        status = NV3007_SPI_Send(buf, 2U);
+        if (status != NV3007_OK) { break; }
+    }
+    HAL_GPIO_WritePin(NV3007_CS_GPIO_Port, NV3007_CS_Pin, GPIO_PIN_SET);
+
+    return status;
 }
 
 /**
@@ -300,6 +337,8 @@ NV3007_Status_t NV3007_Init(SPI_HandleTypeDef* hspi,
     NV3007_CurrentY = 0xFFFFU;
     NV3007_CurrentW = 0U;
     NV3007_CurrentH = 0U;
+    NV3007_Width    = NV3007_WIDTH;
+    NV3007_Height   = NV3007_HEIGHT;
 
     status = NV3007_InvertDisplay(false);
     if (status != NV3007_OK) { return status; }
@@ -419,6 +458,18 @@ NV3007_Status_t NV3007_Rotate(NV3007_Orientation_t orientation)
     status = NV3007_WriteCmdData8(NV3007_CMD_MADCTL, madctl);
     if (status != NV3007_OK) { return status; }
 
+    /* Intercambiar ancho/alto lógicos cuando la orientación intercambia los ejes (MV) */
+    if ((madctl & NV3007_MADCTL_MV) != 0U)
+    {
+        NV3007_Width  = NV3007_HEIGHT;
+        NV3007_Height = NV3007_WIDTH;
+    }
+    else
+    {
+        NV3007_Width  = NV3007_WIDTH;
+        NV3007_Height = NV3007_HEIGHT;
+    }
+
     /* Forzar reenvío de la ventana de direccionamiento tras el cambio de orientación */
     NV3007_CurrentX = 0xFFFFU;
     NV3007_CurrentY = 0xFFFFU;
@@ -462,4 +513,196 @@ NV3007_Status_t NV3007_DisplayOff(void)
     NV3007_Status_t status = NV3007_SendCommand(NV3007_CMD_SLPIN);
     HAL_Delay(NV3007_SLPIN_DELAY);
     return status;
+}
+
+// ============================================================================
+// FUNCIONES DE DIBUJO
+// ============================================================================
+
+/**
+ * @brief Escribe un píxel sin gestionar el estado de inicialización (uso interno por las
+ *        demás funciones de dibujo, equivalente a writePixel() de Arduino_GFX).
+ */
+static NV3007_Status_t NV3007_WritePixelPreclipped(int16_t x, int16_t y, uint16_t color)
+{
+    NV3007_Status_t status = NV3007_WriteAddrWindow((uint16_t)x, (uint16_t)y, 1U, 1U);
+    return (status == NV3007_OK) ? NV3007_SendColor(color) : status;
+}
+
+/**
+ * @brief Escribe un píxel de color, recortando contra los límites de la pantalla.
+ *
+ * @param x Columna del píxel.
+ * @param y Fila del píxel.
+ * @param color Color en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación (NV3007_OK también si el píxel cae fuera de pantalla).
+ */
+NV3007_Status_t NV3007_WritePixel(int16_t x, int16_t y, uint16_t color)
+{
+    if (!NV3007_Initialized)
+    {
+        return NV3007_NOT_INITIALIZED;
+    }
+
+    if ((x < 0) || (x >= (int16_t)NV3007_Width) || (y < 0) || (y >= (int16_t)NV3007_Height))
+    {
+        return NV3007_OK; /* Fuera de los límites: se descarta silenciosamente, igual que Arduino_GFX */
+    }
+
+    return NV3007_WritePixelPreclipped(x, y, color);
+}
+
+/**
+ * @brief Dibuja un píxel de color (alias de NV3007_WritePixel, sin transacción separada
+ *        ya que este driver no agrupa varias operaciones en una sola transacción SPI).
+ *
+ * @param x Columna del píxel.
+ * @param y Fila del píxel.
+ * @param color Color en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación.
+ */
+NV3007_Status_t NV3007_DrawPixel(int16_t x, int16_t y, uint16_t color)
+{
+    return NV3007_WritePixel(x, y, color);
+}
+
+/**
+ * @brief Dibuja una línea vertical, recortando contra los límites de la pantalla.
+ *
+ * @param x Columna de la línea.
+ * @param y Fila superior de la línea.
+ * @param h Alto de la línea en píxeles.
+ * @param color Color en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación.
+ */
+NV3007_Status_t NV3007_DrawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color)
+{
+    NV3007_Status_t status;
+
+    if (!NV3007_Initialized)
+    {
+        return NV3007_NOT_INITIALIZED;
+    }
+
+    if ((x < 0) || (x >= (int16_t)NV3007_Width) || (h == 0))
+    {
+        return NV3007_OK;
+    }
+
+    if (h < 0) { y += h + 1; h = -h; }
+    if (y < 0) { h += y; y = 0; }
+    if ((y + h) > (int16_t)NV3007_Height) { h = (int16_t)NV3007_Height - y; }
+    if (h <= 0)
+    {
+        return NV3007_OK;
+    }
+
+    status = NV3007_WriteAddrWindow((uint16_t)x, (uint16_t)y, 1U, (uint16_t)h);
+    return (status == NV3007_OK) ? NV3007_FillColor(color, (uint32_t)h) : status;
+}
+
+/**
+ * @brief Dibuja una línea horizontal, recortando contra los límites de la pantalla.
+ *
+ * @param x Columna izquierda de la línea.
+ * @param y Fila de la línea.
+ * @param w Ancho de la línea en píxeles.
+ * @param color Color en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación.
+ */
+NV3007_Status_t NV3007_DrawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color)
+{
+    NV3007_Status_t status;
+
+    if (!NV3007_Initialized)
+    {
+        return NV3007_NOT_INITIALIZED;
+    }
+
+    if ((y < 0) || (y >= (int16_t)NV3007_Height) || (w == 0))
+    {
+        return NV3007_OK;
+    }
+
+    if (w < 0) { x += w + 1; w = -w; }
+    if (x < 0) { w += x; x = 0; }
+    if ((x + w) > (int16_t)NV3007_Width) { w = (int16_t)NV3007_Width - x; }
+    if (w <= 0)
+    {
+        return NV3007_OK;
+    }
+
+    status = NV3007_WriteAddrWindow((uint16_t)x, (uint16_t)y, (uint16_t)w, 1U);
+    return (status == NV3007_OK) ? NV3007_FillColor(color, (uint32_t)w) : status;
+}
+
+/**
+ * @brief Rellena un rectángulo con un color, recortando contra los límites de la pantalla.
+ *
+ * @details Traducción de Arduino_GFX::writeFillRect(): acepta w/h negativos (se normalizan
+ *          moviendo la esquina) y descarta rectángulos completamente fuera de pantalla.
+ *
+ * @param x Columna de la primera esquina.
+ * @param y Fila de la primera esquina.
+ * @param w Ancho del rectángulo (negativo = hacia la izquierda de la esquina).
+ * @param h Alto del rectángulo (negativo = hacia arriba de la esquina).
+ * @param color Color en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación.
+ */
+NV3007_Status_t NV3007_WriteFilledRectangle(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color)
+{
+    NV3007_Status_t status;
+    int16_t maxX, maxY, x2, y2;
+
+    if (!NV3007_Initialized)
+    {
+        return NV3007_NOT_INITIALIZED;
+    }
+
+    if ((w == 0) || (h == 0))
+    {
+        return NV3007_OK;
+    }
+
+    if (w < 0) { x += w + 1; w = -w; }
+    if (h < 0) { y += h + 1; h = -h; }
+
+    maxX = (int16_t)NV3007_Width - 1;
+    maxY = (int16_t)NV3007_Height - 1;
+    x2 = x + w - 1;
+    y2 = y + h - 1;
+
+    if ((x > maxX) || (y > maxY) || (x2 < 0) || (y2 < 0))
+    {
+        return NV3007_OK; /* Totalmente fuera de los límites */
+    }
+
+    if (x < 0) { x = 0; w = x2 + 1; }
+    if (y < 0) { y = 0; h = y2 + 1; }
+    if (x2 > maxX) { w = maxX - x + 1; }
+    if (y2 > maxY) { h = maxY - y + 1; }
+
+    status = NV3007_WriteAddrWindow((uint16_t)x, (uint16_t)y, (uint16_t)w, (uint16_t)h);
+    return (status == NV3007_OK) ? NV3007_FillColor(color, (uint32_t)w * (uint32_t)h) : status;
+}
+
+/**
+ * @brief Dibuja (rellena) un rectángulo con un color (alias de NV3007_WriteFilledRectangle).
+ *
+ * @param x Columna de la primera esquina.
+ * @param y Fila de la primera esquina.
+ * @param w Ancho del rectángulo.
+ * @param h Alto del rectángulo.
+ * @param color Color en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación.
+ */
+NV3007_Status_t NV3007_DrawFilledRectangle(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color)
+{
+    return NV3007_WriteFilledRectangle(x, y, w, h, color);
 }

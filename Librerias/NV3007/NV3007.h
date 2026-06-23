@@ -157,6 +157,16 @@ NV3007_Status_t NV3007_DisplayOn(void);
  */
 NV3007_Status_t NV3007_DisplayOff(void);
 
+// ============================================================================
+// Funciones de dibujo
+// ============================================================================
+NV3007_Status_t NV3007_WritePixel(int16_t x, int16_t y, uint16_t color);
+NV3007_Status_t NV3007_DrawPixel(int16_t x, int16_t y, uint16_t color);
+NV3007_Status_t NV3007_DrawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color);
+NV3007_Status_t NV3007_DrawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color);
+NV3007_Status_t NV3007_WriteFilledRectangle(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color);
+NV3007_Status_t NV3007_DrawFilledRectangle(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color);
+
 #ifdef __cplusplus
 }
 #endif
