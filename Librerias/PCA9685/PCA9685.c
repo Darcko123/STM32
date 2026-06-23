@@ -3,9 +3,13 @@
  * @brief Implementación de la librería para el control del módulo PWM PCA9685
  * mediante I2C en STM32.
  *
+ * @details Provee funciones para inicializar el módulo, configurar la
+ * frecuencia PWM, controlar canales individuales y manejar movimientos
+ * suaves de servomotores conectados al PCA9685.
+ *
  * @author Daniel Ruiz
- * @date April 16, 2026
- * @version 2.0.0
+ * @date June 23, 2026
+ * @version 2.1.0
  */
 
 #include "PCA9685.h"
@@ -16,6 +20,13 @@
 
 static I2C_HandleTypeDef* PCA9685_hi2c      = NULL;  /**< Manejador de la interfaz I2C utilizado para comunicarse con el PCA9685 */
 static uint8_t          PCA9685_Initialized = 0;    /**< Bandera para verificar si el módulo está inicializado */
+
+// ============================================================================
+// PROTOTIPOS DE FUNCIONES PRIVADAS
+// ============================================================================
+
+static PCA9685_Status_t pca9685_SetBit(uint8_t Register, uint8_t Bit, uint8_t Value);
+static PCA9685_Status_t pca9685_SetPWMFrequency(uint16_t frequency);
 
 // ============================================================================
 // FUNCIONES PRIVADAS
@@ -30,13 +41,13 @@ static uint8_t          PCA9685_Initialized = 0;    /**< Bandera para verificar 
  *
  * @return PCA9685_Status_t Estado de la operación.
  */
-static PCA9685_Status_t PCA9685_SetBit(uint8_t Register, uint8_t Bit, uint8_t Value)
+static PCA9685_Status_t pca9685_SetBit(uint8_t Register, uint8_t Bit, uint8_t Value)
 {
     HAL_StatusTypeDef hal_status;
     uint8_t readValue;
 
     // Leer el valor actual del registro
-    hal_status = HAL_I2C_Mem_Read(PCA9685_hi2c, PCA9685_ADDRESS, Register, 1, &readValue, 1, 10);
+    hal_status = HAL_I2C_Mem_Read(PCA9685_hi2c, PCA9685_ADDRESS, Register, I2C_MEMADD_SIZE_8BIT, &readValue, 1, PCA9685_MAX_TIMEOUT);
     if(hal_status == HAL_TIMEOUT)
     {
         return PCA9685_TIMEOUT;
@@ -53,7 +64,7 @@ static PCA9685_Status_t PCA9685_SetBit(uint8_t Register, uint8_t Bit, uint8_t Va
         readValue |= (1 << Bit);
 
     // Escribir el nuevo valor
-    hal_status = HAL_I2C_Mem_Write(PCA9685_hi2c, PCA9685_ADDRESS, Register, 1, &readValue, 1, 10);
+    hal_status = HAL_I2C_Mem_Write(PCA9685_hi2c, PCA9685_ADDRESS, Register, I2C_MEMADD_SIZE_8BIT, &readValue, 1, PCA9685_MAX_TIMEOUT);
     if(hal_status == HAL_TIMEOUT)
     {
         return PCA9685_TIMEOUT;
@@ -74,7 +85,7 @@ static PCA9685_Status_t PCA9685_SetBit(uint8_t Register, uint8_t Bit, uint8_t Va
  *
  * @return PCA9685_Status_t Estado de la operación.
  */
-static PCA9685_Status_t PCA9685_SetPWMFrequency(uint16_t frequency)
+static PCA9685_Status_t pca9685_SetPWMFrequency(uint16_t frequency)
 {
     HAL_StatusTypeDef hal_status;
     PCA9685_Status_t status;
@@ -95,14 +106,14 @@ static PCA9685_Status_t PCA9685_SetPWMFrequency(uint16_t frequency)
     }
 
     // Entrar a modo sleep
-    status = PCA9685_SetBit(PCA9685_MODE1, PCA9685_MODE1_SLEEP_BIT, 1);
+    status = pca9685_SetBit(PCA9685_MODE1, PCA9685_MODE1_SLEEP_BIT, 1);
     if(status != PCA9685_OK)
     {
         return status;
     }
 
     // Escribir el prescaler
-    hal_status = HAL_I2C_Mem_Write(PCA9685_hi2c, PCA9685_ADDRESS, PCA9685_PRE_SCALE, 1, &prescale, 1, 10);
+    hal_status = HAL_I2C_Mem_Write(PCA9685_hi2c, PCA9685_ADDRESS, PCA9685_PRE_SCALE, I2C_MEMADD_SIZE_8BIT, &prescale, 1, PCA9685_MAX_TIMEOUT);
     if(hal_status == HAL_TIMEOUT)
     {
         return PCA9685_TIMEOUT;
@@ -113,14 +124,14 @@ static PCA9685_Status_t PCA9685_SetPWMFrequency(uint16_t frequency)
     }
 
     // Salir de modo sleep
-    status = PCA9685_SetBit(PCA9685_MODE1, PCA9685_MODE1_SLEEP_BIT, 0);
+    status = pca9685_SetBit(PCA9685_MODE1, PCA9685_MODE1_SLEEP_BIT, 0);
     if(status != PCA9685_OK)
     {
         return status;
     }
 
     // Reiniciar
-    status = PCA9685_SetBit(PCA9685_MODE1, PCA9685_MODE1_RESTART_BIT, 1);
+    status = pca9685_SetBit(PCA9685_MODE1, PCA9685_MODE1_RESTART_BIT, 1);
     if(status != PCA9685_OK)
     {
         return status;
@@ -160,14 +171,14 @@ PCA9685_Status_t PCA9685_Init(I2C_HandleTypeDef* hi2c, uint16_t frequency)
     PCA9685_hi2c = hi2c;
 
     // Configurar la frecuencia PWM
-    status = PCA9685_SetPWMFrequency(frequency);
+    status = pca9685_SetPWMFrequency(frequency);
     if(status != PCA9685_OK)
     {
         return status;
     }
 
     // Habilitar auto-incremento
-    status = PCA9685_SetBit(PCA9685_MODE1, PCA9685_MODE1_AI_BIT, 1);
+    status = pca9685_SetBit(PCA9685_MODE1, PCA9685_MODE1_AI_BIT, 1);
     if(status != PCA9685_OK)
     {
         return status;
@@ -233,7 +244,7 @@ PCA9685_Status_t PCA9685_SetPWM(uint8_t Channel, uint16_t OnTime, uint16_t OffTi
     pwm[3] = OffTime >> 8;
 
     // Escribir datos
-    hal_status = HAL_I2C_Mem_Write(PCA9685_hi2c, PCA9685_ADDRESS, registerAddress, 1, pwm, 4, 10);
+    hal_status = HAL_I2C_Mem_Write(PCA9685_hi2c, PCA9685_ADDRESS, registerAddress, I2C_MEMADD_SIZE_8BIT, pwm, 4, PCA9685_MAX_TIMEOUT);
     if(hal_status == HAL_TIMEOUT)
     {
         return PCA9685_TIMEOUT;

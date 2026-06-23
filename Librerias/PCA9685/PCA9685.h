@@ -1,10 +1,15 @@
 /**
  * @file PCA9685.h
- * @brief Librería para el control del módulo PWM PCA9685 mediante I2C en STM32.
+ * @brief Implementación de la librería para el control del módulo PWM PCA9685
+ * mediante I2C en STM32.
+ *
+ * @details Provee funciones para inicializar el módulo, configurar la
+ * frecuencia PWM, controlar canales individuales y manejar movimientos
+ * suaves de servomotores conectados al PCA9685.
  *
  * @author Daniel Ruiz
- * @date April 16, 2026
- * @version 2.0.0
+ * @date June 23, 2026
+ * @version 2.1.0
  */
 
 #ifndef PCA9685_H
