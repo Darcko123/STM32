@@ -334,6 +334,115 @@ static NV3007_Status_t NV3007_DrawSlashLine(int16_t x0, int16_t y0, int16_t x1, 
     return status;
 }
 
+/**
+ * @brief Dibuja uno o más cuadrantes del contorno de un círculo, usado por NV3007_DrawRoundRect()
+ *        para trazar las cuatro esquinas (equivalente a Adafruit_GFX::drawCircleHelper()).
+ */
+static NV3007_Status_t NV3007_DrawCircleHelper(int16_t x0, int16_t y0, int16_t r, uint8_t cornername, uint16_t color)
+{
+    NV3007_Status_t status = NV3007_OK;
+    int16_t f = 1 - r;
+    int16_t ddF_x = 1;
+    int16_t ddF_y = -2 * r;
+    int16_t x = 0;
+    int16_t y = r;
+
+    while ((x < y) && (status == NV3007_OK))
+    {
+        if (f >= 0)
+        {
+            y--;
+            ddF_y += 2;
+            f += ddF_y;
+        }
+        x++;
+        ddF_x += 2;
+        f += ddF_x;
+
+        if (cornername & 0x4)
+        {
+            status = NV3007_WritePixel(x0 + x, y0 + y, color);
+            status = (status == NV3007_OK) ? NV3007_WritePixel(x0 + y, y0 + x, color) : status;
+        }
+        if ((cornername & 0x2) && (status == NV3007_OK))
+        {
+            status = NV3007_WritePixel(x0 + x, y0 - y, color);
+            status = (status == NV3007_OK) ? NV3007_WritePixel(x0 + y, y0 - x, color) : status;
+        }
+        if ((cornername & 0x8) && (status == NV3007_OK))
+        {
+            status = NV3007_WritePixel(x0 - y, y0 + x, color);
+            status = (status == NV3007_OK) ? NV3007_WritePixel(x0 - x, y0 + y, color) : status;
+        }
+        if ((cornername & 0x1) && (status == NV3007_OK))
+        {
+            status = NV3007_WritePixel(x0 - y, y0 - x, color);
+            status = (status == NV3007_OK) ? NV3007_WritePixel(x0 - x, y0 - y, color) : status;
+        }
+    }
+
+    return status;
+}
+
+/**
+ * @brief Rellena uno o más cuadrantes de un círculo mediante franjas verticales, usado por
+ *        NV3007_DrawFilledRoundRect() para las cuatro esquinas (equivalente a
+ *        Adafruit_GFX::fillCircleHelper()).
+ */
+static NV3007_Status_t NV3007_FillCircleHelper(int16_t x0, int16_t y0, int16_t r, uint8_t corners, int16_t delta, uint16_t color)
+{
+    NV3007_Status_t status = NV3007_OK;
+    int16_t f = 1 - r;
+    int16_t ddF_x = 1;
+    int16_t ddF_y = -2 * r;
+    int16_t x = 0;
+    int16_t y = r;
+    int16_t px = x;
+    int16_t py = y;
+
+    delta++;
+
+    while ((x < y) && (status == NV3007_OK))
+    {
+        if (f >= 0)
+        {
+            y--;
+            ddF_y += 2;
+            f += ddF_y;
+        }
+        x++;
+        ddF_x += 2;
+        f += ddF_x;
+
+        if (x < (y + 1))
+        {
+            if (corners & 1)
+            {
+                status = NV3007_DrawFastVLine(x0 + x, y0 - y, (2 * y) + delta, color);
+            }
+            if ((corners & 2) && (status == NV3007_OK))
+            {
+                status = NV3007_DrawFastVLine(x0 - x, y0 - y, (2 * y) + delta, color);
+            }
+        }
+        if ((y != py) && (status == NV3007_OK))
+        {
+            if (corners & 1)
+            {
+                status = NV3007_DrawFastVLine(x0 + py, y0 - px, (2 * px) + delta, color);
+            }
+            if ((corners & 2) && (status == NV3007_OK))
+            {
+                status = NV3007_DrawFastVLine(x0 - py, y0 - px, (2 * px) + delta, color);
+            }
+            py = y;
+        }
+        px = x;
+    }
+
+    return status;
+}
+
 // ============================================================================
 // FUNCIONES PÚBLICAS
 // ============================================================================
@@ -1036,6 +1145,126 @@ NV3007_Status_t NV3007_DrawFilledTriangle(int16_t x0, int16_t y0, int16_t x1, in
         sb += dx02;
         if (a > b) { tmp = a; a = b; b = tmp; }
         status = NV3007_DrawFastHLine(a, y, b - a + 1, color);
+    }
+
+    return status;
+}
+
+/**
+ * @brief Dibuja un rectángulo de esquinas redondeadas sin relleno, combinando los lados rectos
+ *        con cuatro cuadrantes de círculo en las esquinas (equivalente a Arduino_GFX::drawRoundRect()).
+ *
+ * @param x0 Columna de la esquina superior izquierda.
+ * @param y0 Fila de la esquina superior izquierda.
+ * @param w Ancho del rectángulo.
+ * @param h Alto del rectángulo.
+ * @param radius Radio de las esquinas (se recorta a la mitad del lado menor).
+ * @param color Color en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación.
+ */
+NV3007_Status_t NV3007_DrawRoundRect(int16_t x0, int16_t y0, int16_t w, int16_t h, int16_t radius, uint16_t color)
+{
+    NV3007_Status_t status;
+    int16_t max_radius;
+
+    if (!NV3007_Initialized)
+    {
+        return NV3007_NOT_INITIALIZED;
+    }
+
+    max_radius = ((w < h) ? w : h) / 2;
+    if (radius > max_radius) { radius = max_radius; }
+
+    status = NV3007_DrawFastHLine(x0 + radius, y0, w - 2 * radius, color);
+    status = (status == NV3007_OK) ? NV3007_DrawFastHLine(x0 + radius, y0 + h - 1, w - 2 * radius, color) : status;
+    status = (status == NV3007_OK) ? NV3007_DrawFastVLine(x0, y0 + radius, h - 2 * radius, color) : status;
+    status = (status == NV3007_OK) ? NV3007_DrawFastVLine(x0 + w - 1, y0 + radius, h - 2 * radius, color) : status;
+
+    status = (status == NV3007_OK) ? NV3007_DrawCircleHelper(x0 + radius, y0 + radius, radius, 1, color) : status;
+    status = (status == NV3007_OK) ? NV3007_DrawCircleHelper(x0 + w - radius - 1, y0 + radius, radius, 2, color) : status;
+    status = (status == NV3007_OK) ? NV3007_DrawCircleHelper(x0 + w - radius - 1, y0 + h - radius - 1, radius, 4, color) : status;
+    status = (status == NV3007_OK) ? NV3007_DrawCircleHelper(x0 + radius, y0 + h - radius - 1, radius, 8, color) : status;
+
+    return status;
+}
+
+/**
+ * @brief Dibuja (rellena) un rectángulo de esquinas redondeadas, combinando un rectángulo central
+ *        con dos cuadrantes de círculo relleno por lado (equivalente a Arduino_GFX::fillRoundRect()).
+ *
+ * @param x0 Columna de la esquina superior izquierda.
+ * @param y0 Fila de la esquina superior izquierda.
+ * @param w Ancho del rectángulo.
+ * @param h Alto del rectángulo.
+ * @param radius Radio de las esquinas (se recorta a la mitad del lado menor).
+ * @param color Color en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación.
+ */
+NV3007_Status_t NV3007_DrawFilledRoundRect(int16_t x0, int16_t y0, int16_t w, int16_t h, int16_t radius, uint16_t color)
+{
+    NV3007_Status_t status;
+    int16_t max_radius;
+
+    if (!NV3007_Initialized)
+    {
+        return NV3007_NOT_INITIALIZED;
+    }
+
+    max_radius = ((w < h) ? w : h) / 2;
+    if (radius > max_radius) { radius = max_radius; }
+
+    status = NV3007_WriteFilledRectangle(x0 + radius, y0, w - 2 * radius, h, color);
+    status = (status == NV3007_OK) ? NV3007_FillCircleHelper(x0 + w - radius - 1, y0 + radius, radius, 1, h - 2 * radius - 1, color) : status;
+    status = (status == NV3007_OK) ? NV3007_FillCircleHelper(x0 + radius, y0 + radius, radius, 2, h - 2 * radius - 1, color) : status;
+
+    return status;
+}
+
+/**
+ * @brief Dibuja un bitmap monocromo (1 bit por píxel) residente en memoria, usando el color
+ *        indicado para los bits activos y descartando los bits inactivos (transparentes)
+ *        (equivalente a Arduino_GFX::drawBitmap()).
+ *
+ * @param x Columna de la esquina superior izquierda.
+ * @param y Fila de la esquina superior izquierda.
+ * @param bitmap Arreglo de bytes con el bitmap monocromo (MSB primero, relleno a byte completo por fila).
+ * @param w Ancho del bitmap en píxeles.
+ * @param h Alto del bitmap en píxeles.
+ * @param color Color en formato RGB565 para los bits activos.
+ *
+ * @return NV3007_Status_t Estado de la operación.
+ */
+NV3007_Status_t NV3007_DrawBitmap(int16_t x, int16_t y, const uint8_t bitmap[], int16_t w, int16_t h, uint16_t color)
+{
+    NV3007_Status_t status = NV3007_OK;
+    int16_t byteWidth = (int16_t)((w + 7) / 8); /* Relleno de fila a byte completo */
+    uint8_t byte = 0;
+    int16_t i, j;
+
+    if (!NV3007_Initialized)
+    {
+        return NV3007_NOT_INITIALIZED;
+    }
+
+    for (j = 0; (j < h) && (status == NV3007_OK); j++, y++)
+    {
+        for (i = 0; (i < w) && (status == NV3007_OK); i++)
+        {
+            if (i & 7)
+            {
+                byte <<= 1;
+            }
+            else
+            {
+                byte = bitmap[(j * byteWidth) + (i / 8)];
+            }
+            if (byte & 0x80)
+            {
+                status = NV3007_WritePixel(x + i, y, color);
+            }
+        }
     }
 
     return status;
