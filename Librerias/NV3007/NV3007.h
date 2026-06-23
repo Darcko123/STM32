@@ -88,14 +88,21 @@ extern "C" {
 
 /**
  * @brief Inicializa el módulo NV3007
- * 
+ *
  * @param hspi Puntero al manejador de la interfaz SPI utilizada para comunicarse con el módulo.
- * @param GPIOx Puerto GPIO del pin CS del NV3007.
- * @param GPIO_PIN Pin GPIO del pin CS del NV3007.
- * 
+ * @param CS_GPIOx Puerto GPIO del pin CS (Chip Select) del NV3007.
+ * @param CS_Pin Pin GPIO del pin CS del NV3007.
+ * @param DC_GPIOx Puerto GPIO del pin DC (Data/Command) del NV3007.
+ * @param DC_Pin Pin GPIO del pin DC del NV3007.
+ * @param RST_GPIOx Puerto GPIO del pin RST (Reset) del NV3007.
+ * @param RST_Pin Pin GPIO del pin RST del NV3007.
+ *
  * @return NV3007_Status_t Estado de la operación.
  */
-NV3007_Status_t NV3007_Init(SPI_HandleTypeDef* hspi, GPIO_TypeDef* GPIOx, uint16_t GPIO_PIN);
+NV3007_Status_t NV3007_Init(SPI_HandleTypeDef* hspi,
+                             GPIO_TypeDef* CS_GPIOx, uint16_t CS_Pin,
+                             GPIO_TypeDef* DC_GPIOx, uint16_t DC_Pin,
+                             GPIO_TypeDef* RST_GPIOx, uint16_t RST_Pin);
 
 /**
  * @brief Desinicializa el módulo NV3007, apagando la pantalla y liberando la configuración almacenada.
