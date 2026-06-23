@@ -2,8 +2,8 @@
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![STM32](https://img.shields.io/badge/Platform-STM32F411-black)](https://www.st.com/en/microcontrollers-microprocessors/stm32f4-series.html)
-[![Version](https://img.shields.io/badge/Version-2.0.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/PWM_Module)
-[![Protocol](https://img.shields.io/badge/Protocol-I2C-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/PWM_Module)
+[![Version](https://img.shields.io/badge/Version-2.1.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/PCA9685)
+[![Protocol](https://img.shields.io/badge/Protocol-I2C-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/PCA9685)
 
 ---
 
@@ -27,6 +27,7 @@
       - [`Servo_Smooth_t` - Estructura de Movimiento Suave](#servo_smooth_t---estructura-de-movimiento-suave)
     - [2. Funciones Públicas](#2-funciones-públicas)
       - [`PCA9685_Init()` - Inicialización del Driver](#pca9685_init---inicialización-del-driver)
+      - [`PCA9685_DeInit()` - Desinicialización del Driver](#pca9685_deinit---desinicialización-del-driver)
       - [`PCA9685_SetPWM()` - Control Directo de PWM](#pca9685_setpwm---control-directo-de-pwm)
       - [`PCA9685_SetServoAngle()` - Control de Ángulo](#pca9685_setservoangle---control-de-ángulo)
       - [`PCA9685_SmoothMove()` - Movimiento Suave Bloqueante](#pca9685_smoothmove---movimiento-suave-bloqueante)
@@ -35,17 +36,20 @@
       - [`PCA9685_UpdateSmoothServo()` - Actualizar Movimiento No Bloqueante](#pca9685_updatesmoothservo---actualizar-movimiento-no-bloqueante)
   - [Licencia](#licencia)
   - [Changelog](#changelog)
-    - [\[2.0.0\] - 16-04-2026](#200---16-04-2026)
+    - [\[2.1.0\] - 23-06-2026](#210---23-06-2026)
       - [Added](#added)
       - [Changed](#changed)
-    - [\[1.2.0\] - 13-01-2026](#120---13-01-2026)
+    - [\[2.0.0\] - 16-04-2026](#200---16-04-2026)
       - [Added](#added-1)
       - [Changed](#changed-1)
+    - [\[1.2.0\] - 13-01-2026](#120---13-01-2026)
+      - [Added](#added-2)
+      - [Changed](#changed-2)
       - [Fixed](#fixed)
     - [\[1.1.0\] - 21-12-2025](#110---21-12-2025)
-      - [Added](#added-2)
-    - [\[1.0.0\] - 07-01-2025](#100---07-01-2025)
       - [Added](#added-3)
+    - [\[1.0.0\] - 07-01-2025](#100---07-01-2025)
+      - [Added](#added-4)
 
 ---
 
@@ -102,7 +106,7 @@ Configura tu periférico I2C en CubeMX/STM32CubeIDE:
 ---
 
 ## Instalación
-1. Copia `PCA9685.c` y `PCA9685.h` a tu proyecto (ej: `Librerias/PWM_Module/`).
+1. Copia `PCA9685.c` y `PCA9685.h` a tu proyecto (ej: `Librerias/PCA9685/`).
 2. Ajusta el `#include` del encabezado HAL en `PCA9685.h` según tu familia STM32:
   ```c
   // STM32F1xx:
@@ -206,16 +210,18 @@ typedef enum {
     PCA9685_OK = 0,             /**< Operación exitosa */
     PCA9685_ERROR = 1,          /**< Error en la operación */
     PCA9685_TIMEOUT = 2,        /**< Timeout en la operación */
-    PCA9685_NOT_INITIALIZED = 3 /**< Módulo no inicializado */
+    PCA9685_NOT_INITIALIZED = 3,/**< Módulo no inicializado */
+    PCA9685_INVALID_PARAM = 4   /**< Parámetro inválido */
 } PCA9685_Status_t;
 ```
 
 | Valor | Código | Significado |
 |-------|--------|-------------|
 | `PCA9685_OK` | 0 | Operación completada sin errores |
-| `PCA9685_ERROR` | 1 | Error de I2C, parámetro inválido o condición inesperada |
+| `PCA9685_ERROR` | 1 | Error de I2C o condición inesperada |
 | `PCA9685_TIMEOUT` | 2 | Timeout en la comunicación I2C |
 | `PCA9685_NOT_INITIALIZED` | 3 | `PCA9685_Init()` no se llamó o falló |
+| `PCA9685_INVALID_PARAM` | 4 | Parámetro fuera de rango o puntero NULL |
 
 ---
 
@@ -225,13 +231,14 @@ Estructura que encapsula el estado de un servomotor para control de movimiento s
 
 ```c
 typedef struct {
-    uint8_t  channel;          /**< Canal del servomotor (0-15) */
-    float    currentAngle;     /**< Ángulo actual del servomotor */
-    float    targetAngle;      /**< Ángulo objetivo */
-    float    stepSize;         /**< Tamaño del paso por intervalo */
-    uint32_t updateInterval;   /**< Intervalo entre actualizaciones en ms */
-    uint32_t lastUpdateTime;   /**< Último tiempo de actualización (HAL_GetTick) */
-    bool     isMoving;         /**< true si el servomotor está en movimiento */
+    uint8_t          channel;         /**< Canal del servomotor (0-15) */
+    float            currentAngle;    /**< Ángulo actual del servomotor */
+    float            targetAngle;     /**< Ángulo objetivo */
+    float            stepSize;        /**< Tamaño del paso por intervalo */
+    uint32_t         updateInterval;  /**< Intervalo entre actualizaciones en ms */
+    uint32_t         lastUpdateTime;  /**< Último tiempo de actualización (HAL_GetTick) */
+    bool             isMoving;        /**< true si el servomotor está en movimiento */
+    PCA9685_Status_t lastError;       /**< Estado de la última operación I2C realizada sobre este servo */
 } Servo_Smooth_t;
 ```
 
@@ -244,6 +251,7 @@ typedef struct {
 | `updateInterval` | `uint32_t` | >0 | Tiempo en ms entre actualizaciones (recomendado: 20ms) |
 | `lastUpdateTime` | `uint32_t` | — | Marca de tiempo de la última actualización (`HAL_GetTick()`) |
 | `isMoving` | `bool` | — | Indica si el servo está en movimiento activo |
+| `lastError` | `PCA9685_Status_t` | — | Estado de la última operación I2C realizada sobre este servo (ver `PCA9685_UpdateSmoothServo()`) |
 
 ---
 
@@ -262,7 +270,19 @@ PCA9685_Status_t PCA9685_Init(I2C_HandleTypeDef *hi2c, uint16_t frequency);
 | `hi2c` | `I2C_HandleTypeDef*` | Handle del periférico I2C configurado | — |
 | `frequency` | `uint16_t` | Frecuencia PWM en Hz (50 Hz para servos estándar) | 24–1526 |
 
-**Retorna**: `PCA9685_OK` si la inicialización fue exitosa, `PCA9685_ERROR` si el handle es NULL o la frecuencia está fuera de rango, `PCA9685_TIMEOUT` si falla la comunicación I2C.
+**Retorna**: `PCA9685_OK` si la inicialización fue exitosa, `PCA9685_INVALID_PARAM` si el handle es NULL o la frecuencia está fuera de rango, `PCA9685_TIMEOUT` o `PCA9685_ERROR` si falla la comunicación I2C.
+
+---
+
+#### `PCA9685_DeInit()` - Desinicialización del Driver
+
+Desinicializa el módulo PCA9685, limpiando el handle I2C almacenado y marcando el driver como no inicializado. Tras llamarla, todas las demás funciones retornarán `PCA9685_NOT_INITIALIZED` hasta que se llame nuevamente a `PCA9685_Init()`.
+
+```c
+PCA9685_Status_t PCA9685_DeInit(void);
+```
+
+**Retorna**: `PCA9685_OK` siempre, ya que la operación no involucra comunicación I2C.
 
 ---
 
@@ -280,7 +300,7 @@ PCA9685_Status_t PCA9685_SetPWM(uint8_t Channel, uint16_t OnTime, uint16_t OffTi
 | `OnTime` | `uint16_t` | Tick en el que la salida se activa | 0–4095 |
 | `OffTime` | `uint16_t` | Tick en el que la salida se desactiva | 0–4095 |
 
-**Retorna**: `PCA9685_OK` si la operación fue exitosa, `PCA9685_ERROR` si el canal o los valores están fuera de rango, `PCA9685_NOT_INITIALIZED` si el módulo no fue inicializado.
+**Retorna**: `PCA9685_OK` si la operación fue exitosa, `PCA9685_INVALID_PARAM` si el canal o los valores están fuera de rango, `PCA9685_NOT_INITIALIZED` si el módulo no fue inicializado.
 
 ---
 
@@ -297,7 +317,7 @@ PCA9685_Status_t PCA9685_SetServoAngle(uint8_t Channel, float Angle);
 | `Channel` | `uint8_t` | Canal del servomotor | 0–15 |
 | `Angle` | `float` | Ángulo deseado en grados | 0.0–180.0 |
 
-**Retorna**: `PCA9685_OK` si la operación fue exitosa, `PCA9685_ERROR` si el canal es inválido o el handle es NULL, `PCA9685_NOT_INITIALIZED` si el módulo no fue inicializado.
+**Retorna**: `PCA9685_OK` si la operación fue exitosa, `PCA9685_INVALID_PARAM` si el canal es inválido, `PCA9685_NOT_INITIALIZED` si el módulo no fue inicializado.
 
 ---
 
@@ -376,12 +396,15 @@ bool PCA9685_UpdateSmoothServo(Servo_Smooth_t *servo);
 |-----------|------|-------------|
 | `servo` | `Servo_Smooth_t*` | Puntero a la estructura del servo |
 
-**Retorna**: `true` si el servo alcanzó el ángulo objetivo o si `servo` es NULL, `false` si el movimiento sigue en progreso.
+**Retorna**: `true` si el servo alcanzó el ángulo objetivo, si ocurrió un error de I2C, o si `servo` es NULL, `false` si el movimiento sigue en progreso.
+
+> [!NOTE]
+> En caso de error de I2C el movimiento se detiene y la función retorna `true`. Revisa `servo->lastError` para distinguir esto de un movimiento completado exitosamente.
 
 ---
 
 ## Licencia
-Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](/LICENSE.md) para más detalles.
+Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](../../LICENSE.md) para más detalles.
 
 ---
 
@@ -389,6 +412,23 @@ Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](/LICENSE
 
 Todos los cambios notables de esta librería se documentan en esta sección.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
+
+---
+
+### [2.1.0] - 23-06-2026
+
+#### Added
+- Función `PCA9685_DeInit()` para desinicializar el driver y limpiar el handle I2C.
+- Estado `PCA9685_INVALID_PARAM` en `PCA9685_Status_t` para diferenciar parámetros inválidos de errores de comunicación I2C.
+- Campo `lastError` en `Servo_Smooth_t` para reportar el estado de la última operación I2C realizada sobre un servo en movimiento no bloqueante.
+
+#### Changed
+- Librería movida de `Librerias/PWM_Module/` a `Librerias/PCA9685/` (renombrado con `git mv`, preservando el historial).
+- `PCA9685_Init()`, `PCA9685_SetPWM()` y `PCA9685_SetServoAngle()` ahora retornan `PCA9685_INVALID_PARAM` en lugar de `PCA9685_ERROR` para parámetros fuera de rango o punteros NULL.
+- `PCA9685_SetServoAngle()` valida la inicialización del módulo mediante la bandera interna en lugar de verificar directamente el handle I2C.
+- Funciones privadas `PCA9685_SetBit` y `PCA9685_SetPWMFrequency` renombradas a `pca9685_SetBit` y `pca9685_SetPWMFrequency` para reforzar la convención de nombres privados.
+- Valores fijos en llamadas a `HAL_I2C_Mem_Read`/`HAL_I2C_Mem_Write` reemplazados por `I2C_MEMADD_SIZE_8BIT` y `PCA9685_MAX_TIMEOUT`.
+- El encabezado HAL incluido en `PCA9685.h` ahora se obtiene a través de `main.h` en lugar de incluir directamente `stm32f4xx_hal.h`, mejorando la portabilidad entre familias STM32.
 
 ---
 

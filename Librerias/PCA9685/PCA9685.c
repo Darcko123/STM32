@@ -3,13 +3,16 @@
  * @brief Implementación de la librería para el control del módulo PWM PCA9685
  * mediante I2C en STM32.
  *
+ * @details Provee funciones para inicializar el módulo, configurar la
+ * frecuencia PWM, controlar canales individuales y manejar movimientos
+ * suaves de servomotores conectados al PCA9685.
+ *
  * @author Daniel Ruiz
- * @date April 16, 2026
- * @version 2.0.0
+ * @date June 23, 2026
+ * @version 2.1.0
  */
 
 #include "PCA9685.h"
-#include <math.h>
 
 // ============================================================================
 // VARIABLES PRIVADAS
@@ -17,6 +20,13 @@
 
 static I2C_HandleTypeDef* PCA9685_hi2c      = NULL;  /**< Manejador de la interfaz I2C utilizado para comunicarse con el PCA9685 */
 static uint8_t          PCA9685_Initialized = 0;    /**< Bandera para verificar si el módulo está inicializado */
+
+// ============================================================================
+// PROTOTIPOS DE FUNCIONES PRIVADAS
+// ============================================================================
+
+static PCA9685_Status_t pca9685_SetBit(uint8_t Register, uint8_t Bit, uint8_t Value);
+static PCA9685_Status_t pca9685_SetPWMFrequency(uint16_t frequency);
 
 // ============================================================================
 // FUNCIONES PRIVADAS
@@ -31,13 +41,13 @@ static uint8_t          PCA9685_Initialized = 0;    /**< Bandera para verificar 
  *
  * @return PCA9685_Status_t Estado de la operación.
  */
-static PCA9685_Status_t PCA9685_SetBit(uint8_t Register, uint8_t Bit, uint8_t Value)
+static PCA9685_Status_t pca9685_SetBit(uint8_t Register, uint8_t Bit, uint8_t Value)
 {
     HAL_StatusTypeDef hal_status;
     uint8_t readValue;
 
     // Leer el valor actual del registro
-    hal_status = HAL_I2C_Mem_Read(PCA9685_hi2c, PCA9685_ADDRESS, Register, 1, &readValue, 1, 10);
+    hal_status = HAL_I2C_Mem_Read(PCA9685_hi2c, PCA9685_ADDRESS, Register, I2C_MEMADD_SIZE_8BIT, &readValue, 1, PCA9685_MAX_TIMEOUT);
     if(hal_status == HAL_TIMEOUT)
     {
         return PCA9685_TIMEOUT;
@@ -54,7 +64,7 @@ static PCA9685_Status_t PCA9685_SetBit(uint8_t Register, uint8_t Bit, uint8_t Va
         readValue |= (1 << Bit);
 
     // Escribir el nuevo valor
-    hal_status = HAL_I2C_Mem_Write(PCA9685_hi2c, PCA9685_ADDRESS, Register, 1, &readValue, 1, 10);
+    hal_status = HAL_I2C_Mem_Write(PCA9685_hi2c, PCA9685_ADDRESS, Register, I2C_MEMADD_SIZE_8BIT, &readValue, 1, PCA9685_MAX_TIMEOUT);
     if(hal_status == HAL_TIMEOUT)
     {
         return PCA9685_TIMEOUT;
@@ -75,17 +85,11 @@ static PCA9685_Status_t PCA9685_SetBit(uint8_t Register, uint8_t Bit, uint8_t Va
  *
  * @return PCA9685_Status_t Estado de la operación.
  */
-static PCA9685_Status_t PCA9685_SetPWMFrequency(uint16_t frequency)
+static PCA9685_Status_t pca9685_SetPWMFrequency(uint16_t frequency)
 {
     HAL_StatusTypeDef hal_status;
     PCA9685_Status_t status;
     uint8_t prescale;
-
-    // Validar que el handler I2C esté inicializado
-    if(PCA9685_hi2c == NULL)
-    {
-        return PCA9685_ERROR;
-    }
 
     // Calcular el prescaler
     if(frequency >= 1526)
@@ -102,14 +106,14 @@ static PCA9685_Status_t PCA9685_SetPWMFrequency(uint16_t frequency)
     }
 
     // Entrar a modo sleep
-    status = PCA9685_SetBit(PCA9685_MODE1, PCA9685_MODE1_SLEEP_BIT, 1);
+    status = pca9685_SetBit(PCA9685_MODE1, PCA9685_MODE1_SLEEP_BIT, 1);
     if(status != PCA9685_OK)
     {
         return status;
     }
 
     // Escribir el prescaler
-    hal_status = HAL_I2C_Mem_Write(PCA9685_hi2c, PCA9685_ADDRESS, PCA9685_PRE_SCALE, 1, &prescale, 1, 10);
+    hal_status = HAL_I2C_Mem_Write(PCA9685_hi2c, PCA9685_ADDRESS, PCA9685_PRE_SCALE, I2C_MEMADD_SIZE_8BIT, &prescale, 1, PCA9685_MAX_TIMEOUT);
     if(hal_status == HAL_TIMEOUT)
     {
         return PCA9685_TIMEOUT;
@@ -120,14 +124,14 @@ static PCA9685_Status_t PCA9685_SetPWMFrequency(uint16_t frequency)
     }
 
     // Salir de modo sleep
-    status = PCA9685_SetBit(PCA9685_MODE1, PCA9685_MODE1_SLEEP_BIT, 0);
+    status = pca9685_SetBit(PCA9685_MODE1, PCA9685_MODE1_SLEEP_BIT, 0);
     if(status != PCA9685_OK)
     {
         return status;
     }
 
     // Reiniciar
-    status = PCA9685_SetBit(PCA9685_MODE1, PCA9685_MODE1_RESTART_BIT, 1);
+    status = pca9685_SetBit(PCA9685_MODE1, PCA9685_MODE1_RESTART_BIT, 1);
     if(status != PCA9685_OK)
     {
         return status;
@@ -154,33 +158,47 @@ PCA9685_Status_t PCA9685_Init(I2C_HandleTypeDef* hi2c, uint16_t frequency)
 
     if(hi2c == NULL)
     {
-        return PCA9685_ERROR;
+        return PCA9685_INVALID_PARAM;
     }
 
     // Validar rango de frecuencia
     if(frequency < 24 || frequency > 1526)
     {
-        return PCA9685_ERROR;
+        return PCA9685_INVALID_PARAM;
     }
 
     // Asignar el handler I2C
     PCA9685_hi2c = hi2c;
 
     // Configurar la frecuencia PWM
-    status = PCA9685_SetPWMFrequency(frequency);
+    status = pca9685_SetPWMFrequency(frequency);
     if(status != PCA9685_OK)
     {
         return status;
     }
 
     // Habilitar auto-incremento
-    status = PCA9685_SetBit(PCA9685_MODE1, PCA9685_MODE1_AI_BIT, 1);
+    status = pca9685_SetBit(PCA9685_MODE1, PCA9685_MODE1_AI_BIT, 1);
     if(status != PCA9685_OK)
     {
         return status;
     }
 
-    PCA9685_Initialized = 1;
+    // Marcar como inicializado exitosamente
+    PCA9685_Initialized = 1U;
+
+    return PCA9685_OK;
+}
+
+/**
+ * @brief Desinicializa el módulo PCA9685 y libera recursos.
+ * 
+ * @return PCA9685_Status_t Estado de la operación (OK, ERROR, etc.)
+ */
+PCA9685_Status_t PCA9685_DeInit(void)
+{
+    PCA9685_hi2c        = NULL;     // Limpia el handler de I2C
+    PCA9685_Initialized = 0U;       // Marca el módulo como no inicializado
 
     return PCA9685_OK;
 }
@@ -205,21 +223,15 @@ PCA9685_Status_t PCA9685_SetPWM(uint8_t Channel, uint16_t OnTime, uint16_t OffTi
     uint8_t registerAddress;
     uint8_t pwm[4];
 
-    // Validar que el handler I2C esté inicializado
-    if(PCA9685_hi2c == NULL)
-    {
-        return PCA9685_ERROR;
-    }
-
     // Validar parámetros
     if(Channel > 15)
     {
-        return PCA9685_ERROR;
+        return PCA9685_INVALID_PARAM;
     }
 
     if(OnTime > 4095 || OffTime > 4095)
     {
-        return PCA9685_ERROR;
+        return PCA9685_INVALID_PARAM;
     }
 
     // Calcular dirección del registro
@@ -232,7 +244,7 @@ PCA9685_Status_t PCA9685_SetPWM(uint8_t Channel, uint16_t OnTime, uint16_t OffTi
     pwm[3] = OffTime >> 8;
 
     // Escribir datos
-    hal_status = HAL_I2C_Mem_Write(PCA9685_hi2c, PCA9685_ADDRESS, registerAddress, 1, pwm, 4, 10);
+    hal_status = HAL_I2C_Mem_Write(PCA9685_hi2c, PCA9685_ADDRESS, registerAddress, I2C_MEMADD_SIZE_8BIT, pwm, 4, PCA9685_MAX_TIMEOUT);
     if(hal_status == HAL_TIMEOUT)
     {
         return PCA9685_TIMEOUT;
@@ -258,15 +270,15 @@ PCA9685_Status_t PCA9685_SetServoAngle(uint8_t Channel, float Angle)
     float Value;
 
     // Validar que el handler I2C esté inicializado
-    if(PCA9685_hi2c == NULL)
+    if(PCA9685_Initialized != 1U)
     {
-        return PCA9685_ERROR;
+        return PCA9685_NOT_INITIALIZED;
     }
 
     // Validar parámetros
     if(Channel > 15)
     {
-        return PCA9685_ERROR;
+        return PCA9685_INVALID_PARAM;
     }
 
     // Asegurar que el ángulo esté dentro del rango
@@ -325,9 +337,11 @@ PCA9685_Status_t PCA9685_InitSmoothServo(Servo_Smooth_t* servo, uint8_t channel,
     servo->updateInterval = updateInterval;
     servo->lastUpdateTime = HAL_GetTick();
     servo->isMoving       = false;
+    servo->lastError      = PCA9685_OK;
 
     // Establecer el ángulo inicial
     status = PCA9685_SetServoAngle(channel, initialAngle);
+    servo->lastError = status;
     if(status != PCA9685_OK)
     {
         return status;
@@ -391,9 +405,14 @@ PCA9685_Status_t PCA9685_SetSmoothAngle(Servo_Smooth_t* servo, float targetAngle
 /**
  * @brief Actualiza el movimiento suave del servomotor (debe llamarse periódicamente)
  *
+ * @note En caso de error de I2C el movimiento se detiene y la función retorna
+ * true; se debe revisar servo->lastError para distinguir esto de un movimiento
+ * completado exitosamente.
+ *
  * @param servo Puntero a la estructura Servo_Smooth_t
  *
- * @return true si el servomotor alcanzó el ángulo objetivo, false si aún está en movimiento
+ * @return true si el servomotor alcanzó el ángulo objetivo (o si ocurrió un
+ * error), false si aún está en movimiento
  */
 bool PCA9685_UpdateSmoothServo(Servo_Smooth_t* servo)
 {
@@ -433,6 +452,7 @@ bool PCA9685_UpdateSmoothServo(Servo_Smooth_t* servo)
 
         // Enviar el nuevo ángulo al servomotor
         status = PCA9685_SetServoAngle(servo->channel, newAngle);
+        servo->lastError = status;
         if(status != PCA9685_OK)
         {
             // En caso de error, detener el movimiento
