@@ -43,6 +43,7 @@
 // ============================================================================
 
 #include "main.h"
+#include "FONTS.h"
 #include <stdint.h>
 #include <string.h>
 
@@ -79,15 +80,6 @@ typedef enum {
 	SSD1306_COLOR_BLACK = 0x00, /**< Píxel apagado (negro) */
 	SSD1306_COLOR_WHITE = 0x01  /**< Píxel encendido (blanco) */
 } SSD1306_COLOR_t;
-
-/**
- * @brief Definición de una fuente tipográfica utilizada por SSD1306_Putc()/SSD1306_Puts().
- */
-typedef struct {
-	uint8_t  FontWidth;    /**< Ancho de cada carácter en píxeles */
-	uint8_t  FontHeight;   /**< Alto de cada carácter en píxeles  */
-	const uint16_t* data;  /**< Datos de la fuente (bitmap por carácter) */
-} FontDef_t;
 
 // ============================================================================
 // PROTOTIPOS DE FUNCIONES PÚBLICAS
