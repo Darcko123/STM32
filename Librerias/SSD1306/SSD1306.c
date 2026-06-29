@@ -329,6 +329,7 @@ SSD1306_Status_t SSD1306_GotoXY(uint16_t x, uint16_t y)
 
 SSD1306_Status_t SSD1306_Putc(char ch, FontDef_t* Font, SSD1306_COLOR_t color)
 {
+	SSD1306_Status_t st;
 	uint32_t i, b, j;
 
 	if (SSD1306_Initialized != 1U) { return SSD1306_NOT_INITIALIZED; }
@@ -350,11 +351,16 @@ SSD1306_Status_t SSD1306_Putc(char ch, FontDef_t* Font, SSD1306_COLOR_t color)
 		{
 			if ((b << j) & 0x8000)
 			{
-				SSD1306_DrawPixel(SSD1306_State.CurrentX + j, SSD1306_State.CurrentY + i, color);
+				st = SSD1306_DrawPixel(SSD1306_State.CurrentX + j, SSD1306_State.CurrentY + i, color);
 			}
 			else
 			{
-				SSD1306_DrawPixel(SSD1306_State.CurrentX + j, SSD1306_State.CurrentY + i, (SSD1306_COLOR_t)!color);
+				st = SSD1306_DrawPixel(SSD1306_State.CurrentX + j, SSD1306_State.CurrentY + i, (SSD1306_COLOR_t)!color);
+			}
+
+			if (st != SSD1306_OK)
+			{
+				return st;
 			}
 		}
 	}
@@ -388,6 +394,7 @@ SSD1306_Status_t SSD1306_Puts(char* str, FontDef_t* Font, SSD1306_COLOR_t color)
 
 SSD1306_Status_t SSD1306_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, SSD1306_COLOR_t c)
 {
+	SSD1306_Status_t st;
 	int16_t dx, dy, sx, sy, err, e2, i, tmp;
 
 	if (SSD1306_Initialized != 1U) { return SSD1306_NOT_INITIALIZED; }
@@ -412,7 +419,11 @@ SSD1306_Status_t SSD1306_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_
 		/* Vertical line */
 		for (i = y0; i <= y1; i++)
 		{
-			SSD1306_DrawPixel(x0, i, c);
+			st = SSD1306_DrawPixel(x0, i, c);
+			if (st != SSD1306_OK)
+			{
+				return st;
+			}
 		}
 
 		return SSD1306_OK;
@@ -426,7 +437,11 @@ SSD1306_Status_t SSD1306_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_
 		/* Horizontal line */
 		for (i = x0; i <= x1; i++)
 		{
-			SSD1306_DrawPixel(i, y0, c);
+			st = SSD1306_DrawPixel(i, y0, c);
+			if (st != SSD1306_OK)
+			{
+				return st;
+			}
 		}
 
 		return SSD1306_OK;
@@ -434,7 +449,11 @@ SSD1306_Status_t SSD1306_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_
 
 	while (1)
 	{
-		SSD1306_DrawPixel(x0, y0, c);
+		st = SSD1306_DrawPixel(x0, y0, c);
+		if (st != SSD1306_OK)
+		{
+			return st;
+		}
 		if (x0 == x1 && y0 == y1)
 		{
 			break;
@@ -449,6 +468,8 @@ SSD1306_Status_t SSD1306_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_
 
 SSD1306_Status_t SSD1306_DrawRectangle(uint16_t x, uint16_t y, uint16_t w, uint16_t h, SSD1306_COLOR_t c)
 {
+	SSD1306_Status_t st;
+
 	if (SSD1306_Initialized != 1U) { return SSD1306_NOT_INITIALIZED; }
 
 	if (x >= SSD1306_WIDTH || y >= SSD1306_HEIGHT)
@@ -461,16 +482,17 @@ SSD1306_Status_t SSD1306_DrawRectangle(uint16_t x, uint16_t y, uint16_t w, uint1
 	if ((y + h) >= SSD1306_HEIGHT) { h = SSD1306_HEIGHT - y; }
 
 	/* Draw 4 lines */
-	SSD1306_DrawLine(x, y, x + w, y, c);         /* Top line */
-	SSD1306_DrawLine(x, y + h, x + w, y + h, c); /* Bottom line */
-	SSD1306_DrawLine(x, y, x, y + h, c);         /* Left line */
-	SSD1306_DrawLine(x + w, y, x + w, y + h, c); /* Right line */
+	st  = SSD1306_DrawLine(x, y, x + w, y, c);                 /* Top line */
+	st  = st ? st : SSD1306_DrawLine(x, y + h, x + w, y + h, c); /* Bottom line */
+	st  = st ? st : SSD1306_DrawLine(x, y, x, y + h, c);         /* Left line */
+	st  = st ? st : SSD1306_DrawLine(x + w, y, x + w, y + h, c); /* Right line */
 
-	return SSD1306_OK;
+	return st;
 }
 
 SSD1306_Status_t SSD1306_DrawFilledRectangle(uint16_t x, uint16_t y, uint16_t w, uint16_t h, SSD1306_COLOR_t c)
 {
+	SSD1306_Status_t st;
 	uint8_t i;
 
 	if (SSD1306_Initialized != 1U) { return SSD1306_NOT_INITIALIZED; }
@@ -487,7 +509,11 @@ SSD1306_Status_t SSD1306_DrawFilledRectangle(uint16_t x, uint16_t y, uint16_t w,
 	/* Draw lines */
 	for (i = 0; i <= h; i++)
 	{
-		SSD1306_DrawLine(x, y + i, x + w, y + i, c);
+		st = SSD1306_DrawLine(x, y + i, x + w, y + i, c);
+		if (st != SSD1306_OK)
+		{
+			return st;
+		}
 	}
 
 	return SSD1306_OK;
@@ -495,18 +521,21 @@ SSD1306_Status_t SSD1306_DrawFilledRectangle(uint16_t x, uint16_t y, uint16_t w,
 
 SSD1306_Status_t SSD1306_DrawTriangle(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t x3, uint16_t y3, SSD1306_COLOR_t color)
 {
+	SSD1306_Status_t st;
+
 	if (SSD1306_Initialized != 1U) { return SSD1306_NOT_INITIALIZED; }
 
 	/* Draw lines */
-	SSD1306_DrawLine(x1, y1, x2, y2, color);
-	SSD1306_DrawLine(x2, y2, x3, y3, color);
-	SSD1306_DrawLine(x3, y3, x1, y1, color);
+	st  = SSD1306_DrawLine(x1, y1, x2, y2, color);
+	st  = st ? st : SSD1306_DrawLine(x2, y2, x3, y3, color);
+	st  = st ? st : SSD1306_DrawLine(x3, y3, x1, y1, color);
 
-	return SSD1306_OK;
+	return st;
 }
 
 SSD1306_Status_t SSD1306_DrawFilledTriangle(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t x3, uint16_t y3, SSD1306_COLOR_t color)
 {
+	SSD1306_Status_t st;
 	int16_t deltax = 0, deltay = 0, x = 0, y = 0, xinc1 = 0, xinc2 = 0,
 	yinc1 = 0, yinc2 = 0, den = 0, num = 0, numadd = 0, numpixels = 0,
 	curpixel = 0;
@@ -545,7 +574,11 @@ SSD1306_Status_t SSD1306_DrawFilledTriangle(uint16_t x1, uint16_t y1, uint16_t x
 
 	for (curpixel = 0; curpixel <= numpixels; curpixel++)
 	{
-		SSD1306_DrawLine(x, y, x3, y3, color);
+		st = SSD1306_DrawLine(x, y, x3, y3, color);
+		if (st != SSD1306_OK)
+		{
+			return st;
+		}
 
 		num += numadd;
 		if (num >= den)
@@ -563,6 +596,7 @@ SSD1306_Status_t SSD1306_DrawFilledTriangle(uint16_t x1, uint16_t y1, uint16_t x
 
 SSD1306_Status_t SSD1306_DrawCircle(int16_t x0, int16_t y0, int16_t r, SSD1306_COLOR_t c)
 {
+	SSD1306_Status_t st;
 	int16_t f = 1 - r;
 	int16_t ddF_x = 1;
 	int16_t ddF_y = -2 * r;
@@ -571,10 +605,14 @@ SSD1306_Status_t SSD1306_DrawCircle(int16_t x0, int16_t y0, int16_t r, SSD1306_C
 
 	if (SSD1306_Initialized != 1U) { return SSD1306_NOT_INITIALIZED; }
 
-	SSD1306_DrawPixel(x0, y0 + r, c);
-	SSD1306_DrawPixel(x0, y0 - r, c);
-	SSD1306_DrawPixel(x0 + r, y0, c);
-	SSD1306_DrawPixel(x0 - r, y0, c);
+	st  = SSD1306_DrawPixel(x0, y0 + r, c);
+	st  = st ? st : SSD1306_DrawPixel(x0, y0 - r, c);
+	st  = st ? st : SSD1306_DrawPixel(x0 + r, y0, c);
+	st  = st ? st : SSD1306_DrawPixel(x0 - r, y0, c);
+	if (st != SSD1306_OK)
+	{
+		return st;
+	}
 
 	while (x < y)
 	{
@@ -588,15 +626,19 @@ SSD1306_Status_t SSD1306_DrawCircle(int16_t x0, int16_t y0, int16_t r, SSD1306_C
 		ddF_x += 2;
 		f += ddF_x;
 
-		SSD1306_DrawPixel(x0 + x, y0 + y, c);
-		SSD1306_DrawPixel(x0 - x, y0 + y, c);
-		SSD1306_DrawPixel(x0 + x, y0 - y, c);
-		SSD1306_DrawPixel(x0 - x, y0 - y, c);
+		st  = SSD1306_DrawPixel(x0 + x, y0 + y, c);
+		st  = st ? st : SSD1306_DrawPixel(x0 - x, y0 + y, c);
+		st  = st ? st : SSD1306_DrawPixel(x0 + x, y0 - y, c);
+		st  = st ? st : SSD1306_DrawPixel(x0 - x, y0 - y, c);
 
-		SSD1306_DrawPixel(x0 + y, y0 + x, c);
-		SSD1306_DrawPixel(x0 - y, y0 + x, c);
-		SSD1306_DrawPixel(x0 + y, y0 - x, c);
-		SSD1306_DrawPixel(x0 - y, y0 - x, c);
+		st  = st ? st : SSD1306_DrawPixel(x0 + y, y0 + x, c);
+		st  = st ? st : SSD1306_DrawPixel(x0 - y, y0 + x, c);
+		st  = st ? st : SSD1306_DrawPixel(x0 + y, y0 - x, c);
+		st  = st ? st : SSD1306_DrawPixel(x0 - y, y0 - x, c);
+		if (st != SSD1306_OK)
+		{
+			return st;
+		}
 	}
 
 	return SSD1306_OK;
@@ -604,6 +646,7 @@ SSD1306_Status_t SSD1306_DrawCircle(int16_t x0, int16_t y0, int16_t r, SSD1306_C
 
 SSD1306_Status_t SSD1306_DrawFilledCircle(int16_t x0, int16_t y0, int16_t r, SSD1306_COLOR_t c)
 {
+	SSD1306_Status_t st;
 	int16_t f = 1 - r;
 	int16_t ddF_x = 1;
 	int16_t ddF_y = -2 * r;
@@ -612,11 +655,15 @@ SSD1306_Status_t SSD1306_DrawFilledCircle(int16_t x0, int16_t y0, int16_t r, SSD
 
 	if (SSD1306_Initialized != 1U) { return SSD1306_NOT_INITIALIZED; }
 
-	SSD1306_DrawPixel(x0, y0 + r, c);
-	SSD1306_DrawPixel(x0, y0 - r, c);
-	SSD1306_DrawPixel(x0 + r, y0, c);
-	SSD1306_DrawPixel(x0 - r, y0, c);
-	SSD1306_DrawLine(x0 - r, y0, x0 + r, y0, c);
+	st  = SSD1306_DrawPixel(x0, y0 + r, c);
+	st  = st ? st : SSD1306_DrawPixel(x0, y0 - r, c);
+	st  = st ? st : SSD1306_DrawPixel(x0 + r, y0, c);
+	st  = st ? st : SSD1306_DrawPixel(x0 - r, y0, c);
+	st  = st ? st : SSD1306_DrawLine(x0 - r, y0, x0 + r, y0, c);
+	if (st != SSD1306_OK)
+	{
+		return st;
+	}
 
 	while (x < y)
 	{
@@ -630,11 +677,15 @@ SSD1306_Status_t SSD1306_DrawFilledCircle(int16_t x0, int16_t y0, int16_t r, SSD
 		ddF_x += 2;
 		f += ddF_x;
 
-		SSD1306_DrawLine(x0 - x, y0 + y, x0 + x, y0 + y, c);
-		SSD1306_DrawLine(x0 + x, y0 - y, x0 - x, y0 - y, c);
+		st  = SSD1306_DrawLine(x0 - x, y0 + y, x0 + x, y0 + y, c);
+		st  = st ? st : SSD1306_DrawLine(x0 + x, y0 - y, x0 - x, y0 - y, c);
 
-		SSD1306_DrawLine(x0 + y, y0 + x, x0 - y, y0 + x, c);
-		SSD1306_DrawLine(x0 + y, y0 - x, x0 - y, y0 - x, c);
+		st  = st ? st : SSD1306_DrawLine(x0 + y, y0 + x, x0 - y, y0 + x, c);
+		st  = st ? st : SSD1306_DrawLine(x0 + y, y0 - x, x0 - y, y0 - x, c);
+		if (st != SSD1306_OK)
+		{
+			return st;
+		}
 	}
 
 	return SSD1306_OK;
@@ -642,6 +693,7 @@ SSD1306_Status_t SSD1306_DrawFilledCircle(int16_t x0, int16_t y0, int16_t r, SSD
 
 SSD1306_Status_t SSD1306_DrawBitmap(int16_t x, int16_t y, const unsigned char* bitmap, int16_t w, int16_t h, uint16_t color)
 {
+	SSD1306_Status_t st;
 	int16_t byteWidth = (w + 7) / 8; /* Bitmap scanline pad = whole byte */
 	uint8_t byte = 0;
 	int16_t i, j;
@@ -663,7 +715,11 @@ SSD1306_Status_t SSD1306_DrawBitmap(int16_t x, int16_t y, const unsigned char* b
 			}
 			if (byte & 0x80)
 			{
-				SSD1306_DrawPixel(x + i, y, (SSD1306_COLOR_t)color);
+				st = SSD1306_DrawPixel(x + i, y, (SSD1306_COLOR_t)color);
+				if (st != SSD1306_OK)
+				{
+					return st;
+				}
 			}
 		}
 	}
