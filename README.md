@@ -31,6 +31,7 @@ Este repositorio está dividido en cuatro secciones principales:
 | [NEO_6M](./Librerias/NEO_6M/) | v1.1.0 | Módulo GPS NEO-6M |
 | [PWM_Module (PCA9685)](./Librerias/PCA9685/) | v2.1.0 | Módulo PWM de 16 canales por I2C |
 | [Si7021](./Librerias/Si7021/) | v2.1.0 | Sensor de temperatura y humedad (I2C) |
+| [SSD1306](./Librerias/SSD1306/) | v2.0.0 | Pantalla OLED SSD1306 por I2C |
 | [SX1262](./Librerias/SX1262/) | v1.6.0 | Módulo de radiofrecuencia LoRa |
 
 ---
