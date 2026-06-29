@@ -31,8 +31,8 @@
  *          personalizadas y efectos de scroll por hardware.
  *
  * @author Tilen Majerle, Alexander Lutsai - Daniel Ruiz
- * @date Junio 24, 2026
- * @version 1.0.0
+ * @date Junio 29, 2026
+ * @version 2.0.0
  */
 
 #ifndef SSD1306_H
