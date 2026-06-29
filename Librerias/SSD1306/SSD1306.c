@@ -83,6 +83,7 @@ static SSD1306_State_t SSD1306_State;
 static SSD1306_Status_t ssd1306_I2C_Write(uint8_t address, uint8_t reg, uint8_t data);
 static SSD1306_Status_t ssd1306_I2C_WriteMulti(uint8_t address, uint8_t reg, uint8_t* data, uint16_t count);
 static SSD1306_Status_t ssd1306_FillHLine(int16_t x0, int16_t x1, int16_t y, SSD1306_COLOR_t color);
+static SSD1306_Status_t ssd1306_FillVLine(int16_t x, int16_t y0, int16_t y1, SSD1306_COLOR_t color);
 
 // ============================================================================
 // FUNCIONES PRIVADAS
@@ -181,6 +182,44 @@ static SSD1306_Status_t ssd1306_FillHLine(int16_t x0, int16_t x1, int16_t y, SSD
 	if (x1 >= (int16_t)SSD1306_WIDTH) { x1 = (int16_t)SSD1306_WIDTH - 1; }
 
 	for (x = x0; x <= x1; x++)
+	{
+		st = SSD1306_DrawPixel((uint16_t)x, (uint16_t)y, color);
+		if (st != SSD1306_OK)
+		{
+			return st;
+		}
+	}
+
+	return SSD1306_OK;
+}
+
+/**
+ * @brief Rellena un segmento vertical directamente en el buffer de pantalla.
+ *
+ * @details Análogo a ssd1306_FillHLine, usado por SSD1306_DrawFastVLine.
+ *
+ * @param x     Coordenada X del segmento.
+ * @param y0    Coordenada Y inicial (puede exceder los límites, se recorta).
+ * @param y1    Coordenada Y final (puede exceder los límites, se recorta).
+ * @param color Color a utilizar.
+ *
+ * @return SSD1306_Status_t Estado de la operación.
+ */
+static SSD1306_Status_t ssd1306_FillVLine(int16_t x, int16_t y0, int16_t y1, SSD1306_COLOR_t color)
+{
+	SSD1306_Status_t st;
+	int16_t y, tmp;
+
+	if (x < 0 || x >= (int16_t)SSD1306_WIDTH)
+	{
+		return SSD1306_OK;
+	}
+
+	if (y0 > y1) { tmp = y0; y0 = y1; y1 = tmp; }
+	if (y0 < 0) { y0 = 0; }
+	if (y1 >= (int16_t)SSD1306_HEIGHT) { y1 = (int16_t)SSD1306_HEIGHT - 1; }
+
+	for (y = y0; y <= y1; y++)
 	{
 		st = SSD1306_DrawPixel((uint16_t)x, (uint16_t)y, color);
 		if (st != SSD1306_OK)
@@ -503,6 +542,52 @@ SSD1306_Status_t SSD1306_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_
 	}
 
 	return SSD1306_OK;
+}
+
+/**
+ * @brief Dibuja una línea vertical de forma optimizada (sin Bresenham).
+ *
+ * @param x     Coordenada X de la línea.
+ * @param y     Coordenada Y inicial.
+ * @param h     Alto de la línea (puede ser negativo, se normaliza).
+ * @param color Color de la línea.
+ * @return SSD1306_Status_t
+ */
+SSD1306_Status_t SSD1306_DrawFastVLine(int16_t x, int16_t y, int16_t h, SSD1306_COLOR_t color)
+{
+	if (SSD1306_Initialized != 1U) { return SSD1306_NOT_INITIALIZED; }
+
+	if (h == 0)
+	{
+		return SSD1306_OK;
+	}
+
+	if (h < 0) { y += h + 1; h = -h; }
+
+	return ssd1306_FillVLine(x, y, y + h - 1, color);
+}
+
+/**
+ * @brief Dibuja una línea horizontal de forma optimizada (sin Bresenham).
+ *
+ * @param x     Coordenada X inicial.
+ * @param y     Coordenada Y de la línea.
+ * @param w     Ancho de la línea (puede ser negativo, se normaliza).
+ * @param color Color de la línea.
+ * @return SSD1306_Status_t
+ */
+SSD1306_Status_t SSD1306_DrawFastHLine(int16_t x, int16_t y, int16_t w, SSD1306_COLOR_t color)
+{
+	if (SSD1306_Initialized != 1U) { return SSD1306_NOT_INITIALIZED; }
+
+	if (w == 0)
+	{
+		return SSD1306_OK;
+	}
+
+	if (w < 0) { x += w + 1; w = -w; }
+
+	return ssd1306_FillHLine(x, x + w - 1, y, color);
 }
 
 SSD1306_Status_t SSD1306_DrawRectangle(uint16_t x, uint16_t y, uint16_t w, uint16_t h, SSD1306_COLOR_t c)

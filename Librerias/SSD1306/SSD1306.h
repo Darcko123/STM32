@@ -176,6 +176,28 @@ SSD1306_Status_t SSD1306_Puts(char* str, FontDef_t* Font, SSD1306_COLOR_t color)
 SSD1306_Status_t SSD1306_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, SSD1306_COLOR_t c);
 
 /**
+ * @brief Dibuja una línea vertical de forma optimizada (sin Bresenham).
+ *
+ * @param[in] x     Coordenada X de la línea.
+ * @param[in] y     Coordenada Y inicial.
+ * @param[in] h     Alto de la línea (puede ser negativo, se normaliza).
+ * @param[in] color Color de la línea.
+ * @return SSD1306_Status_t
+ */
+SSD1306_Status_t SSD1306_DrawFastVLine(int16_t x, int16_t y, int16_t h, SSD1306_COLOR_t color);
+
+/**
+ * @brief Dibuja una línea horizontal de forma optimizada (sin Bresenham).
+ *
+ * @param[in] x     Coordenada X inicial.
+ * @param[in] y     Coordenada Y de la línea.
+ * @param[in] w     Ancho de la línea (puede ser negativo, se normaliza).
+ * @param[in] color Color de la línea.
+ * @return SSD1306_Status_t
+ */
+SSD1306_Status_t SSD1306_DrawFastHLine(int16_t x, int16_t y, int16_t w, SSD1306_COLOR_t color);
+
+/**
  * @brief Dibuja un rectángulo (solo bordes).
  * 
  * @param[in] x0  Coordenada X superior izquierda.
