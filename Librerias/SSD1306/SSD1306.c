@@ -64,8 +64,6 @@ static SSD1306_State_t SSD1306_State;
 #define SSD1306_WRITECOMMAND(command)      ssd1306_I2C_Write(SSD1306_I2C_ADDR, 0x00, (command))
 /* Write data */
 #define SSD1306_WRITEDATA(data)            ssd1306_I2C_Write(SSD1306_I2C_ADDR, 0x40, (data))
-/* Absolute value */
-#define ABS(x)   ((x) > 0 ? (x) : -(x))
 
 #define SSD1306_RIGHT_HORIZONTAL_SCROLL              0x26
 #define SSD1306_LEFT_HORIZONTAL_SCROLL               0x27
@@ -84,6 +82,7 @@ static SSD1306_State_t SSD1306_State;
 
 static SSD1306_Status_t ssd1306_I2C_Write(uint8_t address, uint8_t reg, uint8_t data);
 static SSD1306_Status_t ssd1306_I2C_WriteMulti(uint8_t address, uint8_t reg, uint8_t* data, uint16_t count);
+static SSD1306_Status_t ssd1306_FillHLine(int16_t x0, int16_t x1, int16_t y, SSD1306_COLOR_t color);
 
 // ============================================================================
 // FUNCIONES PRIVADAS
@@ -148,6 +147,46 @@ static SSD1306_Status_t ssd1306_I2C_WriteMulti(uint8_t address, uint8_t reg, uin
 	else if (hal_status != HAL_OK)
 	{
 		return SSD1306_ERROR;
+	}
+
+	return SSD1306_OK;
+}
+
+/**
+ * @brief Rellena un segmento horizontal directamente en el buffer de pantalla.
+ *
+ * @details Evita el cómputo de Bresenham de SSD1306_DrawLine para el caso
+ *          (ya conocido) de una línea horizontal, usado por las rutinas de
+ *          relleno de círculos y triángulos.
+ *
+ * @param x0    Coordenada X inicial (puede exceder los límites, se recorta).
+ * @param x1    Coordenada X final (puede exceder los límites, se recorta).
+ * @param y     Coordenada Y del segmento.
+ * @param color Color a utilizar.
+ *
+ * @return SSD1306_Status_t Estado de la operación.
+ */
+static SSD1306_Status_t ssd1306_FillHLine(int16_t x0, int16_t x1, int16_t y, SSD1306_COLOR_t color)
+{
+	SSD1306_Status_t st;
+	int16_t x, tmp;
+
+	if (y < 0 || y >= (int16_t)SSD1306_HEIGHT)
+	{
+		return SSD1306_OK;
+	}
+
+	if (x0 > x1) { tmp = x0; x0 = x1; x1 = tmp; }
+	if (x0 < 0) { x0 = 0; }
+	if (x1 >= (int16_t)SSD1306_WIDTH) { x1 = (int16_t)SSD1306_WIDTH - 1; }
+
+	for (x = x0; x <= x1; x++)
+	{
+		st = SSD1306_DrawPixel((uint16_t)x, (uint16_t)y, color);
+		if (st != SSD1306_OK)
+		{
+			return st;
+		}
 	}
 
 	return SSD1306_OK;
@@ -536,59 +575,69 @@ SSD1306_Status_t SSD1306_DrawTriangle(uint16_t x1, uint16_t y1, uint16_t x2, uin
 SSD1306_Status_t SSD1306_DrawFilledTriangle(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t x3, uint16_t y3, SSD1306_COLOR_t color)
 {
 	SSD1306_Status_t st;
-	int16_t deltax = 0, deltay = 0, x = 0, y = 0, xinc1 = 0, xinc2 = 0,
-	yinc1 = 0, yinc2 = 0, den = 0, num = 0, numadd = 0, numpixels = 0,
-	curpixel = 0;
+	int16_t ax = (int16_t)x1, ay = (int16_t)y1;
+	int16_t bx = (int16_t)x2, by = (int16_t)y2;
+	int16_t cx = (int16_t)x3, cy = (int16_t)y3;
+	int16_t a, b, y, last, tmp;
+	int16_t dxab, dyab, dxac, dyac, dxbc, dybc;
+	int32_t sa, sb;
 
 	if (SSD1306_Initialized != 1U) { return SSD1306_NOT_INITIALIZED; }
 
-	deltax = ABS(x2 - x1);
-	deltay = ABS(y2 - y1);
-	x = x1;
-	y = y1;
+	/* Ordenar vértices por Y ascendente: ay <= by <= cy */
+	if (ay > by) { tmp = ay; ay = by; by = tmp; tmp = ax; ax = bx; bx = tmp; }
+	if (by > cy) { tmp = by; by = cy; cy = tmp; tmp = bx; bx = cx; cx = tmp; }
+	if (ay > by) { tmp = ay; ay = by; by = tmp; tmp = ax; ax = bx; bx = tmp; }
 
-	if (x2 >= x1) { xinc1 = 1; xinc2 = 1;  }
-	else          { xinc1 = -1; xinc2 = -1; }
-
-	if (y2 >= y1) { yinc1 = 1; yinc2 = 1;  }
-	else          { yinc1 = -1; yinc2 = -1; }
-
-	if (deltax >= deltay)
+	if (ay == cy)
 	{
-		xinc1 = 0;
-		yinc2 = 0;
-		den = deltax;
-		num = deltax / 2;
-		numadd = deltay;
-		numpixels = deltax;
-	}
-	else
-	{
-		xinc2 = 0;
-		yinc1 = 0;
-		den = deltay;
-		num = deltay / 2;
-		numadd = deltax;
-		numpixels = deltay;
+		/* Triángulo degenerado: los 3 vértices están en la misma fila */
+		a = b = ax;
+		if (bx < a)      { a = bx; }
+		else if (bx > b) { b = bx; }
+		if (cx < a)      { a = cx; }
+		else if (cx > b) { b = cx; }
+
+		return ssd1306_FillHLine(a, b, ay, color);
 	}
 
-	for (curpixel = 0; curpixel <= numpixels; curpixel++)
+	dxab = bx - ax; dyab = by - ay;
+	dxac = cx - ax; dyac = cy - ay;
+	dxbc = cx - bx; dybc = cy - by;
+	sa = 0;
+	sb = 0;
+
+	/* Mitad superior: bordes A-B y A-C (se omite la fila by si A-B no es plano) */
+	last = (by == cy) ? by : (int16_t)(by - 1);
+	for (y = ay; y <= last; y++)
 	{
-		st = SSD1306_DrawLine(x, y, x3, y3, color);
+		a = ax + (int16_t)(sa / dyab);
+		b = ax + (int16_t)(sb / dyac);
+		sa += dxab;
+		sb += dxac;
+
+		st = ssd1306_FillHLine(a, b, y, color);
 		if (st != SSD1306_OK)
 		{
 			return st;
 		}
+	}
 
-		num += numadd;
-		if (num >= den)
+	/* Mitad inferior: bordes B-C y A-C */
+	sa = (int32_t)dxbc * (y - by);
+	sb = (int32_t)dxac * (y - ay);
+	for (; y <= cy; y++)
+	{
+		a = bx + (int16_t)(sa / dybc);
+		b = ax + (int16_t)(sb / dyac);
+		sa += dxbc;
+		sb += dxac;
+
+		st = ssd1306_FillHLine(a, b, y, color);
+		if (st != SSD1306_OK)
 		{
-			num -= den;
-			x += xinc1;
-			y += yinc1;
+			return st;
 		}
-		x += xinc2;
-		y += yinc2;
 	}
 
 	return SSD1306_OK;
@@ -659,7 +708,7 @@ SSD1306_Status_t SSD1306_DrawFilledCircle(int16_t x0, int16_t y0, int16_t r, SSD
 	st  = st ? st : SSD1306_DrawPixel(x0, y0 - r, c);
 	st  = st ? st : SSD1306_DrawPixel(x0 + r, y0, c);
 	st  = st ? st : SSD1306_DrawPixel(x0 - r, y0, c);
-	st  = st ? st : SSD1306_DrawLine(x0 - r, y0, x0 + r, y0, c);
+	st  = st ? st : ssd1306_FillHLine(x0 - r, x0 + r, y0, c);
 	if (st != SSD1306_OK)
 	{
 		return st;
@@ -677,11 +726,11 @@ SSD1306_Status_t SSD1306_DrawFilledCircle(int16_t x0, int16_t y0, int16_t r, SSD
 		ddF_x += 2;
 		f += ddF_x;
 
-		st  = SSD1306_DrawLine(x0 - x, y0 + y, x0 + x, y0 + y, c);
-		st  = st ? st : SSD1306_DrawLine(x0 + x, y0 - y, x0 - x, y0 - y, c);
+		st  = ssd1306_FillHLine(x0 - x, x0 + x, y0 + y, c);
+		st  = st ? st : ssd1306_FillHLine(x0 - x, x0 + x, y0 - y, c);
 
-		st  = st ? st : SSD1306_DrawLine(x0 + y, y0 + x, x0 - y, y0 + x, c);
-		st  = st ? st : SSD1306_DrawLine(x0 + y, y0 - x, x0 - y, y0 - x, c);
+		st  = st ? st : ssd1306_FillHLine(x0 - y, x0 + y, y0 + x, c);
+		st  = st ? st : ssd1306_FillHLine(x0 - y, x0 + y, y0 - x, c);
 		if (st != SSD1306_OK)
 		{
 			return st;
