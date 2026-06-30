@@ -347,6 +347,18 @@ SSD1306_Status_t SSD1306_Stopscroll(void);
  */
 SSD1306_Status_t SSD1306_DrawEllipse(int16_t x0, int16_t y0, int16_t rx, int16_t ry, SSD1306_COLOR_t color);
 
+/**
+ * @brief Dibuja una elipse
+ * 
+ * @param[in] x0    Coordenada X del centro.
+ * @param[in] y0    Coordenada Y del centro.
+ * @param[in] rx    Radio horizontal.
+ * @param[in] ry    Radio vertical.
+ * @param[in] color Color del relleno.
+ * @return SSD1306_Status_t 
+ */
+SSD1306_Status_t SSD1306_DrawFilledEllipse(int16_t x, int16_t y, int16_t rx, int16_t ry, uint16_t color);
+
 #ifdef __cplusplus
 }
 #endif

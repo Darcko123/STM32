@@ -1059,3 +1059,74 @@ SSD1306_Status_t SSD1306_DrawEllipse(int16_t x0, int16_t y0, int16_t rx, int16_t
 
 	return SSD1306_OK;
 }
+
+/**
+ * @brief Dibuja una elipse
+ * 
+ * @param[in] x0    Coordenada X del centro.
+ * @param[in] y0    Coordenada Y del centro.
+ * @param[in] rx    Radio horizontal.
+ * @param[in] ry    Radio vertical.
+ * @param[in] color Color del relleno.
+ * @return SSD1306_Status_t 
+ */
+SSD1306_Status_t SSD1306_DrawFilledEllipse(int16_t x, int16_t y, int16_t rx, int16_t ry, uint16_t color)
+{
+	SSD1306_Status_t st;
+	int32_t a2, b2, fa2, fb2, sigma, dx, dy;
+
+	if (SSD1306_Initialized != 1U) { return SSD1306_NOT_INITIALIZED; }
+	if (rx < 0 || ry < 0)          { return SSD1306_INVALID_PARAM;   }
+
+	if (rx == 0)
+	{
+		return ssd1306_FillVLine(x, y - ry, y + ry, (SSD1306_COLOR_t)color);
+	}
+	if (ry == 0)
+	{
+		return ssd1306_FillHLine(x - rx, x + rx, y, (SSD1306_COLOR_t)color);
+	}
+
+	a2 = (int32_t)rx * rx;
+	b2 = (int32_t)ry * ry;
+	fa2 = 4 * a2;
+	fb2 = 4 * b2;
+
+	/* Región 1: pendiente |dy/dx| <= 1 */
+	for (dx = 0, dy = ry, sigma = 2 * b2 + a2 * (1 - 2 * ry); b2 * dx <= a2 * dy; dx++)
+	{
+		st  = ssd1306_FillHLine(x - dx, x + dx, y + dy, (SSD1306_COLOR_t)color);
+		st  = st ? st : ssd1306_FillHLine(x - dx, x + dx, y - dy, (SSD1306_COLOR_t)color);
+		if (st != SSD1306_OK)
+		{
+			return st;
+		}
+
+		if (sigma >= 0)
+		{
+			sigma += fa2 * (1 - dy);
+			dy--;
+		}
+		sigma += b2 * (4 * dx + 6);
+	}
+
+	/* Región 2: pendiente |dy/dx| > 1 */
+	for (dx = rx, dy = 0, sigma = 2 * a2 + b2 * (1 - 2 * rx); a2 * dy <= b2 * dx; dy++)
+	{
+		st  = ssd1306_FillHLine(x - dx, x + dx, y + dy, (SSD1306_COLOR_t)color);
+		st  = st ? st : ssd1306_FillHLine(x - dx, x + dx, y - dy, (SSD1306_COLOR_t)color);
+		if (st != SSD1306_OK)
+		{
+			return st;
+		}
+
+		if (sigma >= 0)
+		{
+			sigma += fb2 * (1 - dx);
+			dx--;
+		}
+		sigma += a2 * (4 * dy + 6);
+	}
+
+	return SSD1306_OK;
+}
