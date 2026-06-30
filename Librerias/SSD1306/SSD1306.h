@@ -335,6 +335,18 @@ SSD1306_Status_t SSD1306_Scrolldiagleft(uint8_t start_row, uint8_t end_row);
  */
 SSD1306_Status_t SSD1306_Stopscroll(void);
 
+/**
+ * @brief Dibuja una elipse (solo borde).
+ *
+ * @param[in] x0    Coordenada X del centro.
+ * @param[in] y0    Coordenada Y del centro.
+ * @param[in] rx    Radio horizontal.
+ * @param[in] ry    Radio vertical.
+ * @param[in] color Color del borde.
+ * @return SSD1306_Status_t
+ */
+SSD1306_Status_t SSD1306_DrawEllipse(int16_t x0, int16_t y0, int16_t rx, int16_t ry, SSD1306_COLOR_t color);
+
 #ifdef __cplusplus
 }
 #endif

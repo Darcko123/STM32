@@ -984,3 +984,78 @@ SSD1306_Status_t SSD1306_Stopscroll(void)
 
 	return SSD1306_WRITECOMMAND(SSD1306_DEACTIVATE_SCROLL);
 }
+
+/**
+ * @brief Dibuja una elipse (solo borde) mediante el algoritmo de punto medio.
+ *
+ * @param x0    Coordenada X del centro.
+ * @param y0    Coordenada Y del centro.
+ * @param rx    Radio horizontal.
+ * @param ry    Radio vertical.
+ * @param color Color del borde.
+ * @return SSD1306_Status_t
+ */
+SSD1306_Status_t SSD1306_DrawEllipse(int16_t x0, int16_t y0, int16_t rx, int16_t ry, SSD1306_COLOR_t color)
+{
+	SSD1306_Status_t st;
+	int32_t a2, b2, fa2, fb2, sigma, x, y;
+
+	if (SSD1306_Initialized != 1U) { return SSD1306_NOT_INITIALIZED; }
+	if (rx < 0 || ry < 0)          { return SSD1306_INVALID_PARAM;   }
+
+	if (rx == 0)
+	{
+		return ssd1306_FillVLine(x0, y0 - ry, y0 + ry, color);
+	}
+	if (ry == 0)
+	{
+		return ssd1306_FillHLine(x0 - rx, x0 + rx, y0, color);
+	}
+
+	a2 = (int32_t)rx * rx;
+	b2 = (int32_t)ry * ry;
+	fa2 = 4 * a2;
+	fb2 = 4 * b2;
+
+	/* Región 1: pendiente |dy/dx| <= 1 */
+	for (x = 0, y = ry, sigma = 2 * b2 + a2 * (1 - 2 * ry); b2 * x <= a2 * y; x++)
+	{
+		st  = SSD1306_DrawPixel(x0 + x, y0 + y, color);
+		st  = st ? st : SSD1306_DrawPixel(x0 - x, y0 + y, color);
+		st  = st ? st : SSD1306_DrawPixel(x0 + x, y0 - y, color);
+		st  = st ? st : SSD1306_DrawPixel(x0 - x, y0 - y, color);
+		if (st != SSD1306_OK)
+		{
+			return st;
+		}
+
+		if (sigma >= 0)
+		{
+			sigma += fa2 * (1 - y);
+			y--;
+		}
+		sigma += b2 * (4 * x + 6);
+	}
+
+	/* Región 2: pendiente |dy/dx| > 1 */
+	for (x = rx, y = 0, sigma = 2 * a2 + b2 * (1 - 2 * rx); a2 * y <= b2 * x; y++)
+	{
+		st  = SSD1306_DrawPixel(x0 + x, y0 + y, color);
+		st  = st ? st : SSD1306_DrawPixel(x0 - x, y0 + y, color);
+		st  = st ? st : SSD1306_DrawPixel(x0 + x, y0 - y, color);
+		st  = st ? st : SSD1306_DrawPixel(x0 - x, y0 - y, color);
+		if (st != SSD1306_OK)
+		{
+			return st;
+		}
+
+		if (sigma >= 0)
+		{
+			sigma += fb2 * (1 - x);
+			x--;
+		}
+		sigma += a2 * (4 * y + 6);
+	}
+
+	return SSD1306_OK;
+}
