@@ -1317,3 +1317,42 @@ SSD1306_Status_t SSD1306_DrawArc(int16_t x, int16_t y, int16_t r1, int16_t r2, f
 
 	return st;
 }
+
+/**
+ * @brief Dibuja un arco (sector de anillo) entre dos ángulos.
+ * 
+ * @param[in] x     Coordenada X del centro.
+ * @param[in] y     Coordenada Y del centro.
+ * @param[in] r1    Radio exterior del arco.
+ * @param[in] r2    Radio interior del arco.
+ * @param[in] start Ángulo inicial en grados (0° = derecha, sentido horario).
+ * @param[in] end   Ángulo final en grados.
+ * @param color     Color del relleno
+ * @return SSD1306_Status_t 
+ */
+SSD1306_Status_t SSD1306_DrawFilledArc(int16_t x, int16_t y, int16_t r1, int16_t r2, float start, float end, uint16_t color)
+{
+	bool equal;
+	int16_t tmp;
+
+	if (SSD1306_Initialized != 1U) { return SSD1306_NOT_INITIALIZED; }
+	if (r1 < 0 || r2 < 0)          { return SSD1306_INVALID_PARAM;   }
+
+	if (r1 < r2) { tmp = r1; r1 = r2; r2 = tmp; }
+	if (r1 < 1)  { r1 = 1; }
+	if (r2 < 1)  { r2 = 1; }
+
+	equal = fabsf(start - end) < FLT_EPSILON;
+	start = fmodf(start, 360.0f);
+	end   = fmodf(end, 360.0f);
+	if (start < 0) { start += 360.0f; }
+	if (end < 0)   { end   += 360.0f; }
+
+	if (!equal && (fabsf(start - end) <= 0.0001f))
+	{
+		start = 0.0f;
+		end   = 360.0f;
+	}
+
+	return ssd1306_FillArcHelper(x, y, r1, r2, start, end, (SSD1306_COLOR_t)color);
+}
