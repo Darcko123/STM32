@@ -76,6 +76,9 @@ static SSD1306_State_t SSD1306_State;
 #define SSD1306_NORMALDISPLAY       0xA6
 #define SSD1306_INVERTDISPLAY       0xA7
 
+/* Factor de conversión de grados a radianes, usado por SSD1306_DrawArc */
+#define SSD1306_DEG_TO_RAD          0.017453292519943295769236907684886f
+
 // ============================================================================
 // PROTOTIPOS DE FUNCIONES PRIVADAS
 // ============================================================================
@@ -84,6 +87,7 @@ static SSD1306_Status_t ssd1306_I2C_Write(uint8_t address, uint8_t reg, uint8_t 
 static SSD1306_Status_t ssd1306_I2C_WriteMulti(uint8_t address, uint8_t reg, uint8_t* data, uint16_t count);
 static SSD1306_Status_t ssd1306_FillHLine(int16_t x0, int16_t x1, int16_t y, SSD1306_COLOR_t color);
 static SSD1306_Status_t ssd1306_FillVLine(int16_t x, int16_t y0, int16_t y1, SSD1306_COLOR_t color);
+static SSD1306_Status_t ssd1306_FillArcHelper(int16_t cx, int16_t cy, int16_t oradius, int16_t iradius, float start, float end, SSD1306_COLOR_t color);
 
 // ============================================================================
 // FUNCIONES PRIVADAS
@@ -227,6 +231,137 @@ static SSD1306_Status_t ssd1306_FillVLine(int16_t x, int16_t y0, int16_t y1, SSD
 			return st;
 		}
 	}
+
+	return SSD1306_OK;
+}
+
+/**
+ * @brief Rellena un segmento angular (arco) entre dos ángulos y dos radios.
+ *
+ * @details Recorre el cuadro delimitador del arco fila por fila y dibuja,
+ *          en cada una, los segmentos horizontales que caen dentro de la
+ *          corona circular [iradius, oradius] y del sector angular
+ *          [start, end]. Usado por SSD1306_DrawArc tanto para los bordes
+ *          rectos del arco como para sus bordes curvos.
+ *
+ * @param cx      Coordenada X del centro.
+ * @param cy      Coordenada Y del centro.
+ * @param oradius Radio exterior del arco.
+ * @param iradius Radio interior del arco.
+ * @param start   Ángulo inicial en grados (0 a 360).
+ * @param end     Ángulo final en grados (0 a 360).
+ * @param color   Color a utilizar.
+ *
+ * @return SSD1306_Status_t Estado de la operación.
+ */
+static SSD1306_Status_t ssd1306_FillArcHelper(int16_t cx, int16_t cy, int16_t oradius, int16_t iradius, float start, float end, SSD1306_COLOR_t color)
+{
+	SSD1306_Status_t st;
+	float s_cos, e_cos, sslope, eslope, swidth, ewidth;
+	int32_t ir2, or2, xs, y, ye, xe;
+	bool start180, end180, reversed;
+
+	if ((start == 90.0f) || (start == 180.0f) || (start == 270.0f) || (start == 360.0f))
+	{
+		start -= 0.1f;
+	}
+	if ((end == 90.0f) || (end == 180.0f) || (end == 270.0f) || (end == 360.0f))
+	{
+		end -= 0.1f;
+	}
+
+	s_cos  = cosf(start * SSD1306_DEG_TO_RAD);
+	e_cos  = cosf(end * SSD1306_DEG_TO_RAD);
+	sslope = s_cos / sinf(start * SSD1306_DEG_TO_RAD);
+	eslope = e_cos / sinf(end * SSD1306_DEG_TO_RAD);
+	swidth = 0.5f / s_cos;
+	ewidth = -0.5f / e_cos;
+	--iradius;
+	ir2 = (int32_t)iradius * iradius + iradius;
+	or2 = (int32_t)oradius * oradius + oradius;
+
+	start180 = !(start < 180.0f);
+	end180   = end < 180.0f;
+	reversed = (start + 180.0f < end) || (end < start && start < end + 180.0f);
+
+	xs = -oradius;
+	y  = -oradius;
+	ye = oradius;
+	xe = oradius + 1;
+	if (!reversed)
+	{
+		if ((end >= 270.0f || end < 90.0f) && (start >= 270.0f || start < 90.0f))
+		{
+			xs = 0;
+		}
+		else if (end < 270.0f && end >= 90.0f && start < 270.0f && start >= 90.0f)
+		{
+			xe = 1;
+		}
+		if (end >= 180.0f && start >= 180.0f)
+		{
+			ye = 0;
+		}
+		else if (end < 180.0f && start < 180.0f)
+		{
+			y = 0;
+		}
+	}
+
+	do
+	{
+		int32_t y2 = y * y;
+		int32_t x  = xs;
+		int32_t len = 0;
+		float ysslope, yeslope;
+
+		if (x < 0)
+		{
+			while (x * x + y2 >= or2)
+			{
+				++x;
+			}
+			if (xe != 1)
+			{
+				xe = 1 - x;
+			}
+		}
+
+		ysslope = ((float)y + swidth) * sslope;
+		yeslope = ((float)y + ewidth) * eslope;
+
+		do
+		{
+			bool flg1 = start180 != (x <= ysslope);
+			bool flg2 = end180 != (x <= yeslope);
+			int32_t distance = x * x + y2;
+
+			if (distance >= ir2 && ((flg1 && flg2) || (reversed && (flg1 || flg2))) && x != xe && distance < or2)
+			{
+				++len;
+			}
+			else
+			{
+				if (len)
+				{
+					st = ssd1306_FillHLine(cx + x - len, cx + x - 1, cy + y, color);
+					if (st != SSD1306_OK)
+					{
+						return st;
+					}
+					len = 0;
+				}
+				if (distance >= or2)
+				{
+					break;
+				}
+				if (x < 0 && distance < ir2)
+				{
+					x = -x;
+				}
+			}
+		} while (++x <= xe);
+	} while (++y <= ye);
 
 	return SSD1306_OK;
 }
@@ -1129,4 +1264,56 @@ SSD1306_Status_t SSD1306_DrawFilledEllipse(int16_t x, int16_t y, int16_t rx, int
 	}
 
 	return SSD1306_OK;
+}
+
+/**
+ * @brief Dibuja el contorno de un arco (sector de anillo) entre dos ángulos.
+ *
+ * @param[in] x     Coordenada X del centro.
+ * @param[in] y     Coordenada Y del centro.
+ * @param[in] r1    Radio exterior del arco.
+ * @param[in] r2    Radio interior del arco.
+ * @param[in] start Ángulo inicial en grados (0° = derecha, sentido horario).
+ * @param[in] end   Ángulo final en grados.
+ * @param[in] color Color del contorno.
+ * @return SSD1306_Status_t
+ */
+SSD1306_Status_t SSD1306_DrawArc(int16_t x, int16_t y, int16_t r1, int16_t r2, float start, float end, SSD1306_COLOR_t color)
+{
+	SSD1306_Status_t st;
+	bool equal;
+	int16_t tmp;
+
+	if (SSD1306_Initialized != 1U) { return SSD1306_NOT_INITIALIZED; }
+	if (r1 < 0 || r2 < 0)          { return SSD1306_INVALID_PARAM;   }
+
+	if (r1 < r2) { tmp = r1; r1 = r2; r2 = tmp; }
+	if (r1 < 1)  { r1 = 1; }
+	if (r2 < 1)  { r2 = 1; }
+
+	equal = fabsf(start - end) < FLT_EPSILON;
+	start = fmodf(start, 360.0f);
+	end   = fmodf(end, 360.0f);
+	if (start < 0) { start += 360.0f; }
+	if (end < 0)   { end   += 360.0f; }
+
+	/* Bordes rectos del arco (en start y en end) */
+	st  = ssd1306_FillArcHelper(x, y, r1, r2, start, start, color);
+	st  = st ? st : ssd1306_FillArcHelper(x, y, r1, r2, end, end, color);
+	if (st != SSD1306_OK)
+	{
+		return st;
+	}
+
+	if (!equal && (fabsf(start - end) <= 0.0001f))
+	{
+		start = 0.0f;
+		end   = 360.0f;
+	}
+
+	/* Bordes curvos del arco (radio exterior e interior) */
+	st  = ssd1306_FillArcHelper(x, y, r1, r1, start, end, color);
+	st  = st ? st : ssd1306_FillArcHelper(x, y, r2, r2, start, end, color);
+
+	return st;
 }
