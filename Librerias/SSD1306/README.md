@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![STM32](https://img.shields.io/badge/Platform-STM32-black)](https://www.st.com/en/microcontrollers-microprocessors/stm32f4-series.html)
-[![Version](https://img.shields.io/badge/Version-2.0.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/SSD1306)
+[![Version](https://img.shields.io/badge/Version-2.1.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/SSD1306)
 [![Protocol](https://img.shields.io/badge/Protocol-I2C-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/SSD1306)
 
 > **Basado en el trabajo de:** Tilen Majerle y Alexander Lutsai (modificación para STM32F10x).
@@ -30,14 +30,18 @@
       - [`FontDef_t` - Definición de Fuente](#fontdef_t---definición-de-fuente)
     - [2. Funciones Públicas](#2-funciones-públicas)
       - [`SSD1306_Init()` - Inicialización del Driver](#ssd1306_init---inicialización-del-driver)
+      - [`SSD1306_GetWidth()` / `SSD1306_GetHeight()` - Consultar Dimensiones](#ssd1306_getwidth--ssd1306_getheight---consultar-dimensiones)
       - [`SSD1306_UpdateScreen()` - Actualizar Pantalla](#ssd1306_updatescreen---actualizar-pantalla)
       - [`SSD1306_Fill()` - Rellenar Buffer](#ssd1306_fill---rellenar-buffer)
       - [`SSD1306_Clear()` - Limpiar Pantalla](#ssd1306_clear---limpiar-pantalla)
       - [`SSD1306_DrawPixel()` - Dibujar Píxel](#ssd1306_drawpixel---dibujar-píxel)
       - [`SSD1306_DrawLine()` - Dibujar Línea](#ssd1306_drawline---dibujar-línea)
+      - [`SSD1306_DrawFastVLine()` / `SSD1306_DrawFastHLine()` - Líneas Rápidas](#ssd1306_drawfastvline--ssd1306_drawfasthline---líneas-rápidas)
       - [`SSD1306_DrawRectangle()` / `SSD1306_DrawFilledRectangle()` - Rectángulos](#ssd1306_drawrectangle--ssd1306_drawfilledrectangle---rectángulos)
       - [`SSD1306_DrawTriangle()` / `SSD1306_DrawFilledTriangle()` - Triángulos](#ssd1306_drawtriangle--ssd1306_drawfilledtriangle---triángulos)
       - [`SSD1306_DrawCircle()` / `SSD1306_DrawFilledCircle()` - Círculos](#ssd1306_drawcircle--ssd1306_drawfilledcircle---círculos)
+      - [`SSD1306_DrawEllipse()` / `SSD1306_DrawFilledEllipse()` - Elipses](#ssd1306_drawellipse--ssd1306_drawfilledellipse---elipses)
+      - [`SSD1306_DrawArc()` / `SSD1306_DrawFilledArc()` - Arcos](#ssd1306_drawarc--ssd1306_drawfilledarc---arcos)
       - [`SSD1306_DrawBitmap()` - Dibujar Bitmap](#ssd1306_drawbitmap---dibujar-bitmap)
       - [`SSD1306_GotoXY()` / `SSD1306_Putc()` / `SSD1306_Puts()` - Texto](#ssd1306_gotoxy--ssd1306_putc--ssd1306_puts---texto)
       - [`SSD1306_ToggleInvert()` / `SSD1306_InvertDisplay()` - Inversión de Color](#ssd1306_toggleinvert--ssd1306_invertdisplay---inversión-de-color)
@@ -45,8 +49,12 @@
       - [Funciones de Scroll por Hardware](#funciones-de-scroll-por-hardware)
   - [Licencia](#licencia)
   - [Changelog](#changelog)
-    - [\[2.0.0\] - 29-06-2026](#200---29-06-2026)
+    - [\[2.1.0\] - 30-06-2026](#210---30-06-2026)
       - [Added](#added)
+      - [Changed](#changed)
+      - [Fixed](#fixed)
+    - [\[2.0.0\] - 29-06-2026](#200---29-06-2026)
+      - [Added](#added-1)
     - [\[1.x.x\] - Versión Original](#1xx---versión-original)
 
 ---
@@ -60,9 +68,12 @@ Ideal para mostrar texto, gráficos simples, menús e indicadores de estado en p
 
 ## Características
 - **Comunicación I2C**: Escritura de comandos y datos al SSD1306 mediante `HAL_I2C_Master_Transmit`, con detección de dispositivo en `SSD1306_Init()`.
-- **Buffer en RAM**: Toda la pantalla se compone en un buffer local (1 bit por píxel) antes de enviarse al hardware con `SSD1306_UpdateScreen()`.
-- **Primitivas de dibujo completas**: Píxeles, líneas (algoritmo de Bresenham), rectángulos (borde y relleno), triángulos (borde y relleno mediante scanline), círculos (borde y relleno) y bitmaps monocromáticos.
+- **Dimensiones configurables en tiempo de ejecución**: El ancho y alto real de la pantalla se pasan como parámetros a `SSD1306_Init()`, con soporte para pantallas de hasta `SSD1306_MAX_WIDTH` × `SSD1306_MAX_HEIGHT` píxeles (128×64 por defecto, redefinibles antes de incluir `SSD1306.h`). Los comandos de multiplexado y COM pins se calculan automáticamente según el alto indicado.
+- **Buffer en RAM**: Toda la pantalla se compone en un buffer local (1 bit por píxel, dimensionado al tamaño máximo soportado) antes de enviarse al hardware con `SSD1306_UpdateScreen()`.
+- **Primitivas de dibujo completas**: Píxeles, líneas (algoritmo de Bresenham), líneas rápidas horizontales/verticales, rectángulos (borde y relleno), triángulos (borde y relleno mediante scanline), círculos (borde y relleno), elipses (borde y relleno), arcos/sectores de anillo (borde y relleno) y bitmaps monocromáticos.
 - **Relleno de triángulos optimizado**: Algoritmo de scanline que ordena los vértices por Y y rellena por líneas horizontales (`ssd1306_FillHLine`), evitando el cómputo repetido de Bresenham.
+- **Líneas rápidas**: `SSD1306_DrawFastVLine()` y `SSD1306_DrawFastHLine()` dibujan líneas horizontales/verticales directamente en el buffer, sin el cómputo de pendiente de Bresenham.
+- **Elipses y arcos**: `SSD1306_DrawEllipse()`/`SSD1306_DrawFilledEllipse()` mediante el algoritmo de punto medio, y `SSD1306_DrawArc()`/`SSD1306_DrawFilledArc()` para sectores de anillo entre dos ángulos, con relleno por barrido fila a fila (`ssd1306_FillArcHelper`).
 - **Texto con fuentes personalizadas**: Soporte para múltiples tamaños de fuente mediante `FontDef_t` (ver librería `FONTS.h`: 7x10, 11x18 y 16x26 píxeles).
 - **Manejo robusto de errores**: Códigos de retorno específicos para error de I2C, timeout, módulo no inicializado o parámetro inválido (`SSD1306_Status_t`), propagados en cascada por todas las funciones de dibujo.
 - **Inversión de color**: A nivel de buffer (`SSD1306_ToggleInvert`) o a nivel de controlador (`SSD1306_InvertDisplay`).
@@ -239,20 +250,34 @@ SSD1306_Status_t SSD1306_Init(I2C_HandleTypeDef* hi2c, uint8_t width, uint8_t he
 |`width`|`uint8_t`|Ancho de la pantalla en píxeles|
 |`height`|`uint8_t`|Alto de la pantalla en píxeles|
 
-**Retorna**: `SSD1306_OK` si la inicialización fue exitosa, `SSD1306_ERROR` si ocurrió un error de comunicación, `SSD1306_INVALID_PARAM` si `hi2c` es NULL, `width` es 0 o `height` es 0.
+**Retorna**: `SSD1306_OK` si la inicialización fue exitosa, `SSD1306_ERROR` si ocurrió un error de comunicación, `SSD1306_INVALID_PARAM` si `hi2c` es NULL, `width` o `height` son 0, o exceden `SSD1306_MAX_WIDTH` / `SSD1306_MAX_HEIGHT`.
 
 **Secuencia interna:**
 
 1. Valida parámetros y verifica que el dispositivo responda en `SSD1306_I2C_ADDR`.
-2. Envía la secuencia de comandos de inicialización (modo de direccionamiento, multiplexado, contraste, oscilador, etc.).
-3. Inicializa el estado interno del cursor y de inversión.
-4. Limpia el buffer y actualiza la pantalla física.
+2. Almacena `width` y `height` en el estado interno para que todas las funciones operen con las dimensiones reales.
+3. Envía la secuencia de comandos de inicialización: el ratio de multiplexado se calcula como `height - 1` y la configuración de COM pins se selecciona automáticamente (`0x12` para 64 píxeles de alto, `0x02` para otros valores).
+4. Inicializa el estado interno del cursor y de inversión.
+5. Limpia el buffer y actualiza la pantalla física.
+
+---
+
+#### `SSD1306_GetWidth()` / `SSD1306_GetHeight()` - Consultar Dimensiones
+
+Retornan el ancho y alto de la pantalla tal como fueron configurados en `SSD1306_Init()`. Útiles cuando el código de aplicación necesita conocer las dimensiones en tiempo de ejecución sin acceso directo a las macros de compilación.
+
+```c
+uint16_t SSD1306_GetWidth(void);
+uint16_t SSD1306_GetHeight(void);
+```
+
+**Retornan**: El ancho o alto en píxeles si el módulo está inicializado, o `0` si `SSD1306_Init()` no fue llamada o falló.
 
 ---
 
 #### `SSD1306_UpdateScreen()` - Actualizar Pantalla
 
-Envía el contenido completo del buffer interno a la pantalla física, página por página (8 páginas de 128 bytes cada una).
+Envía el contenido completo del buffer interno a la pantalla física, página por página (una página por cada 8 píxeles de alto; el número de páginas se calcula en función del alto configurado en `SSD1306_Init()`).
 
 ```c
 SSD1306_Status_t SSD1306_UpdateScreen(void);
@@ -300,8 +325,8 @@ SSD1306_Status_t SSD1306_DrawPixel(uint16_t x, uint16_t y, SSD1306_COLOR_t color
 
 |Parámetro|Tipo|Descripción|Rango|
 |---|---|---|---|
-|`x`|`uint16_t`|Coordenada X|0 – `SSD1306_WIDTH-1`|
-|`y`|`uint16_t`|Coordenada Y|0 – `SSD1306_HEIGHT-1`|
+|`x`|`uint16_t`|Coordenada X|0 – `SSD1306_GetWidth()-1`|
+|`y`|`uint16_t`|Coordenada Y|0 – `SSD1306_GetHeight()-1`|
 |`color`|`SSD1306_COLOR_t`|Color del píxel|—|
 
 **Retorna**: `SSD1306_OK` si la operación fue exitosa, `SSD1306_NOT_INITIALIZED` si el módulo no fue inicializado, `SSD1306_INVALID_PARAM` si `x` o `y` exceden las dimensiones de la pantalla.
@@ -323,6 +348,26 @@ SSD1306_Status_t SSD1306_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_
 |`c`|`SSD1306_COLOR_t`|Color de la línea|
 
 **Retorna**: `SSD1306_OK` si la operación fue exitosa, `SSD1306_NOT_INITIALIZED` si el módulo no fue inicializado, propaga el error de `SSD1306_DrawPixel()` en caso de fallo.
+
+---
+
+#### `SSD1306_DrawFastVLine()` / `SSD1306_DrawFastHLine()` - Líneas Rápidas
+
+Dibujan líneas verticales u horizontales escribiendo directamente en el buffer, sin el cómputo de pendiente del algoritmo de Bresenham. El alto/ancho puede ser negativo: la función normaliza el origen y la longitud antes de dibujar.
+
+```c
+SSD1306_Status_t SSD1306_DrawFastVLine(int16_t x, int16_t y, int16_t h, SSD1306_COLOR_t color);
+SSD1306_Status_t SSD1306_DrawFastHLine(int16_t x, int16_t y, int16_t w, SSD1306_COLOR_t color);
+```
+
+|Parámetro|Tipo|Descripción|
+|---|---|---|
+|`x`, `y`|`int16_t`|Coordenadas de inicio de la línea|
+|`h`|`int16_t`|Alto de la línea vertical (puede ser negativo)|
+|`w`|`int16_t`|Ancho de la línea horizontal (puede ser negativo)|
+|`color`|`SSD1306_COLOR_t`|Color de la línea|
+
+**Retorna**: `SSD1306_OK` si la operación fue exitosa (incluyendo el caso de longitud 0, donde no dibuja nada), `SSD1306_NOT_INITIALIZED` si el módulo no fue inicializado.
 
 ---
 
@@ -381,6 +426,48 @@ SSD1306_Status_t SSD1306_DrawFilledCircle(int16_t x0, int16_t y0, int16_t r, SSD
 |`c`|`SSD1306_COLOR_t`|Color del círculo|
 
 **Retorna**: `SSD1306_OK` si la operación fue exitosa, `SSD1306_NOT_INITIALIZED` si el módulo no fue inicializado.
+
+---
+
+#### `SSD1306_DrawEllipse()` / `SSD1306_DrawFilledEllipse()` - Elipses
+
+Dibujan una elipse a partir de su centro y sus radios horizontal/vertical, usando el algoritmo de punto medio para elipses (dos regiones según la pendiente). Si alguno de los radios es 0, la elipse degenera en una línea recta (vertical u horizontal). La versión `Filled` rellena el área mediante líneas horizontales (`ssd1306_FillHLine`).
+
+```c
+SSD1306_Status_t SSD1306_DrawEllipse(int16_t x0, int16_t y0, int16_t rx, int16_t ry, SSD1306_COLOR_t color);
+SSD1306_Status_t SSD1306_DrawFilledEllipse(int16_t x, int16_t y, int16_t rx, int16_t ry, uint16_t color);
+```
+
+|Parámetro|Tipo|Descripción|
+|---|---|---|
+|`x0`/`x`, `y0`/`y`|`int16_t`|Coordenadas del centro|
+|`rx`|`int16_t`|Radio horizontal|
+|`ry`|`int16_t`|Radio vertical|
+|`color`|`SSD1306_COLOR_t` / `uint16_t`|Color del borde o del relleno|
+
+**Retorna**: `SSD1306_OK` si la operación fue exitosa, `SSD1306_NOT_INITIALIZED` si el módulo no fue inicializado, `SSD1306_INVALID_PARAM` si `rx` o `ry` son negativos.
+
+---
+
+#### `SSD1306_DrawArc()` / `SSD1306_DrawFilledArc()` - Arcos
+
+Dibujan un arco (sector de anillo) entre dos radios y dos ángulos, expresados en grados (0° = derecha, sentido horario). `SSD1306_DrawArc()` traza únicamente el contorno (bordes rectos en `start`/`end` y bordes curvos en los radios interior/exterior); `SSD1306_DrawFilledArc()` rellena todo el sector. Ambas funciones normalizan internamente los ángulos al rango [0°, 360°) y ordenan los radios para que `r1` sea siempre el exterior.
+
+```c
+SSD1306_Status_t SSD1306_DrawArc(int16_t x, int16_t y, int16_t r1, int16_t r2, float start, float end, SSD1306_COLOR_t color);
+SSD1306_Status_t SSD1306_DrawFilledArc(int16_t x, int16_t y, int16_t r1, int16_t r2, float start, float end, uint16_t color);
+```
+
+|Parámetro|Tipo|Descripción|
+|---|---|---|
+|`x`, `y`|`int16_t`|Coordenadas del centro|
+|`r1`|`int16_t`|Radio exterior del arco|
+|`r2`|`int16_t`|Radio interior del arco|
+|`start`|`float`|Ángulo inicial en grados|
+|`end`|`float`|Ángulo final en grados|
+|`color`|`SSD1306_COLOR_t` / `uint16_t`|Color del contorno o del relleno|
+
+**Retorna**: `SSD1306_OK` si la operación fue exitosa, `SSD1306_NOT_INITIALIZED` si el módulo no fue inicializado, `SSD1306_INVALID_PARAM` si `r1` o `r2` son negativos.
 
 ---
 
@@ -494,6 +581,27 @@ Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](/LICENSE
 
 Todos los cambios notables de esta librería se documentan en esta sección.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
+
+---
+
+### [2.1.0] - 30-06-2026
+
+#### Added
+- Líneas rápidas horizontales y verticales sin cómputo de pendiente: `SSD1306_DrawFastVLine()` y `SSD1306_DrawFastHLine()`.
+- Dibujo de elipses (borde y relleno) mediante el algoritmo de punto medio: `SSD1306_DrawEllipse()` y `SSD1306_DrawFilledEllipse()`.
+- Dibujo de arcos/sectores de anillo entre dos ángulos (borde y relleno), con relleno por barrido fila a fila: `SSD1306_DrawArc()` y `SSD1306_DrawFilledArc()`.
+- Soporte para pantallas de dimensiones configurables en tiempo de ejecución: el buffer interno se dimensiona al máximo soportado mediante las macros `SSD1306_MAX_WIDTH` / `SSD1306_MAX_HEIGHT` (128×64 por defecto, redefinibles con `#define` antes de incluir `SSD1306.h`), y el ancho/alto real se pasan a `SSD1306_Init()`.
+- Nuevas funciones públicas `SSD1306_GetWidth()` y `SSD1306_GetHeight()` para consultar las dimensiones configuradas en tiempo de ejecución.
+
+#### Changed
+- `SSD1306_UpdateScreen()` transmite únicamente las páginas activas (`height / 8`) en lugar de las 8 páginas fijas.
+- Todas las funciones internas (`DrawPixel`, `DrawLine`, `Fill`, `GotoXY`, `Putc`, rectángulos, scroll diagonal, etc.) usan las dimensiones reales del estado interno en lugar de las macros de compilación.
+- Incluidas cabeceras adicionales necesarias (`math.h`, `float.h`, `stdbool.h`) para soportar las nuevas primitivas gráficas.
+- Optimizado el algoritmo de relleno de arcos mediante `ssd1306_FillArcHelper()`.
+
+#### Fixed
+- Corregido el dimensionamiento del buffer interno para que soporte correctamente pantallas de diferentes tamaños.
+- Ajustada la validación de parámetros en `SSD1306_Init()` para verificar que `width` y `height` no excedan `SSD1306_MAX_WIDTH` y `SSD1306_MAX_HEIGHT`.
 
 ---
 
