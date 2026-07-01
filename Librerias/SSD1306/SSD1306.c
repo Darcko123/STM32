@@ -44,13 +44,15 @@
 static I2C_HandleTypeDef* SSD1306_hi2c        = NULL; /**< Handle de I2C utilizado para comunicarse con el SSD1306 */
 static uint8_t             SSD1306_Initialized = 0U;  /**< Bandera para verificar si el módulo está inicializado */
 
-/** Buffer de la pantalla en RAM (1 bit por píxel) */
-static uint8_t SSD1306_Buffer[SSD1306_WIDTH * SSD1306_HEIGHT / 8];
+/** Buffer de la pantalla en RAM (1 bit por píxel), dimensionado al tamaño máximo soportado */
+static uint8_t SSD1306_Buffer[SSD1306_MAX_WIDTH * SSD1306_MAX_HEIGHT / 8];
 
-/** Estado interno del cursor de escritura y de la inversión de color */
+/** Estado interno del cursor de escritura, dimensiones reales y de la inversión de color */
 typedef struct {
 	uint16_t CurrentX;
 	uint16_t CurrentY;
+	uint16_t Width;
+	uint16_t Height;
 	uint8_t  Inverted;
 } SSD1306_State_t;
 
@@ -176,14 +178,14 @@ static SSD1306_Status_t ssd1306_FillHLine(int16_t x0, int16_t x1, int16_t y, SSD
 	SSD1306_Status_t st;
 	int16_t x, tmp;
 
-	if (y < 0 || y >= (int16_t)SSD1306_HEIGHT)
+	if (y < 0 || y >= (int16_t)SSD1306_State.Height)
 	{
 		return SSD1306_OK;
 	}
 
 	if (x0 > x1) { tmp = x0; x0 = x1; x1 = tmp; }
 	if (x0 < 0) { x0 = 0; }
-	if (x1 >= (int16_t)SSD1306_WIDTH) { x1 = (int16_t)SSD1306_WIDTH - 1; }
+	if (x1 >= (int16_t)SSD1306_State.Width) { x1 = (int16_t)SSD1306_State.Width - 1; }
 
 	for (x = x0; x <= x1; x++)
 	{
@@ -214,14 +216,14 @@ static SSD1306_Status_t ssd1306_FillVLine(int16_t x, int16_t y0, int16_t y1, SSD
 	SSD1306_Status_t st;
 	int16_t y, tmp;
 
-	if (x < 0 || x >= (int16_t)SSD1306_WIDTH)
+	if (x < 0 || x >= (int16_t)SSD1306_State.Width)
 	{
 		return SSD1306_OK;
 	}
 
 	if (y0 > y1) { tmp = y0; y0 = y1; y1 = tmp; }
 	if (y0 < 0) { y0 = 0; }
-	if (y1 >= (int16_t)SSD1306_HEIGHT) { y1 = (int16_t)SSD1306_HEIGHT - 1; }
+	if (y1 >= (int16_t)SSD1306_State.Height) { y1 = (int16_t)SSD1306_State.Height - 1; }
 
 	for (y = y0; y <= y1; y++)
 	{
@@ -375,12 +377,15 @@ SSD1306_Status_t SSD1306_Init(I2C_HandleTypeDef* hi2c, uint8_t width, uint8_t he
 	SSD1306_Status_t st;
 	uint32_t p;
 
-	if (hi2c == NULL || width == 0 || height == 0)
+	if (hi2c == NULL || width == 0 || height == 0 ||
+		width > SSD1306_MAX_WIDTH || height > SSD1306_MAX_HEIGHT)
 	{
 		return SSD1306_INVALID_PARAM;
 	}
 
 	SSD1306_hi2c = hi2c;
+	SSD1306_State.Width  = width;
+	SSD1306_State.Height = height;
 
 	/* Revisar si OLED está conectado a I2C */
 	if (HAL_I2C_IsDeviceReady(SSD1306_hi2c, SSD1306_I2C_ADDR, 1, 20000) != HAL_OK)
@@ -407,7 +412,7 @@ SSD1306_Status_t SSD1306_Init(I2C_HandleTypeDef* hi2c, uint8_t width, uint8_t he
 	st  = st ? st : SSD1306_WRITECOMMAND(0xA1); //--set segment re-map 0 to 127
 	st  = st ? st : SSD1306_WRITECOMMAND(0xA6); //--set normal display
 	st  = st ? st : SSD1306_WRITECOMMAND(0xA8); //--set multiplex ratio(1 to 64)
-	st  = st ? st : SSD1306_WRITECOMMAND(0x3F);
+	st  = st ? st : SSD1306_WRITECOMMAND((uint8_t)(height - 1));
 	st  = st ? st : SSD1306_WRITECOMMAND(0xA4); //0xa4,Output follows RAM content;0xa5,Output ignores RAM content
 	st  = st ? st : SSD1306_WRITECOMMAND(0xD3); //-set display offset
 	st  = st ? st : SSD1306_WRITECOMMAND(0x00); //-not offset
@@ -416,7 +421,7 @@ SSD1306_Status_t SSD1306_Init(I2C_HandleTypeDef* hi2c, uint8_t width, uint8_t he
 	st  = st ? st : SSD1306_WRITECOMMAND(0xD9); //--set pre-charge period
 	st  = st ? st : SSD1306_WRITECOMMAND(0x22);
 	st  = st ? st : SSD1306_WRITECOMMAND(0xDA); //--set com pins hardware configuration
-	st  = st ? st : SSD1306_WRITECOMMAND(0x12);
+	st  = st ? st : SSD1306_WRITECOMMAND((height == 64U) ? 0x12 : 0x02);
 	st  = st ? st : SSD1306_WRITECOMMAND(0xDB); //--set vcomh
 	st  = st ? st : SSD1306_WRITECOMMAND(0x20); //0x20,0.77xVcc
 	st  = st ? st : SSD1306_WRITECOMMAND(0x8D); //--set DC-DC enable
@@ -446,19 +451,46 @@ SSD1306_Status_t SSD1306_Init(I2C_HandleTypeDef* hi2c, uint8_t width, uint8_t he
 	return SSD1306_UpdateScreen();
 }
 
+/**
+ * @brief Obtiene el ancho de pantalla configurado en SSD1306_Init.
+ *
+ * @return uint16_t Ancho en píxeles, o 0 si el módulo no ha sido inicializado.
+ */
+uint16_t SSD1306_GetWidth(void)
+{
+	if (SSD1306_Initialized != 1U) { return 0U; }
+
+	return SSD1306_State.Width;
+}
+
+/**
+ * @brief Obtiene el alto de pantalla configurado en SSD1306_Init.
+ *
+ * @return uint16_t Alto en píxeles, o 0 si el módulo no ha sido inicializado.
+ */
+uint16_t SSD1306_GetHeight(void)
+{
+	if (SSD1306_Initialized != 1U) { return 0U; }
+
+	return SSD1306_State.Height;
+}
+
 SSD1306_Status_t SSD1306_UpdateScreen(void)
 {
 	SSD1306_Status_t st;
 	uint8_t m;
+	uint8_t pages;
 
 	if (SSD1306_Initialized != 1U) { return SSD1306_NOT_INITIALIZED; }
 
-	for (m = 0; m < 8; m++)
+	pages = (uint8_t)(SSD1306_State.Height / 8U);
+
+	for (m = 0; m < pages; m++)
 	{
 		st  = SSD1306_WRITECOMMAND(0xB0 + m);
 		st  = st ? st : SSD1306_WRITECOMMAND(0x00);
 		st  = st ? st : SSD1306_WRITECOMMAND(0x10);
-		st  = st ? st : ssd1306_I2C_WriteMulti(SSD1306_I2C_ADDR, 0x40, &SSD1306_Buffer[SSD1306_WIDTH * m], SSD1306_WIDTH);
+		st  = st ? st : ssd1306_I2C_WriteMulti(SSD1306_I2C_ADDR, 0x40, &SSD1306_Buffer[SSD1306_State.Width * m], SSD1306_State.Width);
 		if (st != SSD1306_OK)
 		{
 			return st;
@@ -491,7 +523,8 @@ SSD1306_Status_t SSD1306_Fill(SSD1306_COLOR_t color)
 	if (SSD1306_Initialized != 1U) { return SSD1306_NOT_INITIALIZED; }
 
 	/* Set memory */
-	memset(SSD1306_Buffer, (color == SSD1306_COLOR_BLACK) ? 0x00 : 0xFF, sizeof(SSD1306_Buffer));
+	memset(SSD1306_Buffer, (color == SSD1306_COLOR_BLACK) ? 0x00 : 0xFF,
+		(size_t)SSD1306_State.Width * SSD1306_State.Height / 8U);
 
 	return SSD1306_OK;
 }
@@ -500,7 +533,7 @@ SSD1306_Status_t SSD1306_DrawPixel(uint16_t x, uint16_t y, SSD1306_COLOR_t color
 {
 	if (SSD1306_Initialized != 1U) { return SSD1306_NOT_INITIALIZED; }
 
-	if (x >= SSD1306_WIDTH || y >= SSD1306_HEIGHT)
+	if (x >= SSD1306_State.Width || y >= SSD1306_State.Height)
 	{
 		return SSD1306_INVALID_PARAM;
 	}
@@ -514,11 +547,11 @@ SSD1306_Status_t SSD1306_DrawPixel(uint16_t x, uint16_t y, SSD1306_COLOR_t color
 	/* Set color */
 	if (color == SSD1306_COLOR_WHITE)
 	{
-		SSD1306_Buffer[x + (y / 8) * SSD1306_WIDTH] |= 1 << (y % 8);
+		SSD1306_Buffer[x + (y / 8) * SSD1306_State.Width] |= 1 << (y % 8);
 	}
 	else
 	{
-		SSD1306_Buffer[x + (y / 8) * SSD1306_WIDTH] &= ~(1 << (y % 8));
+		SSD1306_Buffer[x + (y / 8) * SSD1306_State.Width] &= ~(1 << (y % 8));
 	}
 
 	return SSD1306_OK;
@@ -528,7 +561,7 @@ SSD1306_Status_t SSD1306_GotoXY(uint16_t x, uint16_t y)
 {
 	if (SSD1306_Initialized != 1U) { return SSD1306_NOT_INITIALIZED; }
 
-	if (x >= SSD1306_WIDTH || y >= SSD1306_HEIGHT)
+	if (x >= SSD1306_State.Width || y >= SSD1306_State.Height)
 	{
 		return SSD1306_INVALID_PARAM;
 	}
@@ -550,8 +583,8 @@ SSD1306_Status_t SSD1306_Putc(char ch, FontDef_t* Font, SSD1306_COLOR_t color)
 
 	/* Check available space in LCD */
 	if (
-		SSD1306_WIDTH <= (SSD1306_State.CurrentX + Font->FontWidth) ||
-		SSD1306_HEIGHT <= (SSD1306_State.CurrentY + Font->FontHeight)
+		SSD1306_State.Width <= (SSD1306_State.CurrentX + Font->FontWidth) ||
+		SSD1306_State.Height <= (SSD1306_State.CurrentY + Font->FontHeight)
 	) {
 		return SSD1306_INVALID_PARAM;
 	}
@@ -613,10 +646,10 @@ SSD1306_Status_t SSD1306_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_
 	if (SSD1306_Initialized != 1U) { return SSD1306_NOT_INITIALIZED; }
 
 	/* Check for overflow */
-	if (x0 >= SSD1306_WIDTH) { x0 = SSD1306_WIDTH - 1; }
-	if (x1 >= SSD1306_WIDTH) { x1 = SSD1306_WIDTH - 1; }
-	if (y0 >= SSD1306_HEIGHT) { y0 = SSD1306_HEIGHT - 1; }
-	if (y1 >= SSD1306_HEIGHT) { y1 = SSD1306_HEIGHT - 1; }
+	if (x0 >= SSD1306_State.Width) { x0 = SSD1306_State.Width - 1; }
+	if (x1 >= SSD1306_State.Width) { x1 = SSD1306_State.Width - 1; }
+	if (y0 >= SSD1306_State.Height) { y0 = SSD1306_State.Height - 1; }
+	if (y1 >= SSD1306_State.Height) { y1 = SSD1306_State.Height - 1; }
 
 	dx = (x0 < x1) ? (x1 - x0) : (x0 - x1);
 	dy = (y0 < y1) ? (y1 - y0) : (y0 - y1);
@@ -731,14 +764,14 @@ SSD1306_Status_t SSD1306_DrawRectangle(uint16_t x, uint16_t y, uint16_t w, uint1
 
 	if (SSD1306_Initialized != 1U) { return SSD1306_NOT_INITIALIZED; }
 
-	if (x >= SSD1306_WIDTH || y >= SSD1306_HEIGHT)
+	if (x >= SSD1306_State.Width || y >= SSD1306_State.Height)
 	{
 		return SSD1306_INVALID_PARAM;
 	}
 
 	/* Check width and height */
-	if ((x + w) >= SSD1306_WIDTH)  { w = SSD1306_WIDTH - x;  }
-	if ((y + h) >= SSD1306_HEIGHT) { h = SSD1306_HEIGHT - y; }
+	if ((x + w) >= SSD1306_State.Width)  { w = SSD1306_State.Width - x;  }
+	if ((y + h) >= SSD1306_State.Height) { h = SSD1306_State.Height - y; }
 
 	/* Draw 4 lines */
 	st  = SSD1306_DrawLine(x, y, x + w, y, c);                 /* Top line */
@@ -756,14 +789,14 @@ SSD1306_Status_t SSD1306_DrawFilledRectangle(uint16_t x, uint16_t y, uint16_t w,
 
 	if (SSD1306_Initialized != 1U) { return SSD1306_NOT_INITIALIZED; }
 
-	if (x >= SSD1306_WIDTH || y >= SSD1306_HEIGHT)
+	if (x >= SSD1306_State.Width || y >= SSD1306_State.Height)
 	{
 		return SSD1306_INVALID_PARAM;
 	}
 
 	/* Check width and height */
-	if ((x + w) >= SSD1306_WIDTH)  { w = SSD1306_WIDTH - x;  }
-	if ((y + h) >= SSD1306_HEIGHT) { h = SSD1306_HEIGHT - y; }
+	if ((x + w) >= SSD1306_State.Width)  { w = SSD1306_State.Width - x;  }
+	if ((y + h) >= SSD1306_State.Height) { h = SSD1306_State.Height - y; }
 
 	/* Draw lines */
 	for (i = 0; i <= h; i++)
@@ -1079,7 +1112,7 @@ SSD1306_Status_t SSD1306_Scrolldiagright(uint8_t start_row, uint8_t end_row)
 
 	st  = SSD1306_WRITECOMMAND(SSD1306_SET_VERTICAL_SCROLL_AREA); // select the area
 	st  = st ? st : SSD1306_WRITECOMMAND(0x00);   // write dummy
-	st  = st ? st : SSD1306_WRITECOMMAND(SSD1306_HEIGHT);
+	st  = st ? st : SSD1306_WRITECOMMAND(SSD1306_State.Height);
 
 	st  = st ? st : SSD1306_WRITECOMMAND(SSD1306_VERTICAL_AND_RIGHT_HORIZONTAL_SCROLL);
 	st  = st ? st : SSD1306_WRITECOMMAND(0x00);
@@ -1100,7 +1133,7 @@ SSD1306_Status_t SSD1306_Scrolldiagleft(uint8_t start_row, uint8_t end_row)
 
 	st  = SSD1306_WRITECOMMAND(SSD1306_SET_VERTICAL_SCROLL_AREA); // select the area
 	st  = st ? st : SSD1306_WRITECOMMAND(0x00);   // write dummy
-	st  = st ? st : SSD1306_WRITECOMMAND(SSD1306_HEIGHT);
+	st  = st ? st : SSD1306_WRITECOMMAND(SSD1306_State.Height);
 
 	st  = st ? st : SSD1306_WRITECOMMAND(SSD1306_VERTICAL_AND_LEFT_HORIZONTAL_SCROLL);
 	st  = st ? st : SSD1306_WRITECOMMAND(0x00);

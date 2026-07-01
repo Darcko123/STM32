@@ -54,9 +54,16 @@
 // MACROS Y CONSTANTES SSD1306
 // ============================================================================
 
-/* -- Dimensiones de la pantalla -- */
-#define SSD1306_WIDTH        128U  /**< Ancho de la pantalla en píxeles */
-#define SSD1306_HEIGHT       64U   /**< Alto de la pantalla en píxeles  */
+/* -- Dimensiones máximas soportadas -- */
+/* Dimensionan el buffer interno; el ancho/alto real se definen en tiempo de
+ * ejecución mediante SSD1306_Init(). Pueden redefinirse antes de incluir
+ * este archivo para soportar pantallas mayores a 128x64. */
+#ifndef SSD1306_MAX_WIDTH
+#define SSD1306_MAX_WIDTH     128U  /**< Ancho máximo soportado en píxeles */
+#endif
+#ifndef SSD1306_MAX_HEIGHT
+#define SSD1306_MAX_HEIGHT    64U   /**< Alto máximo soportado en píxeles  */
+#endif
 
 /* -- Dirección I2C del módulo -- */
 #define SSD1306_I2C_ADDR      0x78U /**< Dirección I2C del SSD1306 (7 bits desplazada) */
@@ -94,16 +101,31 @@ extern "C" {
 
 /**
  * @brief Inicializa el controlador SSD1306 y lo deja listo para dibujar.
- * 
+ *
  * @param[in] hi2c Puntero al handle de I2C.
- * @param[in] width Ancho de la pantalla
- * @param[in] height Alto de la pantalla 
- * @return SSD1306_Status_t 
+ * @param[in] width Ancho de la pantalla en píxeles (máximo SSD1306_MAX_WIDTH).
+ * @param[in] height Alto de la pantalla en píxeles (máximo SSD1306_MAX_HEIGHT).
+ * @return SSD1306_Status_t
  *          - SSD1306_OK            si la inicialización fue exitosa.
  *          - SSD1306_ERROR         si ocurrió un error de comunicación
- *          - SSD1306_INVALID_PARAM si @p hi2c es NULL, @p width es 0 o @p height es 0
+ *          - SSD1306_INVALID_PARAM si @p hi2c es NULL, @p width o @p height son 0,
+ *                                  o exceden SSD1306_MAX_WIDTH / SSD1306_MAX_HEIGHT
  */
 SSD1306_Status_t SSD1306_Init(I2C_HandleTypeDef* hi2c, uint8_t width, uint8_t height);
+
+/**
+ * @brief Obtiene el ancho de pantalla configurado en SSD1306_Init.
+ *
+ * @return uint16_t Ancho en píxeles, o 0 si el módulo no ha sido inicializado.
+ */
+uint16_t SSD1306_GetWidth(void);
+
+/**
+ * @brief Obtiene el alto de pantalla configurado en SSD1306_Init.
+ *
+ * @return uint16_t Alto en píxeles, o 0 si el módulo no ha sido inicializado.
+ */
+uint16_t SSD1306_GetHeight(void);
 
 /**
  * @brief Envía el contenido del buffer interno a la pantalla física.
@@ -130,8 +152,8 @@ SSD1306_Status_t SSD1306_Fill(SSD1306_COLOR_t color);
 /**
  * @brief Dibuja un píxel individual en el buffer.
  * 
- * @param[in] x     Coordenada X (0..SSD1306_WIDTH-1).
- * @param[in] y     Coordenada Y (0..SSD1306_HEIGHT-1).
+ * @param[in] x     Coordenada X (0..ancho configurado en SSD1306_Init - 1).
+ * @param[in] y     Coordenada Y (0..alto configurado en SSD1306_Init - 1).
  * @param[in] color Color del píxel.
  * @return SSD1306_Status_t
  */
