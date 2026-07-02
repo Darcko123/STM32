@@ -174,6 +174,145 @@ static ILI9341_Status_t SPI_ILI9341_WaitTXE(void)
     return ILI9341_OK;
 }
 
+/**
+ * @brief Rellena un segmento angular (arco) entre dos ángulos y dos radios.
+ *
+ * @details Recorre el cuadro delimitador del arco fila por fila y dibuja,
+ *          en cada una, los segmentos horizontales que caen dentro de la
+ *          corona circular [iradius, oradius] y del sector angular
+ *          [start, end]. Usado por ILI9341_DrawArc tanto para los bordes
+ *          rectos del arco como para sus bordes curvos.
+ *
+ * @param cx      Coordenada X del centro.
+ * @param cy      Coordenada Y del centro.
+ * @param oradius Radio exterior del arco.
+ * @param iradius Radio interior del arco.
+ * @param start   Ángulo inicial en grados (0 a 360).
+ * @param end     Ángulo final en grados (0 a 360).
+ * @param color   Color a utilizar.
+ *
+ * @return ILI9341_Status_t Estado de la operación.
+ */
+static ILI9341_Status_t ILI9341_FillArcHelper(int16_t cx, int16_t cy, int16_t oradius, int16_t iradius, float start, float end, uint16_t color, uint32_t* image)
+{
+    ILI9341_Status_t st;
+    float s_cos, e_cos, sslope, eslope, swidth, ewidth;
+    int32_t ir2, or2, xs, y, ye, xe;
+    bool start180, end180, reversed;
+
+    if ((start == 0.0f) || (start == 90.0f) || (start == 180.0f) || (start == 270.0f) || (start == 360.0f))
+    {
+        start += 0.1f;
+    }
+    if ((end == 0.0f) || (end == 90.0f) || (end == 180.0f) || (end == 270.0f) || (end == 360.0f))
+    {
+        end += 0.1f;
+    }
+
+    s_cos  = cosf(start * 0.0174532925f);
+    e_cos  = cosf(end * 0.0174532925f);
+    sslope = s_cos / sinf(start * 0.0174532925f);
+    eslope = e_cos / sinf(end * 0.0174532925f);
+    swidth = 0.5f / s_cos;
+    ewidth = -0.5f / e_cos;
+    --iradius;
+    ir2 = (int32_t)iradius * iradius + iradius;
+    or2 = (int32_t)oradius * oradius + oradius;
+
+    start180 = !(start < 180.0f);
+    end180   = end < 180.0f;
+    reversed = (start + 180.0f < end) || (end < start && start < end + 180.0f);
+
+    xs = -oradius;
+    y  = -oradius;
+    ye = oradius;
+    xe = oradius + 1;
+    if (!reversed)
+    {
+        if ((end >= 270.0f || end < 90.0f) && (start >= 270.0f || start < 90.0f))
+        {
+            xs = 0;
+        }
+        else if (end < 270.0f && end >= 90.0f && start < 270.0f && start >= 90.0f)
+        {
+            xe = 1;
+        }
+        if (end >= 180.0f && start >= 180.0f)
+        {
+            ye = 0;
+        }
+        else if (end < 180.0f && start < 180.0f)
+        {
+            y = 0;
+        }
+    }
+
+    do
+    {
+        int32_t y2 = y * y;
+        int32_t x  = xs;
+        int32_t len = 0;
+        float ysslope, yeslope;
+
+        if (x < 0)
+        {
+            while (x * x + y2 >= or2)
+            {
+                ++x;
+            }
+            if (xe != 1)
+            {
+                xe = 1 - x;
+            }
+        }
+
+        ysslope = ((float)y + swidth) * sslope;
+        yeslope = ((float)y + ewidth) * eslope;
+
+        do
+        {
+            bool flg1 = start180 != (x <= ysslope);
+            bool flg2 = end180 != (x <= yeslope);
+            int32_t distance = x * x + y2;
+
+            if (distance >= ir2 && ((flg1 && flg2) || (reversed && (flg1 || flg2))) && x != xe && distance < or2)
+            {
+                ++len;
+            }
+            else
+            {
+                if (len)
+                {
+                    if (image != NULL)
+                    {
+#ifdef HAL_SDRAM_MODULE_ENABLED
+                        st = DrawHSpanClipped_ImageBuffer(cx + x - len, cx + x - 1, cy + y, color, image);
+#else
+                        st = ILI9341_OK;
+#endif
+                    }
+                    else
+                    {
+                        st = DrawHSpanClipped(cx + x - len, cx + x - 1, cy + y, color);
+                    }
+                    if (st != ILI9341_OK) { return st; }
+                    len = 0;
+                }
+                if (distance >= or2)
+                {
+                    break;
+                }
+                if (x < 0 && distance < ir2)
+                {
+                    x = -x;
+                }
+            }
+        } while (++x <= xe);
+    } while (++y <= ye);
+
+    return ILI9341_OK;
+}
+
 #ifdef HAL_SDRAM_MODULE_ENABLED
 /**
  * @brief Ejecuta la secuencia de inicialización requerida por el IS42S16400J.
@@ -1848,6 +1987,59 @@ ILI9341_Status_t ILI9341_DrawFilledEllipse(int16_t x0, int16_t y0, int16_t rx, i
     }
 
     return ILI9341_OK;
+}
+
+/**
+ * @brief Dibuja el contorno de un arco (sector de anillo) entre dos ángulos.
+ *
+ * @param[in] x0    Coordenada X del centro.
+ * @param[in] y0    Coordenada Y del centro.
+ * @param[in] r1    Radio exterior del arco.
+ * @param[in] r2    Radio interior del arco.
+ * @param[in] start Ángulo inicial en grados (0° = derecha, sentido horario).
+ * @param[in] end   Ángulo final en grados.
+ * @param[in] color Color del contorno.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p r1 o @p r2 son negativos.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawArc(int16_t x0, int16_t y0, int16_t r1, int16_t r2, float start, float end, uint16_t color)
+{
+    ILI9341_Status_t st;
+    bool equal;
+    int16_t tmp;
+
+    if (ILI9341_Initialized != 1U) { return ILI9341_NOT_INITIALIZED; }
+    if (r1 < 0 || r2 < 0)          { return ILI9341_INVALID_PARAM;   }
+
+    if (r1 < r2) { tmp = r1; r1 = r2; r2 = tmp; }
+    if (r1 < 1)  { r1 = 1; }
+    if (r2 < 1)  { r2 = 1; }
+
+    equal = fabsf(start - end) < FLT_EPSILON;
+    start = fmodf(start, 360.0f);
+    end   = fmodf(end, 360.0f);
+    if (start < 0) { start += 360.0f; }
+    if (end < 0)   { end   += 360.0f; }
+
+    /* Bordes rectos del arco (en start y en end) */
+    st  = ILI9341_FillArcHelper(x0, y0, r1, r2, start, start, color, NULL);
+    st  = st ? st : ILI9341_FillArcHelper(x0, y0, r1, r2, end, end, color, NULL);
+    if (st != ILI9341_OK) { return st; }
+
+    if (!equal && (fabsf(start - end) <= 0.0001f))
+    {
+        start = 0.0f;
+        end   = 360.0f;
+    }
+
+    /* Bordes curvos del arco (radio exterior e interior) */
+    st  = ILI9341_FillArcHelper(x0, y0, r1, r1, start, end, color, NULL);
+    st  = st ? st : ILI9341_FillArcHelper(x0, y0, r2, r2, start, end, color, NULL);
+
+    return st;
 }
 
 /**

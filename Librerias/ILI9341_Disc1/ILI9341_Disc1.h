@@ -35,6 +35,9 @@
 #include "main.h"
 #include "lcd_fonts.h"
 #include <string.h>
+#include <math.h>
+#include <float.h>
+#include <stdbool.h>
 
 // ============================================================================
 // MACROS Y CONSTANTES [ILI9341]
@@ -703,6 +706,20 @@ ILI9341_Status_t ILI9341_DrawEllipse(int16_t x0, int16_t y0, int16_t rx, int16_t
  *         - ILI9341_ERROR           si falla la transmisión SPI.
  */
 ILI9341_Status_t ILI9341_DrawFilledEllipse(int16_t x0, int16_t y0, int16_t rx, int16_t ry, uint16_t color);
+
+/**
+ * @brief Dibuja el contorno de un arco (sector de anillo) entre dos ángulos.
+ *
+ * @param[in] x     Coordenada X del centro.
+ * @param[in] y     Coordenada Y del centro.
+ * @param[in] r1    Radio exterior del arco.
+ * @param[in] r2    Radio interior del arco.
+ * @param[in] start Ángulo inicial en grados (0° = derecha, sentido horario).
+ * @param[in] end   Ángulo final en grados.
+ * @param[in] color Color del contorno.
+ * @return ILI9341_Status_t
+ */
+ILI9341_Status_t ILI9341_DrawArc(int16_t x, int16_t y, int16_t r1, int16_t r2, float start, float end, uint16_t color);
 
 /* --- Texto en pantalla ---------------------------------------------------- */
 
