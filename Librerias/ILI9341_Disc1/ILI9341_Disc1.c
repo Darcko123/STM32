@@ -2663,6 +2663,86 @@ ILI9341_Status_t ILI9341_DrawFilledTriangle_ImageBuffer(uint16_t x0, uint16_t y0
     return ILI9341_OK;
 }
 
+/**
+ * @brief Dibuja el contorno de una elipse en la pantalla LCD.
+ *
+ * @param[in]     x0    Coordenada X del centro.
+ * @param[in]     y0    Coordenada Y del centro.
+ * @param[in]     rx    Radio horizontal en píxeles.
+ * @param[in]     ry    Radio vertical en píxeles.
+ * @param[in]     color Color del contorno en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p rx o @p ry son negativos.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawEllipse_ImageBuffer(int16_t x0, int16_t y0, int16_t rx, int16_t ry, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
+{
+    ILI9341_Status_t st;
+    int32_t xa, xb, ya, yb;
+    int32_t a, b, b1;
+    int32_t dx, dy, err, e2;
+
+    if (image == NULL)    { return ILI9341_INVALID_PARAM; }
+    if (rx < 0 || ry < 0) { return ILI9341_INVALID_PARAM; }
+
+    if (rx == 0)
+    {
+        return ILI9341_DrawLine_ImageBuffer(x0, (int16_t)(y0 - ry), x0, (int16_t)(y0 + ry), color, image);
+    }
+    if (ry == 0)
+    {
+        return ILI9341_DrawLine_ImageBuffer((int16_t)(x0 - rx), y0, (int16_t)(x0 + rx), y0, color, image);
+    }
+
+    xa = (int32_t)x0 - rx;
+    xb = (int32_t)x0 + rx;
+    ya = (int32_t)y0 - ry;
+    yb = (int32_t)y0 + ry;
+
+    a  = xb - xa;
+    b  = yb - ya;
+    b1 = b & 1;
+
+    dx  = 4 * (1 - a) * b * b;
+    dy  = 4 * (b1 + 1) * a * a;
+    err = dx + dy + b1 * a * a;
+
+    ya += (b + 1) / 2;
+    yb  = ya - b1;
+    a  *= 8 * a;
+    b1  = 8 * b * b;
+
+    do
+    {
+        st  = DrawPixelClipped_ImageBuffer((int16_t)xb, (int16_t)ya, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer((int16_t)xa, (int16_t)ya, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer((int16_t)xa, (int16_t)yb, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer((int16_t)xb, (int16_t)yb, color, image);
+        if (st != ILI9341_OK) { return st; }
+
+        e2 = 2 * err;
+        if (e2 <= dy) { ya++; yb--; dy += a; err += dy; }
+        if (e2 >= dx || 2 * err > dy) { xa++; xb--; dx += b1; err += dx; }
+    } while (xa <= xb);
+
+    /* Remate de puntas para elipses muy achatadas (a == 0 en algún eje). */
+    while (ya - yb < b)
+    {
+        st  = DrawPixelClipped_ImageBuffer((int16_t)(xa - 1), (int16_t)ya, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer((int16_t)(xb + 1), (int16_t)ya, color, image);
+        ya++;
+        st  = st ? st : DrawPixelClipped_ImageBuffer((int16_t)(xa - 1), (int16_t)yb, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer((int16_t)(xb + 1), (int16_t)yb, color, image);
+        yb--;
+        if (st != ILI9341_OK) { return st; }
+    }
+
+    return ILI9341_OK;
+}
+
 #endif /* HAL_SDRAM_MODULE_ENABLED */
 
 #ifdef HAL_DMA2D_MODULE_ENABLED

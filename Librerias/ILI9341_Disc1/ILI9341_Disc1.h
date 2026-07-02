@@ -949,6 +949,23 @@ ILI9341_Status_t ILI9341_DrawTriangle_ImageBuffer(uint16_t x0, uint16_t y0, uint
  */
 ILI9341_Status_t ILI9341_DrawFilledTriangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
 
+/**
+ * @brief Dibuja el contorno de una elipse en la pantalla LCD.
+ *
+ * @param[in]     x0    Coordenada X del centro.
+ * @param[in]     y0    Coordenada Y del centro.
+ * @param[in]     rx    Radio horizontal en píxeles.
+ * @param[in]     ry    Radio vertical en píxeles.
+ * @param[in]     color Color del contorno en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p rx o @p ry son negativos.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawEllipse_ImageBuffer(int16_t x0, int16_t y0, int16_t rx, int16_t ry, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+
 #endif /* HAL_SDRAM_MODULE_ENABLED */
 
 #ifdef HAL_DMA2D_MODULE_ENABLED
