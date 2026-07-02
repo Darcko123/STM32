@@ -514,6 +514,28 @@ ILI9341_Status_t ILI9341_DrawPixel(uint16_t x, uint16_t y, uint16_t color);
 ILI9341_Status_t ILI9341_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color);
 
 /**
+ * @brief Dibuja una línea vertical de forma optimizada (sin Bresenham).
+ *
+ * @param[in] x     Coordenada X de la línea.
+ * @param[in] y     Coordenada Y inicial.
+ * @param[in] h     Alto de la línea (puede ser negativo, se normaliza).
+ * @param[in] color Color de la línea.
+ * @return ILI9341_Status_t
+ */
+ILI9341_Status_t ILI9341_DrawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color);
+
+/**
+ * @brief Dibuja una línea horizontal de forma optimizada (sin Bresenham).
+ *
+ * @param[in] x     Coordenada X inicial.
+ * @param[in] y     Coordenada Y de la línea.
+ * @param[in] w     Ancho de la línea (puede ser negativo, se normaliza).
+ * @param[in] color Color de la línea.
+ * @return ILI9341_Status_t
+ */
+ILI9341_Status_t ILI9341_DrawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color);
+
+/**
  * @brief Dibuja el contorno de un rectángulo en la pantalla LCD.
  *
  * @param[in] x0    Coordenada X superior izquierda.
@@ -649,6 +671,34 @@ ILI9341_Status_t ILI9341_DrawTriangle(uint16_t x0, uint16_t y0, uint16_t x1, uin
  *         - ILI9341_ERROR           si falla la transmisión SPI.
  */
 ILI9341_Status_t ILI9341_DrawFilledTriangle(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color);
+
+/**
+ * @brief Dibuja el contorno de una elipse en la pantalla LCD.
+ *
+ * @param[in] x0    Coordenada X del centro.
+ * @param[in] y0    Coordenada Y del centro.
+ * @param[in] rx    Radio horizontal en píxeles.
+ * @param[in] ry    Radio vertical en píxeles.
+ * @param[in] color Color del contorno en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p rx o @p ry son negativos.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawEllipse(int16_t x0, int16_t y0, int16_t rx, int16_t ry, uint16_t color);
+
+/**
+ * @brief 
+ * 
+ * @param x 
+ * @param y 
+ * @param rx 
+ * @param ry 
+ * @param color 
+ * @return ILI9341_Status_t 
+ */
+ILI9341_Status_t ILI9341_DrawFilledEllipse(int16_t x, int16_t y, int16_t rx, int16_t ry, uint16_t color);
 
 /* --- Texto en pantalla ---------------------------------------------------- */
 

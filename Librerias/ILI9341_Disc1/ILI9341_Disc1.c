@@ -1135,6 +1135,70 @@ ILI9341_Status_t ILI9341_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_
 }
 
 /**
+ * @brief Dibuja una línea vertical de forma optimizada (sin Bresenham).
+ *
+ * @param[in] x     Coordenada X de la línea.
+ * @param[in] y     Coordenada Y inicial.
+ * @param[in] h     Alto de la línea (puede ser negativo, se normaliza).
+ * @param[in] color Color de la línea.
+ * @return ILI9341_Status_t
+ */
+ILI9341_Status_t ILI9341_DrawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color)
+{
+	int16_t y1;
+
+	if (ILI9341_Initialized != 1U) { return ILI9341_NOT_INITIALIZED; }
+
+	if (h == 0)
+	{
+		return ILI9341_OK;
+	}
+
+	if (h < 0) { y += h + 1; h = -h; }
+
+	if (x < 0 || (uint16_t)x >= ILI9341_Opts.width) { return ILI9341_OK; }
+
+	y1 = (int16_t)(y + h - 1);
+	if (y  < 0)                          { y  = 0; }
+	if ((uint16_t)y1 >= ILI9341_Opts.height) { y1 = (int16_t)(ILI9341_Opts.height - 1U); }
+	if (y > y1) { return ILI9341_OK; }
+
+	return ILI9341_DrawFilledRectangle((uint16_t)x, (uint16_t)y, (uint16_t)x, (uint16_t)y1, color);
+}
+
+/**
+ * @brief Dibuja una línea horizontal de forma optimizada (sin Bresenham).
+ *
+ * @param[in] x     Coordenada X inicial.
+ * @param[in] y     Coordenada Y de la línea.
+ * @param[in] w     Ancho de la línea (puede ser negativo, se normaliza).
+ * @param[in] color Color de la línea.
+ * @return ILI9341_Status_t
+ */
+ILI9341_Status_t ILI9341_DrawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color)
+{
+	int16_t x1;
+
+	if (ILI9341_Initialized != 1U) { return ILI9341_NOT_INITIALIZED; }
+
+	if (w == 0)
+	{
+		return ILI9341_OK;
+	}
+
+	if (w < 0) { x += w + 1; w = -w; }
+
+	if (y < 0 || (uint16_t)y >= ILI9341_Opts.height) { return ILI9341_OK; }
+
+	x1 = (int16_t)(x + w - 1);
+	if (x  < 0)                         { x  = 0; }
+	if ((uint16_t)x1 >= ILI9341_Opts.width) { x1 = (int16_t)(ILI9341_Opts.width - 1U); }
+	if (x > x1) { return ILI9341_OK; }
+
+	return ILI9341_DrawFilledRectangle((uint16_t)x, (uint16_t)y, (uint16_t)x1, (uint16_t)y, color);
+}
+
+/**
  * @brief Dibuja el contorno de un rectángulo en la pantalla LCD.
  *
  * @param[in] x0    Coordenada X superior izquierda.
@@ -1607,6 +1671,106 @@ ILI9341_Status_t ILI9341_DrawFilledTriangle(uint16_t x0, uint16_t y0,
         if (st != ILI9341_OK) { return st; }
     }
     return ILI9341_OK;
+}
+
+/**
+ * @brief Dibuja el contorno de una elipse en la pantalla LCD.
+ *
+ * @details Implementación entera del algoritmo de punto medio para elipses
+ *          (variante de Zingl), recortando cada píxel a los límites de la
+ *          pantalla mediante DrawPixelClipped(). Los casos degenerados
+ *          (rx == 0 o ry == 0) se delegan en ILI9341_DrawFastVLine() /
+ *          ILI9341_DrawFastHLine().
+ *
+ * @param[in] x0    Coordenada X del centro.
+ * @param[in] y0    Coordenada Y del centro.
+ * @param[in] rx    Radio horizontal en píxeles.
+ * @param[in] ry    Radio vertical en píxeles.
+ * @param[in] color Color del contorno en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p rx o @p ry son negativos.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawEllipse(int16_t x0, int16_t y0, int16_t rx, int16_t ry, uint16_t color)
+{
+    ILI9341_Status_t st;
+    int32_t xa, xb, ya, yb;
+    int32_t a, b, b1;
+    int32_t dx, dy, err, e2;
+
+    if (ILI9341_Initialized != 1U) { return ILI9341_NOT_INITIALIZED; }
+    if (rx < 0 || ry < 0)          { return ILI9341_INVALID_PARAM;   }
+
+    if (rx == 0)
+    {
+        return ILI9341_DrawFastVLine(x0, (int16_t)(y0 - ry), (int16_t)(2 * ry + 1), color);
+    }
+    if (ry == 0)
+    {
+        return ILI9341_DrawFastHLine((int16_t)(x0 - rx), y0, (int16_t)(2 * rx + 1), color);
+    }
+
+    xa = (int32_t)x0 - rx;
+    xb = (int32_t)x0 + rx;
+    ya = (int32_t)y0 - ry;
+    yb = (int32_t)y0 + ry;
+
+    a  = xb - xa;
+    b  = yb - ya;
+    b1 = b & 1;
+
+    dx  = 4 * (1 - a) * b * b;
+    dy  = 4 * (b1 + 1) * a * a;
+    err = dx + dy + b1 * a * a;
+
+    ya += (b + 1) / 2;
+    yb  = ya - b1;
+    a  *= 8 * a;
+    b1  = 8 * b * b;
+
+    do
+    {
+        st  = DrawPixelClipped((int16_t)xb, (int16_t)ya, color);
+        st  = st ? st : DrawPixelClipped((int16_t)xa, (int16_t)ya, color);
+        st  = st ? st : DrawPixelClipped((int16_t)xa, (int16_t)yb, color);
+        st  = st ? st : DrawPixelClipped((int16_t)xb, (int16_t)yb, color);
+        if (st != ILI9341_OK) { return st; }
+
+        e2 = 2 * err;
+        if (e2 <= dy) { ya++; yb--; dy += a; err += dy; }
+        if (e2 >= dx || 2 * err > dy) { xa++; xb--; dx += b1; err += dx; }
+    } while (xa <= xb);
+
+    /* Remate de puntas para elipses muy achatadas (a == 0 en algún eje). */
+    while (ya - yb < b)
+    {
+        st  = DrawPixelClipped((int16_t)(xa - 1), (int16_t)ya, color);
+        st  = st ? st : DrawPixelClipped((int16_t)(xb + 1), (int16_t)ya, color);
+        ya++;
+        st  = st ? st : DrawPixelClipped((int16_t)(xa - 1), (int16_t)yb, color);
+        st  = st ? st : DrawPixelClipped((int16_t)(xb + 1), (int16_t)yb, color);
+        yb--;
+        if (st != ILI9341_OK) { return st; }
+    }
+
+    return ILI9341_OK;
+}
+
+/**
+ * @brief 
+ * 
+ * @param x 
+ * @param y 
+ * @param rx 
+ * @param ry 
+ * @param color 
+ * @return ILI9341_Status_t 
+ */
+ILI9341_Status_t ILI9341_DrawFilledEllipse(int16_t x, int16_t y, int16_t rx, int16_t ry, uint16_t color)
+{
+
 }
 
 /**
