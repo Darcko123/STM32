@@ -1759,18 +1759,95 @@ ILI9341_Status_t ILI9341_DrawEllipse(int16_t x0, int16_t y0, int16_t rx, int16_t
 }
 
 /**
- * @brief 
+ * @brief Dibuja una elipse rellena en la pantalla LCD.
  * 
- * @param x 
- * @param y 
- * @param rx 
- * @param ry 
- * @param color 
- * @return ILI9341_Status_t 
+ * @param[in] x0    Coordenada X del centro.
+ * @param[in] y0    Coordenada Y del centro.
+ * @param[in] rx    Radio horizontal en píxeles.
+ * @param[in] ry    Radio vertical en píxeles.
+ * @param[in] color Color del contorno en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p rx o @p ry son negativos.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
  */
-ILI9341_Status_t ILI9341_DrawFilledEllipse(int16_t x, int16_t y, int16_t rx, int16_t ry, uint16_t color)
+ILI9341_Status_t ILI9341_DrawFilledEllipse(int16_t x0, int16_t y0, int16_t rx, int16_t ry, uint16_t color)
 {
+    ILI9341_Status_t st;
+    int32_t x, y;
+    int32_t rx2, ry2;
+    int32_t err, e2;
 
+    if (ILI9341_Initialized != 1U) { return ILI9341_NOT_INITIALIZED; }
+    if (rx < 0 || ry < 0)          { return ILI9341_INVALID_PARAM;   }
+
+    if (rx == 0)
+    {
+        return ILI9341_DrawFastVLine(x0, (int16_t)(y0 - ry), (int16_t)(2 * ry + 1), color);
+    }
+    if (ry == 0)
+    {
+        return ILI9341_DrawFastHLine((int16_t)(x0 - rx), y0, (int16_t)(2 * rx + 1), color);
+    }
+
+    /* Algoritmo de punto medio para elipses rellenas (versión optimizada de Zingl) */
+    rx2 = rx * rx;
+    ry2 = ry * ry;
+
+    /* Región 1: pendiente entre 0 y -1 (borde superior/inferior) */
+    x = 0;
+    y = ry;
+    err = rx2 - (2 * ry * rx2) + ry2;
+
+    while (err < 0)
+    {
+        /* Tramo horizontal entre (-x, y) y (+x, y) para la fila y0 ± y */
+        st = DrawHSpanClipped((int16_t)(x0 - x), (int16_t)(x0 + x), (int16_t)(y0 + y), color);
+        if (st != ILI9341_OK) { return st; }
+        st = DrawHSpanClipped((int16_t)(x0 - x), (int16_t)(x0 + x), (int16_t)(y0 - y), color);
+        if (st != ILI9341_OK) { return st; }
+
+        x++;
+        e2 = err;
+        if (e2 > 0)
+        {
+            y--;
+            err += 4 * rx2 * (1 - y) + 4 * ry2 * (2 * x - 1);
+        }
+        else
+        {
+            err += 4 * ry2 * (2 * x - 1);
+        }
+    }
+
+    /* Región 2: pendiente entre -1 e infinito (bordes laterales) */
+    y = 0;
+    x = rx;
+    err = ry2 - (2 * rx * ry2) + rx2;
+
+    while (err < 0)
+    {
+        /* Tramo horizontal entre (-y, x) y (+y, x) para la columna x0 ± x */
+        st = DrawHSpanClipped((int16_t)(x0 - y), (int16_t)(x0 + y), (int16_t)(y0 + x), color);
+        if (st != ILI9341_OK) { return st; }
+        st = DrawHSpanClipped((int16_t)(x0 - y), (int16_t)(x0 + y), (int16_t)(y0 - x), color);
+        if (st != ILI9341_OK) { return st; }
+
+        y++;
+        e2 = err;
+        if (e2 > 0)
+        {
+            x--;
+            err += 4 * ry2 * (1 - x) + 4 * rx2 * (2 * y - 1);
+        }
+        else
+        {
+            err += 4 * rx2 * (2 * y - 1);
+        }
+    }
+
+    return ILI9341_OK;
 }
 
 /**
