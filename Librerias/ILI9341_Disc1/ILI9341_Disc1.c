@@ -2743,6 +2743,99 @@ ILI9341_Status_t ILI9341_DrawEllipse_ImageBuffer(int16_t x0, int16_t y0, int16_t
     return ILI9341_OK;
 }
 
+/**
+ * @brief Dibuja el contorno de una elipse en la pantalla LCD.
+ *
+ * @param[in]     x0    Coordenada X del centro.
+ * @param[in]     y0    Coordenada Y del centro.
+ * @param[in]     rx    Radio horizontal en píxeles.
+ * @param[in]     ry    Radio vertical en píxeles.
+ * @param[in]     color Color del contorno en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p rx o @p ry son negativos.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawFilledEllipse_ImageBuffer(int16_t x0, int16_t y0, int16_t rx, int16_t ry, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
+{
+    ILI9341_Status_t st;
+    int32_t x, y;
+    int32_t rx2, ry2;
+    int32_t err, e2;
+
+    if (image == NULL)    { return ILI9341_INVALID_PARAM; }
+    if (rx < 0 || ry < 0) { return ILI9341_INVALID_PARAM; }
+
+    if (rx == 0)
+    {
+        return ILI9341_DrawLine_ImageBuffer(x0, (int16_t)(y0 - ry), x0, (int16_t)(y0 + ry), color, image);
+    }
+    if (ry == 0)
+    {
+        return ILI9341_DrawLine_ImageBuffer((int16_t)(x0 - rx), y0, (int16_t)(x0 + rx), y0, color, image);
+    }
+
+    /* Algoritmo de punto medio para elipses rellenas (versión optimizada de Zingl) */
+    rx2 = rx * rx;
+    ry2 = ry * ry;
+
+    /* Región 1: pendiente entre 0 y -1 (borde superior/inferior) */
+    x = 0;
+    y = ry;
+    err = rx2 - (2 * ry * rx2) + ry2;
+
+    while (err < 0)
+    {
+        /* Tramo horizontal entre (-x, y) y (+x, y) para la fila y0 ± y */
+        st = DrawHSpanClipped_ImageBuffer((int16_t)(x0 - x), (int16_t)(x0 + x), (int16_t)(y0 + y), color, image);
+        if (st != ILI9341_OK) { return st; }
+        st = DrawHSpanClipped_ImageBuffer((int16_t)(x0 - x), (int16_t)(x0 + x), (int16_t)(y0 - y), color, image);
+        if (st != ILI9341_OK) { return st; }
+
+        x++;
+        e2 = err;
+        if (e2 > 0)
+        {
+            y--;
+            err += 4 * rx2 * (1 - y) + 4 * ry2 * (2 * x - 1);
+        }
+        else
+        {
+            err += 4 * ry2 * (2 * x - 1);
+        }
+    }
+
+    /* Región 2: pendiente entre -1 e infinito (bordes laterales) */
+    y = 0;
+    x = rx;
+    err = ry2 - (2 * rx * ry2) + rx2;
+
+    while (err < 0)
+    {
+        /* Tramo horizontal entre (-y, x) y (+y, x) para la columna x0 ± x */
+        st = DrawHSpanClipped_ImageBuffer((int16_t)(x0 - y), (int16_t)(x0 + y), (int16_t)(y0 + x), color, image);
+        if (st != ILI9341_OK) { return st; }
+        st = DrawHSpanClipped_ImageBuffer((int16_t)(x0 - y), (int16_t)(x0 + y), (int16_t)(y0 - x), color, image);
+        if (st != ILI9341_OK) { return st; }
+
+        y++;
+        e2 = err;
+        if (e2 > 0)
+        {
+            x--;
+            err += 4 * ry2 * (1 - x) + 4 * rx2 * (2 * y - 1);
+        }
+        else
+        {
+            err += 4 * rx2 * (2 * y - 1);
+        }
+    }
+
+    return ILI9341_OK;
+}
+
 #endif /* HAL_SDRAM_MODULE_ENABLED */
 
 #ifdef HAL_DMA2D_MODULE_ENABLED
