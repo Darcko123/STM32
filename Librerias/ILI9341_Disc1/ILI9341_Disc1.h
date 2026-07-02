@@ -721,6 +721,24 @@ ILI9341_Status_t ILI9341_DrawFilledEllipse(int16_t x0, int16_t y0, int16_t rx, i
  */
 ILI9341_Status_t ILI9341_DrawArc(int16_t x, int16_t y, int16_t r1, int16_t r2, float start, float end, uint16_t color);
 
+/**
+ * @brief Dibuja un arco relleno (sector de anillo) entre dos ángulos.
+ *
+ * @param[in] x0    Coordenada X del centro.
+ * @param[in] y0    Coordenada Y del centro.
+ * @param[in] r1    Radio exterior del arco.
+ * @param[in] r2    Radio interior del arco.
+ * @param[in] start Ángulo inicial en grados (0° = derecha, sentido horario).
+ * @param[in] end   Ángulo final en grados.
+ * @param[in] color Color del contorno.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p r1 o @p r2 son negativos.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawFilledArc(int16_t x0, int16_t y0, int16_t r1, int16_t r2, float start, float end, uint16_t color);
+
 /* --- Texto en pantalla ---------------------------------------------------- */
 
 /**
