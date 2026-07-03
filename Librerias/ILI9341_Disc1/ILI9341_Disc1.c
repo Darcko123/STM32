@@ -2362,6 +2362,25 @@ ILI9341_Status_t ILI9341_DisplayImage(uint32_t image[IMG_TOTAL_BUF32])
 #ifdef HAL_SDRAM_MODULE_ENABLED
 
 /**
+ * @brief Rellena un frame buffer fuera de pantalla completo con un color sólido.
+ *
+ * @details Delega en ILI9341_DrawFilledRectangle_ImageBuffer() sobre el área
+ *          completa del panel: usa DMA2D en modo R2M cuando el handle fue
+ *          inyectado en ILI9341_Init() y el camino CPU optimizado en caso
+ *          contrario.
+ *
+ * @param[in]     color  Color de relleno en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ */
+ILI9341_Status_t ILI9341_Fill_ImageBuffer(uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
+{
+    return ILI9341_DrawFilledRectangle_ImageBuffer(0U, 0U,
+                                                   ILI9341_WIDTH  - 1U,
+                                                   ILI9341_HEIGHT - 1U,
+                                                   color, image);
+}
+
+/**
  * @brief Escribe un píxel en un frame buffer fuera de pantalla.
  *
  * @param[in]     x      Coordenada X del píxel.
@@ -2757,6 +2776,56 @@ ILI9341_Status_t ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y
             if (tail)
                 ((uint16_t*)image)[base32 << 1U] = color;
         }
+    }
+    return ILI9341_OK;
+}
+
+/**
+ * @brief Dibuja el contorno de un círculo en un frame buffer fuera de pantalla.
+ *
+ * @details Misma lógica que ILI9341_DrawCircle() (Bresenham de punto medio con
+ *          simetría de octantes) pero escribe directamente en el frame buffer.
+ *          Los píxeles se recortan a los límites fijos del panel.
+ *
+ * @param[in]     x0     Coordenada X del centro.
+ * @param[in]     y0     Coordenada Y del centro.
+ * @param[in]     r      Radio en píxeles.
+ * @param[in]     color  Color de la línea en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ */
+ILI9341_Status_t ILI9341_DrawCircle_ImageBuffer(int16_t x0, int16_t y0, int16_t r, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
+{
+    ILI9341_Status_t st;
+    int16_t f     =  1 - r;
+    int16_t ddF_x =  1;
+    int16_t ddF_y = -2 * r;
+    int16_t x     =  0;
+    int16_t y     =  r;
+
+    if (image == NULL) { return ILI9341_INVALID_PARAM; }
+
+    st  = DrawPixelClipped_ImageBuffer(x0,     y0 + r, color, image);
+    st  = st ? st : DrawPixelClipped_ImageBuffer(x0,     y0 - r, color, image);
+    st  = st ? st : DrawPixelClipped_ImageBuffer(x0 + r, y0,     color, image);
+    st  = st ? st : DrawPixelClipped_ImageBuffer(x0 - r, y0,     color, image);
+    if (st != ILI9341_OK) { return st; }
+
+    while (x < y)
+    {
+        if (f >= 0) { y--; ddF_y += 2; f += ddF_y; }
+        x++;
+        ddF_x += 2;
+        f += ddF_x;
+
+        st  = DrawPixelClipped_ImageBuffer(x0 + x, y0 + y, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer(x0 - x, y0 + y, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer(x0 + x, y0 - y, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer(x0 - x, y0 - y, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer(x0 + y, y0 + x, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer(x0 - y, y0 + x, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer(x0 + y, y0 - x, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer(x0 - y, y0 - x, color, image);
+        if (st != ILI9341_OK) { return st; }
     }
     return ILI9341_OK;
 }

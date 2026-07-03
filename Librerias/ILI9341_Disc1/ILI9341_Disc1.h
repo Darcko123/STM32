@@ -802,6 +802,23 @@ ILI9341_Status_t ILI9341_DisplayImage(uint32_t image[IMG_TOTAL_BUF32]);
 #ifdef HAL_SDRAM_MODULE_ENABLED
 
 /**
+ * @brief Rellena un frame buffer fuera de pantalla completo con un color sólido.
+ *
+ * @details Delega en ILI9341_DrawFilledRectangle_ImageBuffer() sobre el área
+ *          completa del panel, por lo que usa DMA2D en modo R2M cuando está
+ *          disponible y el camino CPU optimizado (2 píxeles por palabra) en
+ *          caso contrario.
+ *
+ * @param[in]     color  Color de relleno en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_INVALID_PARAM   si @p image es NULL.
+ *         - ILI9341_ERROR           si falla la transferencia DMA2D (solo con HAL_DMA2D_MODULE_ENABLED).
+ */
+ILI9341_Status_t ILI9341_Fill_ImageBuffer(uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+
+/**
  * @brief Escribe un píxel en un frame buffer fuera de pantalla.
  *
  * @param[in]     x      Coordenada X del píxel.
@@ -931,6 +948,24 @@ ILI9341_Status_t ILI9341_DrawRoundRect_ImageBuffer(uint16_t x0, uint16_t y0, uin
  *         - ILI9341_ERROR         si falla una transferencia DMA2D interna (solo con HAL_DMA2D_MODULE_ENABLED).
  */
 ILI9341_Status_t ILI9341_DrawFilledRoundRect_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t r, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+
+/**
+ * @brief Dibuja el contorno de un círculo en un frame buffer fuera de pantalla.
+ *
+ * @details Misma lógica que ILI9341_DrawCircle() (Bresenham de punto medio con
+ *          simetría de octantes) pero escribe directamente en el frame buffer.
+ *          Los píxeles se recortan a los límites fijos del panel.
+ *
+ * @param[in]     x0     Coordenada X del centro.
+ * @param[in]     y0     Coordenada Y del centro.
+ * @param[in]     r      Radio en píxeles.
+ * @param[in]     color  Color de la línea en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_INVALID_PARAM   si @p image es NULL.
+ */
+ILI9341_Status_t ILI9341_DrawCircle_ImageBuffer(int16_t x0, int16_t y0, int16_t r, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
 
 /**
  * @brief Dibuja un círculo relleno en un frame buffer fuera de pantalla.
