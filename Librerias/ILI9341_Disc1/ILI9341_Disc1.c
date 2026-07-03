@@ -3126,6 +3126,51 @@ ILI9341_Status_t ILI9341_DrawArc_ImageBuffer(int16_t x, int16_t y, int16_t r1, i
     return st;
 }
 
+/**
+ * @brief Dibuja un arco relleno (sector de anillo) entre dos ángulos.
+ *
+ * @param[in] x0    Coordenada X del centro.
+ * @param[in] y0    Coordenada Y del centro.
+ * @param[in] r1    Radio exterior del arco.
+ * @param[in] r2    Radio interior del arco.
+ * @param[in] start Ángulo inicial en grados (0° = derecha, sentido horario).
+ * @param[in] end   Ángulo final en grados.
+ * @param[in] color Color del contorno.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p image es NULL, o si @p r1 o @p r2 son negativos.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawFilledArc_ImageBuffer(int16_t x0, int16_t y0, int16_t r1, int16_t r2, float start, float end, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
+{
+    bool equal;
+    int16_t tmp;
+
+    if (ILI9341_Initialized != 1U) { return ILI9341_NOT_INITIALIZED; }
+    if (image == NULL)             { return ILI9341_INVALID_PARAM;   }
+    if (r1 < 0 || r2 < 0)          { return ILI9341_INVALID_PARAM;   }
+
+    if (r1 < r2) { tmp = r1; r1 = r2; r2 = tmp; }
+    if (r1 < 1)  { r1 = 1; }
+    if (r2 < 1)  { r2 = 1; }
+
+    equal = fabsf(start - end) < FLT_EPSILON;
+    start = fmodf(start, 360.0f);
+    end   = fmodf(end, 360.0f);
+    if (start < 0) { start += 360.0f; }
+    if (end < 0)   { end   += 360.0f; }
+
+    if (!equal && (fabsf(start - end) <= 0.0001f))
+    {
+        start = 0.0f;
+        end   = 360.0f;
+    }
+
+    return ILI9341_FillArcHelper(x0, y0, r1, r2, start, end, color, image);
+}
+
 #endif /* HAL_SDRAM_MODULE_ENABLED */
 
 #ifdef HAL_DMA2D_MODULE_ENABLED
