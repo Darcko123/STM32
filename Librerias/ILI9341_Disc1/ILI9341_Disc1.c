@@ -5,8 +5,8 @@
  *
  * @origin El código de este driver se basa en la librería Petr Machala, Tilen Majerle, 2014.
  * @author Dr. Luis Antonio Raygoza Pérez & Ing. Daniel Ruiz
- * @date June 15, 2026
- * @version 1.2.0
+ * @date July 03, 2026
+ * @version 1.3.0
  */
 
 #include "ILI9341_Disc1.h"
@@ -171,6 +171,145 @@ static ILI9341_Status_t SPI_ILI9341_WaitTXE(void)
             return ILI9341_TIMEOUT;
         }
     }
+    return ILI9341_OK;
+}
+
+/**
+ * @brief Rellena un segmento angular (arco) entre dos ángulos y dos radios.
+ *
+ * @details Recorre el cuadro delimitador del arco fila por fila y dibuja,
+ *          en cada una, los segmentos horizontales que caen dentro de la
+ *          corona circular [iradius, oradius] y del sector angular
+ *          [start, end]. Usado por ILI9341_DrawArc tanto para los bordes
+ *          rectos del arco como para sus bordes curvos.
+ *
+ * @param cx      Coordenada X del centro.
+ * @param cy      Coordenada Y del centro.
+ * @param oradius Radio exterior del arco.
+ * @param iradius Radio interior del arco.
+ * @param start   Ángulo inicial en grados (0 a 360).
+ * @param end     Ángulo final en grados (0 a 360).
+ * @param color   Color a utilizar.
+ *
+ * @return ILI9341_Status_t Estado de la operación.
+ */
+static ILI9341_Status_t ILI9341_FillArcHelper(int16_t cx, int16_t cy, int16_t oradius, int16_t iradius, float start, float end, uint16_t color, uint32_t* image)
+{
+    ILI9341_Status_t st;
+    float s_cos, e_cos, sslope, eslope, swidth, ewidth;
+    int32_t ir2, or2, xs, y, ye, xe;
+    bool start180, end180, reversed;
+
+    if ((start == 0.0f) || (start == 90.0f) || (start == 180.0f) || (start == 270.0f) || (start == 360.0f))
+    {
+        start += 0.1f;
+    }
+    if ((end == 0.0f) || (end == 90.0f) || (end == 180.0f) || (end == 270.0f) || (end == 360.0f))
+    {
+        end += 0.1f;
+    }
+
+    s_cos  = cosf(start * 0.0174532925f);
+    e_cos  = cosf(end * 0.0174532925f);
+    sslope = s_cos / sinf(start * 0.0174532925f);
+    eslope = e_cos / sinf(end * 0.0174532925f);
+    swidth = 0.5f / s_cos;
+    ewidth = -0.5f / e_cos;
+    --iradius;
+    ir2 = (int32_t)iradius * iradius + iradius;
+    or2 = (int32_t)oradius * oradius + oradius;
+
+    start180 = !(start < 180.0f);
+    end180   = end < 180.0f;
+    reversed = (start + 180.0f < end) || (end < start && start < end + 180.0f);
+
+    xs = -oradius;
+    y  = -oradius;
+    ye = oradius;
+    xe = oradius + 1;
+    if (!reversed)
+    {
+        if ((end >= 270.0f || end < 90.0f) && (start >= 270.0f || start < 90.0f))
+        {
+            xs = 0;
+        }
+        else if (end < 270.0f && end >= 90.0f && start < 270.0f && start >= 90.0f)
+        {
+            xe = 1;
+        }
+        if (end >= 180.0f && start >= 180.0f)
+        {
+            ye = 0;
+        }
+        else if (end < 180.0f && start < 180.0f)
+        {
+            y = 0;
+        }
+    }
+
+    do
+    {
+        int32_t y2 = y * y;
+        int32_t x  = xs;
+        int32_t len = 0;
+        float ysslope, yeslope;
+
+        if (x < 0)
+        {
+            while (x * x + y2 >= or2)
+            {
+                ++x;
+            }
+            if (xe != 1)
+            {
+                xe = 1 - x;
+            }
+        }
+
+        ysslope = ((float)y + swidth) * sslope;
+        yeslope = ((float)y + ewidth) * eslope;
+
+        do
+        {
+            bool flg1 = start180 != (x <= ysslope);
+            bool flg2 = end180 != (x <= yeslope);
+            int32_t distance = x * x + y2;
+
+            if (distance >= ir2 && ((flg1 && flg2) || (reversed && (flg1 || flg2))) && x != xe && distance < or2)
+            {
+                ++len;
+            }
+            else
+            {
+                if (len)
+                {
+                    if (image != NULL)
+                    {
+#ifdef HAL_SDRAM_MODULE_ENABLED
+                        st = DrawHSpanClipped_ImageBuffer(cx + x - len, cx + x - 1, cy + y, color, image);
+#else
+                        st = ILI9341_OK;
+#endif
+                    }
+                    else
+                    {
+                        st = DrawHSpanClipped(cx + x - len, cx + x - 1, cy + y, color);
+                    }
+                    if (st != ILI9341_OK) { return st; }
+                    len = 0;
+                }
+                if (distance >= or2)
+                {
+                    break;
+                }
+                if (x < 0 && distance < ir2)
+                {
+                    x = -x;
+                }
+            }
+        } while (++x <= xe);
+    } while (++y <= ye);
+
     return ILI9341_OK;
 }
 
@@ -1135,6 +1274,70 @@ ILI9341_Status_t ILI9341_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_
 }
 
 /**
+ * @brief Dibuja una línea vertical de forma optimizada (sin Bresenham).
+ *
+ * @param[in] x     Coordenada X de la línea.
+ * @param[in] y     Coordenada Y inicial.
+ * @param[in] h     Alto de la línea (puede ser negativo, se normaliza).
+ * @param[in] color Color de la línea.
+ * @return ILI9341_Status_t
+ */
+ILI9341_Status_t ILI9341_DrawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color)
+{
+	int16_t y1;
+
+	if (ILI9341_Initialized != 1U) { return ILI9341_NOT_INITIALIZED; }
+
+	if (h == 0)
+	{
+		return ILI9341_OK;
+	}
+
+	if (h < 0) { y += h + 1; h = -h; }
+
+	if (x < 0 || (uint16_t)x >= ILI9341_Opts.width) { return ILI9341_OK; }
+
+	y1 = (int16_t)(y + h - 1);
+	if (y  < 0)                          { y  = 0; }
+	if ((uint16_t)y1 >= ILI9341_Opts.height) { y1 = (int16_t)(ILI9341_Opts.height - 1U); }
+	if (y > y1) { return ILI9341_OK; }
+
+	return ILI9341_DrawFilledRectangle((uint16_t)x, (uint16_t)y, (uint16_t)x, (uint16_t)y1, color);
+}
+
+/**
+ * @brief Dibuja una línea horizontal de forma optimizada (sin Bresenham).
+ *
+ * @param[in] x     Coordenada X inicial.
+ * @param[in] y     Coordenada Y de la línea.
+ * @param[in] w     Ancho de la línea (puede ser negativo, se normaliza).
+ * @param[in] color Color de la línea.
+ * @return ILI9341_Status_t
+ */
+ILI9341_Status_t ILI9341_DrawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color)
+{
+	int16_t x1;
+
+	if (ILI9341_Initialized != 1U) { return ILI9341_NOT_INITIALIZED; }
+
+	if (w == 0)
+	{
+		return ILI9341_OK;
+	}
+
+	if (w < 0) { x += w + 1; w = -w; }
+
+	if (y < 0 || (uint16_t)y >= ILI9341_Opts.height) { return ILI9341_OK; }
+
+	x1 = (int16_t)(x + w - 1);
+	if (x  < 0)                         { x  = 0; }
+	if ((uint16_t)x1 >= ILI9341_Opts.width) { x1 = (int16_t)(ILI9341_Opts.width - 1U); }
+	if (x > x1) { return ILI9341_OK; }
+
+	return ILI9341_DrawFilledRectangle((uint16_t)x, (uint16_t)y, (uint16_t)x1, (uint16_t)y, color);
+}
+
+/**
  * @brief Dibuja el contorno de un rectángulo en la pantalla LCD.
  *
  * @param[in] x0    Coordenada X superior izquierda.
@@ -1610,6 +1813,264 @@ ILI9341_Status_t ILI9341_DrawFilledTriangle(uint16_t x0, uint16_t y0,
 }
 
 /**
+ * @brief Dibuja el contorno de una elipse en la pantalla LCD.
+ *
+ * @details Implementación entera del algoritmo de punto medio para elipses
+ *          (variante de Zingl), recortando cada píxel a los límites de la
+ *          pantalla mediante DrawPixelClipped(). Los casos degenerados
+ *          (rx == 0 o ry == 0) se delegan en ILI9341_DrawFastVLine() /
+ *          ILI9341_DrawFastHLine().
+ *
+ * @param[in] x0    Coordenada X del centro.
+ * @param[in] y0    Coordenada Y del centro.
+ * @param[in] rx    Radio horizontal en píxeles.
+ * @param[in] ry    Radio vertical en píxeles.
+ * @param[in] color Color del contorno en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p rx o @p ry son negativos.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawEllipse(int16_t x0, int16_t y0, int16_t rx, int16_t ry, uint16_t color)
+{
+    ILI9341_Status_t st;
+    int32_t xa, xb, ya, yb;
+    int32_t a, b, b1;
+    int32_t dx, dy, err, e2;
+
+    if (ILI9341_Initialized != 1U) { return ILI9341_NOT_INITIALIZED; }
+    if (rx < 0 || ry < 0)          { return ILI9341_INVALID_PARAM;   }
+
+    if (rx == 0)
+    {
+        return ILI9341_DrawFastVLine(x0, (int16_t)(y0 - ry), (int16_t)(2 * ry + 1), color);
+    }
+    if (ry == 0)
+    {
+        return ILI9341_DrawFastHLine((int16_t)(x0 - rx), y0, (int16_t)(2 * rx + 1), color);
+    }
+
+    xa = (int32_t)x0 - rx;
+    xb = (int32_t)x0 + rx;
+    ya = (int32_t)y0 - ry;
+    yb = (int32_t)y0 + ry;
+
+    a  = xb - xa;
+    b  = yb - ya;
+    b1 = b & 1;
+
+    dx  = 4 * (1 - a) * b * b;
+    dy  = 4 * (b1 + 1) * a * a;
+    err = dx + dy + b1 * a * a;
+
+    ya += (b + 1) / 2;
+    yb  = ya - b1;
+    a  *= 8 * a;
+    b1  = 8 * b * b;
+
+    do
+    {
+        st  = DrawPixelClipped((int16_t)xb, (int16_t)ya, color);
+        st  = st ? st : DrawPixelClipped((int16_t)xa, (int16_t)ya, color);
+        st  = st ? st : DrawPixelClipped((int16_t)xa, (int16_t)yb, color);
+        st  = st ? st : DrawPixelClipped((int16_t)xb, (int16_t)yb, color);
+        if (st != ILI9341_OK) { return st; }
+
+        e2 = 2 * err;
+        if (e2 <= dy) { ya++; yb--; dy += a; err += dy; }
+        if (e2 >= dx || 2 * err > dy) { xa++; xb--; dx += b1; err += dx; }
+    } while (xa <= xb);
+
+    /* Remate de puntas para elipses muy achatadas (a == 0 en algún eje). */
+    while (ya - yb < b)
+    {
+        st  = DrawPixelClipped((int16_t)(xa - 1), (int16_t)ya, color);
+        st  = st ? st : DrawPixelClipped((int16_t)(xb + 1), (int16_t)ya, color);
+        ya++;
+        st  = st ? st : DrawPixelClipped((int16_t)(xa - 1), (int16_t)yb, color);
+        st  = st ? st : DrawPixelClipped((int16_t)(xb + 1), (int16_t)yb, color);
+        yb--;
+        if (st != ILI9341_OK) { return st; }
+    }
+
+    return ILI9341_OK;
+}
+
+/**
+ * @brief Dibuja una elipse rellena en la pantalla LCD.
+ * 
+ * @param[in] x0    Coordenada X del centro.
+ * @param[in] y0    Coordenada Y del centro.
+ * @param[in] rx    Radio horizontal en píxeles.
+ * @param[in] ry    Radio vertical en píxeles.
+ * @param[in] color Color del contorno en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p rx o @p ry son negativos.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawFilledEllipse(int16_t x0, int16_t y0, int16_t rx, int16_t ry, uint16_t color)
+{
+    ILI9341_Status_t st;
+    int32_t xa, xb, ya, yb;
+    int32_t a, b, b1;
+    int32_t dx, dy, err, e2;
+
+    if (ILI9341_Initialized != 1U) { return ILI9341_NOT_INITIALIZED; }
+    if (rx < 0 || ry < 0)          { return ILI9341_INVALID_PARAM;   }
+
+    if (rx == 0)
+    {
+        return ILI9341_DrawFastVLine(x0, (int16_t)(y0 - ry), (int16_t)(2 * ry + 1), color);
+    }
+    if (ry == 0)
+    {
+        return ILI9341_DrawFastHLine((int16_t)(x0 - rx), y0, (int16_t)(2 * rx + 1), color);
+    }
+
+    /* Mismo trazado de contorno que ILI9341_DrawEllipse (Zingl), pero rellenando
+     * cada fila visitada con un tramo horizontal en vez de graficar 4 píxeles. */
+    xa = (int32_t)x0 - rx;
+    xb = (int32_t)x0 + rx;
+    ya = (int32_t)y0 - ry;
+    yb = (int32_t)y0 + ry;
+
+    a  = xb - xa;
+    b  = yb - ya;
+    b1 = b & 1;
+
+    dx  = 4 * (1 - a) * b * b;
+    dy  = 4 * (b1 + 1) * a * a;
+    err = dx + dy + b1 * a * a;
+
+    ya += (b + 1) / 2;
+    yb  = ya - b1;
+    a  *= 8 * a;
+    b1  = 8 * b * b;
+
+    do
+    {
+        st  = DrawHSpanClipped((int16_t)xa, (int16_t)xb, (int16_t)ya, color);
+        st  = st ? st : DrawHSpanClipped((int16_t)xa, (int16_t)xb, (int16_t)yb, color);
+        if (st != ILI9341_OK) { return st; }
+
+        e2 = 2 * err;
+        if (e2 <= dy) { ya++; yb--; dy += a; err += dy; }
+        if (e2 >= dx || 2 * err > dy) { xa++; xb--; dx += b1; err += dx; }
+    } while (xa <= xb);
+
+    /* Remate de puntas para elipses muy achatadas (a == 0 en algún eje). */
+    while (ya - yb < b)
+    {
+        ya++;
+        yb--;
+        st  = DrawHSpanClipped((int16_t)(xa - 1), (int16_t)(xb + 1), (int16_t)ya, color);
+        st  = st ? st : DrawHSpanClipped((int16_t)(xa - 1), (int16_t)(xb + 1), (int16_t)yb, color);
+        if (st != ILI9341_OK) { return st; }
+    }
+
+    return ILI9341_OK;
+}
+
+/**
+ * @brief Dibuja el contorno de un arco (sector de anillo) entre dos ángulos.
+ *
+ * @param[in] x0    Coordenada X del centro.
+ * @param[in] y0    Coordenada Y del centro.
+ * @param[in] r1    Radio exterior del arco.
+ * @param[in] r2    Radio interior del arco.
+ * @param[in] start Ángulo inicial en grados (0° = derecha, sentido horario).
+ * @param[in] end   Ángulo final en grados.
+ * @param[in] color Color del contorno.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p r1 o @p r2 son negativos.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawArc(int16_t x0, int16_t y0, int16_t r1, int16_t r2, float start, float end, uint16_t color)
+{
+    ILI9341_Status_t st;
+    bool equal;
+    int16_t tmp;
+
+    if (ILI9341_Initialized != 1U) { return ILI9341_NOT_INITIALIZED; }
+    if (r1 < 0 || r2 < 0)          { return ILI9341_INVALID_PARAM;   }
+
+    if (r1 < r2) { tmp = r1; r1 = r2; r2 = tmp; }
+    if (r1 < 1)  { r1 = 1; }
+    if (r2 < 1)  { r2 = 1; }
+
+    equal = fabsf(start - end) < FLT_EPSILON;
+    start = fmodf(start, 360.0f);
+    end   = fmodf(end, 360.0f);
+    if (start < 0) { start += 360.0f; }
+    if (end < 0)   { end   += 360.0f; }
+
+    /* Bordes rectos del arco (en start y en end) */
+    st  = ILI9341_FillArcHelper(x0, y0, r1, r2, start, start, color, NULL);
+    st  = st ? st : ILI9341_FillArcHelper(x0, y0, r1, r2, end, end, color, NULL);
+    if (st != ILI9341_OK) { return st; }
+
+    if (!equal && (fabsf(start - end) <= 0.0001f))
+    {
+        start = 0.0f;
+        end   = 360.0f;
+    }
+
+    /* Bordes curvos del arco (radio exterior e interior) */
+    st  = ILI9341_FillArcHelper(x0, y0, r1, r1, start, end, color, NULL);
+    st  = st ? st : ILI9341_FillArcHelper(x0, y0, r2, r2, start, end, color, NULL);
+
+    return st;
+}
+
+/**
+ * @brief Dibuja un arco relleno (sector de anillo) entre dos ángulos.
+ *
+ * @param[in] x0    Coordenada X del centro.
+ * @param[in] y0    Coordenada Y del centro.
+ * @param[in] r1    Radio exterior del arco.
+ * @param[in] r2    Radio interior del arco.
+ * @param[in] start Ángulo inicial en grados (0° = derecha, sentido horario).
+ * @param[in] end   Ángulo final en grados.
+ * @param[in] color Color del contorno.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p r1 o @p r2 son negativos.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawFilledArc(int16_t x0, int16_t y0, int16_t r1, int16_t r2, float start, float end, uint16_t color)
+{
+    bool equal;
+    int16_t tmp;
+
+    if (ILI9341_Initialized != 1U) { return ILI9341_NOT_INITIALIZED; }
+    if (r1 < 0 || r2 < 0)          { return ILI9341_INVALID_PARAM;   }
+
+    if (r1 < r2) { tmp = r1; r1 = r2; r2 = tmp; }
+    if (r1 < 1)  { r1 = 1; }
+    if (r2 < 1)  { r2 = 1; }
+
+    equal = fabsf(start - end) < FLT_EPSILON;
+    start = fmodf(start, 360.0f);
+    end   = fmodf(end, 360.0f);
+    if (start < 0) { start += 360.0f; }
+    if (end < 0)   { end   += 360.0f; }
+
+    if (!equal && (fabsf(start - end) <= 0.0001f))
+    {
+        start = 0.0f;
+        end   = 360.0f;
+    }
+
+    return ILI9341_FillArcHelper(x0, y0, r1, r2, start, end, color, NULL);
+}
+
+/**
  * @brief Renderiza un carácter en la pantalla LCD.
  *
  * @param[in] x          Coordenada X superior izquierda de la celda del carácter.
@@ -1899,6 +2360,25 @@ ILI9341_Status_t ILI9341_DisplayImage(uint32_t image[IMG_TOTAL_BUF32])
 }
 
 #ifdef HAL_SDRAM_MODULE_ENABLED
+
+/**
+ * @brief Rellena un frame buffer fuera de pantalla completo con un color sólido.
+ *
+ * @details Delega en ILI9341_DrawFilledRectangle_ImageBuffer() sobre el área
+ *          completa del panel: usa DMA2D en modo R2M cuando el handle fue
+ *          inyectado en ILI9341_Init() y el camino CPU optimizado en caso
+ *          contrario.
+ *
+ * @param[in]     color  Color de relleno en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ */
+ILI9341_Status_t ILI9341_Fill_ImageBuffer(uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
+{
+    return ILI9341_DrawFilledRectangle_ImageBuffer(0U, 0U,
+                                                   ILI9341_WIDTH  - 1U,
+                                                   ILI9341_HEIGHT - 1U,
+                                                   color, image);
+}
 
 /**
  * @brief Escribe un píxel en un frame buffer fuera de pantalla.
@@ -2301,6 +2781,56 @@ ILI9341_Status_t ILI9341_DrawFilledRectangle_ImageBuffer(uint16_t x0, uint16_t y
 }
 
 /**
+ * @brief Dibuja el contorno de un círculo en un frame buffer fuera de pantalla.
+ *
+ * @details Misma lógica que ILI9341_DrawCircle() (Bresenham de punto medio con
+ *          simetría de octantes) pero escribe directamente en el frame buffer.
+ *          Los píxeles se recortan a los límites fijos del panel.
+ *
+ * @param[in]     x0     Coordenada X del centro.
+ * @param[in]     y0     Coordenada Y del centro.
+ * @param[in]     r      Radio en píxeles.
+ * @param[in]     color  Color de la línea en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ */
+ILI9341_Status_t ILI9341_DrawCircle_ImageBuffer(int16_t x0, int16_t y0, int16_t r, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
+{
+    ILI9341_Status_t st;
+    int16_t f     =  1 - r;
+    int16_t ddF_x =  1;
+    int16_t ddF_y = -2 * r;
+    int16_t x     =  0;
+    int16_t y     =  r;
+
+    if (image == NULL) { return ILI9341_INVALID_PARAM; }
+
+    st  = DrawPixelClipped_ImageBuffer(x0,     y0 + r, color, image);
+    st  = st ? st : DrawPixelClipped_ImageBuffer(x0,     y0 - r, color, image);
+    st  = st ? st : DrawPixelClipped_ImageBuffer(x0 + r, y0,     color, image);
+    st  = st ? st : DrawPixelClipped_ImageBuffer(x0 - r, y0,     color, image);
+    if (st != ILI9341_OK) { return st; }
+
+    while (x < y)
+    {
+        if (f >= 0) { y--; ddF_y += 2; f += ddF_y; }
+        x++;
+        ddF_x += 2;
+        f += ddF_x;
+
+        st  = DrawPixelClipped_ImageBuffer(x0 + x, y0 + y, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer(x0 - x, y0 + y, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer(x0 + x, y0 - y, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer(x0 - x, y0 - y, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer(x0 + y, y0 + x, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer(x0 - y, y0 + x, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer(x0 + y, y0 - x, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer(x0 - y, y0 - x, color, image);
+        if (st != ILI9341_OK) { return st; }
+    }
+    return ILI9341_OK;
+}
+
+/**
  * @brief Dibuja un círculo relleno en un frame buffer fuera de pantalla.
  *
  * @param[in]     x0     Coordenada X del centro.
@@ -2420,6 +2950,264 @@ ILI9341_Status_t ILI9341_DrawFilledTriangle_ImageBuffer(uint16_t x0, uint16_t y0
         if (st != ILI9341_OK) { return st; }
     }
     return ILI9341_OK;
+}
+
+/**
+ * @brief Dibuja el contorno de una elipse en la pantalla LCD.
+ *
+ * @param[in]     x0    Coordenada X del centro.
+ * @param[in]     y0    Coordenada Y del centro.
+ * @param[in]     rx    Radio horizontal en píxeles.
+ * @param[in]     ry    Radio vertical en píxeles.
+ * @param[in]     color Color del contorno en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p rx o @p ry son negativos.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawEllipse_ImageBuffer(int16_t x0, int16_t y0, int16_t rx, int16_t ry, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
+{
+    ILI9341_Status_t st;
+    int32_t xa, xb, ya, yb;
+    int32_t a, b, b1;
+    int32_t dx, dy, err, e2;
+
+    if (image == NULL)    { return ILI9341_INVALID_PARAM; }
+    if (rx < 0 || ry < 0) { return ILI9341_INVALID_PARAM; }
+
+    if (rx == 0)
+    {
+        return ILI9341_DrawLine_ImageBuffer(x0, (int16_t)(y0 - ry), x0, (int16_t)(y0 + ry), color, image);
+    }
+    if (ry == 0)
+    {
+        return ILI9341_DrawLine_ImageBuffer((int16_t)(x0 - rx), y0, (int16_t)(x0 + rx), y0, color, image);
+    }
+
+    xa = (int32_t)x0 - rx;
+    xb = (int32_t)x0 + rx;
+    ya = (int32_t)y0 - ry;
+    yb = (int32_t)y0 + ry;
+
+    a  = xb - xa;
+    b  = yb - ya;
+    b1 = b & 1;
+
+    dx  = 4 * (1 - a) * b * b;
+    dy  = 4 * (b1 + 1) * a * a;
+    err = dx + dy + b1 * a * a;
+
+    ya += (b + 1) / 2;
+    yb  = ya - b1;
+    a  *= 8 * a;
+    b1  = 8 * b * b;
+
+    do
+    {
+        st  = DrawPixelClipped_ImageBuffer((int16_t)xb, (int16_t)ya, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer((int16_t)xa, (int16_t)ya, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer((int16_t)xa, (int16_t)yb, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer((int16_t)xb, (int16_t)yb, color, image);
+        if (st != ILI9341_OK) { return st; }
+
+        e2 = 2 * err;
+        if (e2 <= dy) { ya++; yb--; dy += a; err += dy; }
+        if (e2 >= dx || 2 * err > dy) { xa++; xb--; dx += b1; err += dx; }
+    } while (xa <= xb);
+
+    /* Remate de puntas para elipses muy achatadas (a == 0 en algún eje). */
+    while (ya - yb < b)
+    {
+        st  = DrawPixelClipped_ImageBuffer((int16_t)(xa - 1), (int16_t)ya, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer((int16_t)(xb + 1), (int16_t)ya, color, image);
+        ya++;
+        st  = st ? st : DrawPixelClipped_ImageBuffer((int16_t)(xa - 1), (int16_t)yb, color, image);
+        st  = st ? st : DrawPixelClipped_ImageBuffer((int16_t)(xb + 1), (int16_t)yb, color, image);
+        yb--;
+        if (st != ILI9341_OK) { return st; }
+    }
+
+    return ILI9341_OK;
+}
+
+/**
+ * @brief Dibuja el contorno de una elipse en la pantalla LCD.
+ *
+ * @param[in]     x0    Coordenada X del centro.
+ * @param[in]     y0    Coordenada Y del centro.
+ * @param[in]     rx    Radio horizontal en píxeles.
+ * @param[in]     ry    Radio vertical en píxeles.
+ * @param[in]     color Color del contorno en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p rx o @p ry son negativos.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawFilledEllipse_ImageBuffer(int16_t x0, int16_t y0, int16_t rx, int16_t ry, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
+{
+    ILI9341_Status_t st;
+    int32_t xa, xb, ya, yb;
+    int32_t a, b, b1;
+    int32_t dx, dy, err, e2;
+
+    if (image == NULL)    { return ILI9341_INVALID_PARAM; }
+    if (rx < 0 || ry < 0) { return ILI9341_INVALID_PARAM; }
+
+    if (rx == 0)
+    {
+        return ILI9341_DrawLine_ImageBuffer(x0, (int16_t)(y0 - ry), x0, (int16_t)(y0 + ry), color, image);
+    }
+    if (ry == 0)
+    {
+        return ILI9341_DrawLine_ImageBuffer((int16_t)(x0 - rx), y0, (int16_t)(x0 + rx), y0, color, image);
+    }
+
+    /* Mismo trazado de contorno que ILI9341_DrawEllipse_ImageBuffer (Zingl), pero rellenando
+     * cada fila visitada con un tramo horizontal en vez de graficar 4 píxeles. */
+    xa = (int32_t)x0 - rx;
+    xb = (int32_t)x0 + rx;
+    ya = (int32_t)y0 - ry;
+    yb = (int32_t)y0 + ry;
+
+    a  = xb - xa;
+    b  = yb - ya;
+    b1 = b & 1;
+
+    dx  = 4 * (1 - a) * b * b;
+    dy  = 4 * (b1 + 1) * a * a;
+    err = dx + dy + b1 * a * a;
+
+    ya += (b + 1) / 2;
+    yb  = ya - b1;
+    a  *= 8 * a;
+    b1  = 8 * b * b;
+
+    do
+    {
+        st  = DrawHSpanClipped_ImageBuffer((int16_t)xa, (int16_t)xb, (int16_t)ya, color, image);
+        st  = st ? st : DrawHSpanClipped_ImageBuffer((int16_t)xa, (int16_t)xb, (int16_t)yb, color, image);
+        if (st != ILI9341_OK) { return st; }
+
+        e2 = 2 * err;
+        if (e2 <= dy) { ya++; yb--; dy += a; err += dy; }
+        if (e2 >= dx || 2 * err > dy) { xa++; xb--; dx += b1; err += dx; }
+    } while (xa <= xb);
+
+    /* Remate de puntas para elipses muy achatadas (a == 0 en algún eje). */
+    while (ya - yb < b)
+    {
+        ya++;
+        yb--;
+        st  = DrawHSpanClipped_ImageBuffer((int16_t)(xa - 1), (int16_t)(xb + 1), (int16_t)ya, color, image);
+        st  = st ? st : DrawHSpanClipped_ImageBuffer((int16_t)(xa - 1), (int16_t)(xb + 1), (int16_t)yb, color, image);
+        if (st != ILI9341_OK) { return st; }
+    }
+
+    return ILI9341_OK;
+}
+
+/**
+ * @brief Dibuja el contorno de un arco (sector de anillo) entre dos ángulos.
+ *
+ * @param[in] x     Coordenada X del centro.
+ * @param[in] y     Coordenada Y del centro.
+ * @param[in] r1    Radio exterior del arco.
+ * @param[in] r2    Radio interior del arco.
+ * @param[in] start Ángulo inicial en grados (0° = derecha, sentido horario).
+ * @param[in] end   Ángulo final en grados.
+ * @param[in] color Color del contorno.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p rx o @p ry son negativos.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawArc_ImageBuffer(int16_t x, int16_t y, int16_t r1, int16_t r2, float start, float end, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
+{
+    ILI9341_Status_t st;
+    bool equal;
+    int16_t tmp;
+
+    if (ILI9341_Initialized != 1U) { return ILI9341_NOT_INITIALIZED; }
+    if (image == NULL)             { return ILI9341_INVALID_PARAM;   }
+    if (r1 < 0 || r2 < 0)          { return ILI9341_INVALID_PARAM;   }
+
+    if (r1 < r2) { tmp = r1; r1 = r2; r2 = tmp; }
+    if (r1 < 1)  { r1 = 1; }
+    if (r2 < 1)  { r2 = 1; }
+
+    equal = fabsf(start - end) < FLT_EPSILON;
+    start = fmodf(start, 360.0f);
+    end   = fmodf(end, 360.0f);
+    if (start < 0) { start += 360.0f; }
+    if (end < 0)   { end   += 360.0f; }
+
+    /* Bordes rectos del arco (en start y en end) */
+    st  = ILI9341_FillArcHelper(x, y, r1, r2, start, start, color, image);
+    st  = st ? st : ILI9341_FillArcHelper(x, y, r1, r2, end, end, color, image);
+    if (st != ILI9341_OK) { return st; }
+
+    if (!equal && (fabsf(start - end) <= 0.0001f))
+    {
+        start = 0.0f;
+        end   = 360.0f;
+    }
+
+    /* Bordes curvos del arco (radio exterior e interior) */
+    st  = ILI9341_FillArcHelper(x, y, r1, r1, start, end, color, image);
+    st  = st ? st : ILI9341_FillArcHelper(x, y, r2, r2, start, end, color, image);
+
+    return st;
+}
+
+/**
+ * @brief Dibuja un arco relleno (sector de anillo) entre dos ángulos.
+ *
+ * @param[in] x0    Coordenada X del centro.
+ * @param[in] y0    Coordenada Y del centro.
+ * @param[in] r1    Radio exterior del arco.
+ * @param[in] r2    Radio interior del arco.
+ * @param[in] start Ángulo inicial en grados (0° = derecha, sentido horario).
+ * @param[in] end   Ángulo final en grados.
+ * @param[in] color Color del contorno.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p image es NULL, o si @p r1 o @p r2 son negativos.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawFilledArc_ImageBuffer(int16_t x0, int16_t y0, int16_t r1, int16_t r2, float start, float end, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
+{
+    bool equal;
+    int16_t tmp;
+
+    if (ILI9341_Initialized != 1U) { return ILI9341_NOT_INITIALIZED; }
+    if (image == NULL)             { return ILI9341_INVALID_PARAM;   }
+    if (r1 < 0 || r2 < 0)          { return ILI9341_INVALID_PARAM;   }
+
+    if (r1 < r2) { tmp = r1; r1 = r2; r2 = tmp; }
+    if (r1 < 1)  { r1 = 1; }
+    if (r2 < 1)  { r2 = 1; }
+
+    equal = fabsf(start - end) < FLT_EPSILON;
+    start = fmodf(start, 360.0f);
+    end   = fmodf(end, 360.0f);
+    if (start < 0) { start += 360.0f; }
+    if (end < 0)   { end   += 360.0f; }
+
+    if (!equal && (fabsf(start - end) <= 0.0001f))
+    {
+        start = 0.0f;
+        end   = 360.0f;
+    }
+
+    return ILI9341_FillArcHelper(x0, y0, r1, r2, start, end, color, image);
 }
 
 #endif /* HAL_SDRAM_MODULE_ENABLED */

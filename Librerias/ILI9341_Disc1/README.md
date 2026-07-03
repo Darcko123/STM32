@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![STM32](https://img.shields.io/badge/Platform-STM32F429--Discovery-black)](https://www.st.com/en/evaluation-tools/32f429idiscovery.html)
-[![Version](https://img.shields.io/badge/Version-1.2.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/ILI9341_Disc1)
+[![Version](https://img.shields.io/badge/Version-1.3.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/ILI9341_Disc1)
 [![Protocol](https://img.shields.io/badge/Protocol-SPI%20%2B%20I2C%20%2B%20SDRAM%20%2B%20DMA2D%20%2B%20SPI--DMA-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/ILI9341_Disc1)
 
 ---
@@ -42,6 +42,7 @@
       - [`ILI9341_Rotate()` - Rotar Pantalla](#ili9341_rotate---rotar-pantalla)
       - [`ILI9341_DrawPixel()` - Dibujar Píxel](#ili9341_drawpixel---dibujar-píxel)
       - [`ILI9341_DrawLine()` - Dibujar Línea](#ili9341_drawline---dibujar-línea)
+      - [`ILI9341_DrawFastVLine()` / `ILI9341_DrawFastHLine()` - Líneas Rápidas](#ili9341_drawfastvline--ili9341_drawfasthline---líneas-rápidas)
       - [`ILI9341_DrawRectangle()` - Dibujar Rectángulo](#ili9341_drawrectangle---dibujar-rectángulo)
       - [`ILI9341_DrawFilledRectangle()` - Dibujar Rectángulo Relleno](#ili9341_drawfilledrectangle---dibujar-rectángulo-relleno)
       - [`ILI9341_DrawRoundRect()` - Dibujar Rectángulo con Esquinas Redondeadas](#ili9341_drawroundrect---dibujar-rectángulo-con-esquinas-redondeadas)
@@ -50,6 +51,10 @@
       - [`ILI9341_DrawFilledCircle()` - Dibujar Círculo Relleno](#ili9341_drawfilledcircle---dibujar-círculo-relleno)
       - [`ILI9341_DrawTriangle()` - Dibujar Triángulo](#ili9341_drawtriangle---dibujar-triángulo)
       - [`ILI9341_DrawFilledTriangle()` - Dibujar Triángulo Relleno](#ili9341_drawfilledtriangle---dibujar-triángulo-relleno)
+      - [`ILI9341_DrawEllipse()` - Dibujar Elipse](#ili9341_drawellipse---dibujar-elipse)
+      - [`ILI9341_DrawFilledEllipse()` - Dibujar Elipse Rellena](#ili9341_drawfilledellipse---dibujar-elipse-rellena)
+      - [`ILI9341_DrawArc()` - Dibujar Arco](#ili9341_drawarc---dibujar-arco)
+      - [`ILI9341_DrawFilledArc()` - Dibujar Arco Relleno](#ili9341_drawfilledarc---dibujar-arco-relleno)
       - [`ILI9341_Putc()` - Renderizar Carácter](#ili9341_putc---renderizar-carácter)
       - [`ILI9341_Puts()` - Renderizar Cadena](#ili9341_puts---renderizar-cadena)
       - [`ILI9341_GetStringSize()` - Calcular Tamaño de Cadena](#ili9341_getstringsize---calcular-tamaño-de-cadena)
@@ -57,8 +62,14 @@
       - [Funciones de Frame Buffer fuera de Pantalla](#funciones-de-frame-buffer-fuera-de-pantalla)
       - [`ILI9341_DrawRoundRect_ImageBuffer()` - Rectángulo Redondeado en Buffer](#ili9341_drawroundrect_imagebuffer---rectángulo-redondeado-en-buffer)
       - [`ILI9341_DrawFilledRoundRect_ImageBuffer()` - Rectángulo Redondeado Relleno en Buffer](#ili9341_drawfilledroundrect_imagebuffer---rectángulo-redondeado-relleno-en-buffer)
+      - [`ILI9341_DrawCircle_ImageBuffer()` - Círculo en Buffer](#ili9341_drawcircle_imagebuffer---círculo-en-buffer)
+      - [`ILI9341_DrawFilledCircle_ImageBuffer()` - Círculo Relleno en Buffer](#ili9341_drawfilledcircle_imagebuffer---círculo-relleno-en-buffer)
       - [`ILI9341_DrawTriangle_ImageBuffer()` - Triángulo en Buffer](#ili9341_drawtriangle_imagebuffer---triángulo-en-buffer)
       - [`ILI9341_DrawFilledTriangle_ImageBuffer()` - Triángulo Relleno en Buffer](#ili9341_drawfilledtriangle_imagebuffer---triángulo-relleno-en-buffer)
+      - [`ILI9341_DrawEllipse_ImageBuffer()` - Elipse en Buffer](#ili9341_drawellipse_imagebuffer---elipse-en-buffer)
+      - [`ILI9341_DrawFilledEllipse_ImageBuffer()` - Elipse Rellena en Buffer](#ili9341_drawfilledellipse_imagebuffer---elipse-rellena-en-buffer)
+      - [`ILI9341_DrawArc_ImageBuffer()` - Arco en Buffer](#ili9341_drawarc_imagebuffer---arco-en-buffer)
+      - [`ILI9341_DrawFilledArc_ImageBuffer()` - Arco Relleno en Buffer](#ili9341_drawfilledarc_imagebuffer---arco-relleno-en-buffer)
       - [`ILI9341_BlitImage()` - Copiar Imagen con DMA2D *(solo DMA2D)*](#ili9341_blitimage---copiar-imagen-con-dma2d-solo-dma2d)
       - [`ILI9341_Flush()` - Volcar Frame Buffer SDRAM *(solo SDRAM)*](#ili9341_flush---volcar-frame-buffer-sdram-solo-sdram)
       - [`ILI9341_Sync()` - Sincronizar DMA con el bus SPI *(solo SDRAM)*](#ili9341_sync---sincronizar-dma-con-el-bus-spi-solo-sdram)
@@ -68,19 +79,24 @@
   - [Colores Predefinidos](#colores-predefinidos)
   - [Licencia](#licencia)
   - [Changelog](#changelog)
-    - [\[1.2.0\] - 15-06-2026](#120---15-06-2026)
+    - [\[1.3.0\] - 03-07-2026](#130---03-07-2026)
       - [Added](#added)
       - [Changed](#changed)
-      - [Fixed](#fixed)
+      - [Removed](#removed)
       - [Migration notes](#migration-notes)
-    - [\[1.1.0\] - 14-06-2026](#110---14-06-2026)
+    - [\[1.2.0\] - 15-06-2026](#120---15-06-2026)
       - [Added](#added-1)
       - [Changed](#changed-1)
+      - [Fixed](#fixed)
+      - [Migration notes](#migration-notes-1)
+    - [\[1.1.0\] - 14-06-2026](#110---14-06-2026)
+      - [Added](#added-2)
+      - [Changed](#changed-2)
       - [Fixed](#fixed-1)
     - [\[1.0.1\]](#101)
       - [Fixed](#fixed-2)
     - [\[1.0.0\] - 08-06-2026](#100---08-06-2026)
-      - [Added](#added-2)
+      - [Added](#added-3)
 
 ---
 
@@ -98,7 +114,8 @@ Diseñada para ser portable y robusta: toda función pública (incluidas las var
 - **Escrituras SPI optimizadas mediante acceso directo al registro `DR`**: `ILI9341_Fill()`, `ILI9341_DrawFilledRectangle()` e `ILI9341_Putc()` acceden directamente al registro `DR` del SPI. El sondeo de TXE usa un contador de iteraciones (`SPI_ILI9341_WaitTXE`) en lugar de `HAL_GetTick()`, eliminando una llamada a función y una lectura de tick por byte en los bucles críticos de volcado.
 - **Volcado de frame buffer por DMA SPI**: `ILI9341_DisplayImage()` e `ILI9341_Flush()` transfieren los 76 800 píxeles del frame buffer a la pantalla usando **DMA2\_Stream6** vinculado a SPI5\_TX en modo 16 bits. El SPI en modo 16 bits serializa cada `uint16_t` MSB-first, produciendo automáticamente el orden big-endian esperado por el ILI9341 sin swap manual de bytes. La transferencia se divide en dos tramos de 38 400 píxeles para respetar el límite de 65 535 items del registro NDTR del DMA.
 - **Aceleración DMA2D** *(requiere `HAL_DMA2D_MODULE_ENABLED`)*: `ILI9341_Init()` acepta un `DMA2D_HandleTypeDef*` opcional; si no es NULL, configura el periférico DMA2D una sola vez y lo reutiliza en modo R2M (relleno) para `ILI9341_DrawFilledRectangle_ImageBuffer()` y en modo M2M (copia) para `ILI9341_BlitImage()`. Si se pasa NULL, ambas operaciones usan el camino CPU.
-- **Primitivas de dibujo completas**: Píxeles, líneas (algoritmo de Bresenham), rectángulos (contorno y relleno), círculos (contorno y relleno) y triángulos (contorno y relleno por scanline) directamente sobre la pantalla.
+- **Primitivas de dibujo completas**: Píxeles, líneas (algoritmo de Bresenham) con variantes rápidas horizontal/vertical (`ILI9341_DrawFastHLine`/`ILI9341_DrawFastVLine`), rectángulos (contorno y relleno), círculos (contorno y relleno), triángulos (contorno y relleno por scanline), elipses (contorno y relleno, algoritmo de punto medio de Zingl) y arcos/sectores de anillo entre dos ángulos (contorno y relleno) directamente sobre la pantalla.
+- **Paleta de 147 colores predefinidos** en formato RGB565 basada en el estándar de nombres de color X11/CSS, generada con la macro pública `RGB565(r, g, b)`. Incluye también `RGB16TO24(c)` para expandir un color RGB565 de vuelta a RGB888.
 - **Renderizado de texto**: `ILI9341_Putc()` / `ILI9341_Puts()` con soporte de saltos de línea, retorno de carro y fuentes de ancho variable mediante `LCD_FontDef_t`.
 - **Frame buffer fuera de pantalla (RAM)**: Juego completo de funciones `*_ImageBuffer()` que operan sobre un array `uint32_t[38 400]` en RAM interna, empaquetando dos píxeles RGB565 por palabra de 32 bits. Todas estas funciones retornan `ILI9341_Status_t` para detectar errores (puntero NULL, fallo DMA2D). Ideal para composición de imagen sin parpadeo.
 - **Frame buffer en SDRAM** *(requiere `HAL_SDRAM_MODULE_ENABLED`)*: `ILI9341_Init()` acepta un `SDRAM_HandleTypeDef*` opcional; si no es NULL, inicializa la IS42S16400J y reserva los primeros 153 600 bytes de `0xD0000000` como frame buffer interno. `ILI9341_Flush()` vuelca el buffer a pantalla con una sola llamada.
@@ -375,6 +392,22 @@ ILI9341_DrawTriangle(10, 10, 230, 10, 120, 150, ILI9341_COLOR_RED);
 
 /* Dibujar un triángulo relleno */
 ILI9341_DrawFilledTriangle(10, 170, 230, 170, 120, 310, ILI9341_COLOR_BLUE);
+
+/* Dibujar una línea vertical/horizontal rápida (sin Bresenham) */
+ILI9341_DrawFastVLine(120, 0, 319, ILI9341_COLOR_GRAY);
+ILI9341_DrawFastHLine(0, 160, 239, ILI9341_COLOR_GRAY);
+
+/* Dibujar el contorno de una elipse */
+ILI9341_DrawEllipse(120, 160, 80, 40, ILI9341_COLOR_DODGERBLUE);
+
+/* Dibujar una elipse rellena */
+ILI9341_DrawFilledEllipse(120, 160, 40, 80, ILI9341_COLOR_GOLD);
+
+/* Dibujar el contorno de un arco (sector de anillo) de 0° a 90° */
+ILI9341_DrawArc(120, 160, 100, 60, 0.0f, 90.0f, ILI9341_COLOR_TOMATO);
+
+/* Dibujar un arco relleno de 180° a 270° */
+ILI9341_DrawFilledArc(120, 160, 100, 60, 180.0f, 270.0f, ILI9341_COLOR_LIMEGREEN);
 
 /* Rotar la pantalla a modo apaisado */
 ILI9341_Rotate(ILI9341_Orientation_Landscape_1);
@@ -666,6 +699,26 @@ ILI9341_Status_t ILI9341_DrawLine(uint16_t x0, uint16_t y0,
 
 ---
 
+#### `ILI9341_DrawFastVLine()` / `ILI9341_DrawFastHLine()` - Líneas Rápidas
+
+Dibujan una línea vertical u horizontal sin pasar por el algoritmo de Bresenham: delegan directamente en `ILI9341_DrawFilledRectangle()` (acceso al `DR` del SPI). El alto/ancho puede pasarse como negativo; en ese caso se normaliza invirtiendo el punto de partida. Las coordenadas y longitudes se recortan automáticamente a los límites de la pantalla.
+
+```c
+ILI9341_Status_t ILI9341_DrawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color);
+ILI9341_Status_t ILI9341_DrawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color);
+```
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `x`, `y` | `int16_t` | Punto de inicio de la línea |
+| `h` | `int16_t` | Alto de la línea, en `DrawFastVLine` (negativo se normaliza) |
+| `w` | `int16_t` | Ancho de la línea, en `DrawFastHLine` (negativo se normaliza) |
+| `color` | `uint16_t` | Color RGB565 |
+
+**Retorna**: `ILI9341_OK` (incluyendo el caso `h`/`w == 0`, que no dibuja nada), `ILI9341_NOT_INITIALIZED`, `ILI9341_ERROR` o `ILI9341_TIMEOUT`.
+
+---
+
 #### `ILI9341_DrawRectangle()` - Dibujar Rectángulo
 
 Dibuja el contorno de un rectángulo definido por sus esquinas superior-izquierda `(x0, y0)` e inferior-derecha `(x1, y1)`.
@@ -810,6 +863,86 @@ ILI9341_Status_t ILI9341_DrawFilledTriangle(uint16_t x0, uint16_t y0,
 
 ---
 
+#### `ILI9341_DrawEllipse()` - Dibujar Elipse
+
+Dibuja el contorno de una elipse usando una implementación entera del algoritmo de punto medio (variante de Zingl), recortando cada píxel a los límites de la pantalla. Los casos degenerados (`rx == 0` o `ry == 0`) se delegan en `ILI9341_DrawFastVLine()` / `ILI9341_DrawFastHLine()`.
+
+```c
+ILI9341_Status_t ILI9341_DrawEllipse(int16_t x0, int16_t y0, int16_t rx, int16_t ry, uint16_t color);
+```
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `x0`, `y0` | `int16_t` | Centro de la elipse |
+| `rx` | `int16_t` | Radio horizontal en píxeles |
+| `ry` | `int16_t` | Radio vertical en píxeles |
+| `color` | `uint16_t` | Color RGB565 del contorno |
+
+**Retorna**: `ILI9341_OK`, `ILI9341_NOT_INITIALIZED`, `ILI9341_INVALID_PARAM` si `rx` o `ry` son negativos, `ILI9341_ERROR` si falla la transmisión SPI.
+
+---
+
+#### `ILI9341_DrawFilledEllipse()` - Dibujar Elipse Rellena
+
+Misma lógica de trazado que `ILI9341_DrawEllipse()`, pero rellena cada fila visitada con un tramo horizontal (`DrawHSpanClipped()`) en lugar de graficar 4 píxeles por iteración.
+
+```c
+ILI9341_Status_t ILI9341_DrawFilledEllipse(int16_t x0, int16_t y0, int16_t rx, int16_t ry, uint16_t color);
+```
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `x0`, `y0` | `int16_t` | Centro de la elipse |
+| `rx` | `int16_t` | Radio horizontal en píxeles |
+| `ry` | `int16_t` | Radio vertical en píxeles |
+| `color` | `uint16_t` | Color RGB565 de relleno |
+
+**Retorna**: `ILI9341_OK`, `ILI9341_NOT_INITIALIZED`, `ILI9341_INVALID_PARAM` si `rx` o `ry` son negativos, `ILI9341_ERROR` si falla la transmisión SPI.
+
+---
+
+#### `ILI9341_DrawArc()` - Dibujar Arco
+
+Dibuja el contorno de un arco (sector de anillo delimitado por un radio exterior `r1` y uno interior `r2`) entre dos ángulos. Los ángulos se expresan en grados (0° = derecha, sentido horario) y se normalizan internamente con `fmodf()` al rango `[0, 360)`. Internamente traza los dos bordes rectos del sector y los dos bordes curvos (radio exterior e interior) mediante la función helper privada `ILI9341_FillArcHelper()`.
+
+```c
+ILI9341_Status_t ILI9341_DrawArc(int16_t x0, int16_t y0, int16_t r1, int16_t r2, float start, float end, uint16_t color);
+```
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `x0`, `y0` | `int16_t` | Centro del arco |
+| `r1` | `int16_t` | Radio exterior |
+| `r2` | `int16_t` | Radio interior |
+| `start` | `float` | Ángulo inicial en grados |
+| `end` | `float` | Ángulo final en grados |
+| `color` | `uint16_t` | Color RGB565 del contorno |
+
+**Retorna**: `ILI9341_OK`, `ILI9341_NOT_INITIALIZED`, `ILI9341_INVALID_PARAM` si `r1` o `r2` son negativos, `ILI9341_ERROR` si falla la transmisión SPI.
+
+---
+
+#### `ILI9341_DrawFilledArc()` - Dibujar Arco Relleno
+
+Rellena por completo el sector de anillo entre `start` y `end` usando la misma función helper privada `ILI9341_FillArcHelper()`, que recorre el cuadro delimitador fila por fila dibujando los tramos horizontales que caen dentro de la corona circular y del sector angular.
+
+```c
+ILI9341_Status_t ILI9341_DrawFilledArc(int16_t x0, int16_t y0, int16_t r1, int16_t r2, float start, float end, uint16_t color);
+```
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `x0`, `y0` | `int16_t` | Centro del arco |
+| `r1` | `int16_t` | Radio exterior |
+| `r2` | `int16_t` | Radio interior |
+| `start` | `float` | Ángulo inicial en grados |
+| `end` | `float` | Ángulo final en grados |
+| `color` | `uint16_t` | Color RGB565 de relleno |
+
+**Retorna**: `ILI9341_OK`, `ILI9341_NOT_INITIALIZED`, `ILI9341_INVALID_PARAM` si `r1` o `r2` son negativos, `ILI9341_ERROR` si falla la transmisión SPI.
+
+---
+
 #### `ILI9341_Putc()` - Renderizar Carácter
 
 Renderiza un único carácter a partir de una definición de fuente `LCD_FontDef_t` usando acceso directo al registro `DR` del SPI. Si el carácter no cabe en la fila actual, pasa automáticamente a la siguiente.
@@ -896,12 +1029,14 @@ Todas retornan `ILI9341_Status_t` (`ILI9341_OK`, `ILI9341_INVALID_PARAM` o `ILI9
 
 | Función | Descripción |
 |---------|-------------|
+| `ILI9341_Fill_ImageBuffer(color, image)` | Rellena el buffer completo con un color sólido (delega en `DrawFilledRectangle_ImageBuffer` sobre toda el área; DMA2D R2M si disponible) |
 | `ILI9341_DrawPixel_ImageBuffer(x, y, color, image)` | Escribe un píxel en el buffer |
 | `ILI9341_DrawLine_ImageBuffer(x0, y0, x1, y1, color, image)` | Dibuja una línea (Bresenham) |
 | `ILI9341_DrawRectangle_ImageBuffer(x0, y0, x1, y1, color, image)` | Contorno de rectángulo |
 | `ILI9341_DrawFilledRectangle_ImageBuffer(x0, y0, x1, y1, color, image)` | Rectángulo relleno (DMA2D R2M si disponible) |
 | `ILI9341_DrawRoundRect_ImageBuffer(x0, y0, x1, y1, r, color, image)` | Contorno de rectángulo redondeado (Bresenham) |
 | `ILI9341_DrawFilledRoundRect_ImageBuffer(x0, y0, x1, y1, r, color, image)` | Rectángulo redondeado relleno (franja central con DMA2D si disponible + arcos por CPU) |
+| `ILI9341_DrawCircle_ImageBuffer(x0, y0, r, color, image)` | Contorno de círculo (Bresenham de punto medio) |
 | `ILI9341_DrawFilledCircle_ImageBuffer(x0, y0, r, color, image)` | Círculo relleno |
 | `ILI9341_DrawTriangle_ImageBuffer(x0, y0, x1, y1, x2, y2, color, image)` | Contorno de triángulo (tres llamadas a `DrawLine_ImageBuffer`) |
 | `ILI9341_DrawFilledTriangle_ImageBuffer(x0, y0, x1, y1, x2, y2, color, image)` | Triángulo relleno (scanline, aritmética entera) |
@@ -937,6 +1072,46 @@ ILI9341_Status_t ILI9341_DrawFilledRoundRect_ImageBuffer(uint16_t x0, uint16_t y
 ```
 
 **Retorna**: `ILI9341_OK`, `ILI9341_INVALID_PARAM` si `image` es NULL, `ILI9341_ERROR` si falla la transferencia DMA2D de la franja central.
+
+---
+
+#### `ILI9341_DrawCircle_ImageBuffer()` - Círculo en Buffer
+
+Misma lógica que `ILI9341_DrawCircle()` (algoritmo de punto medio de Bresenham con simetría de octantes) pero escribe directamente en el frame buffer mediante `DrawPixelClipped_ImageBuffer()`. Los píxeles se recortan a los límites fijos del panel.
+
+```c
+ILI9341_Status_t ILI9341_DrawCircle_ImageBuffer(int16_t x0, int16_t y0, int16_t r,
+                                                 uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+```
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `x0`, `y0` | `int16_t` | Centro del círculo |
+| `r` | `int16_t` | Radio en píxeles |
+| `color` | `uint16_t` | Color RGB565 del contorno |
+| `image` | `uint32_t[38400]` | Frame buffer destino |
+
+**Retorna**: `ILI9341_OK`, `ILI9341_INVALID_PARAM` si `image` es NULL.
+
+---
+
+#### `ILI9341_DrawFilledCircle_ImageBuffer()` - Círculo Relleno en Buffer
+
+Misma lógica que `ILI9341_DrawFilledCircle()` pero escribe directamente en el frame buffer: rellena cada fila visitada con un tramo horizontal (`DrawHSpanClipped_ImageBuffer()`) en lugar de graficar píxeles individuales.
+
+```c
+ILI9341_Status_t ILI9341_DrawFilledCircle_ImageBuffer(int16_t x0, int16_t y0, int16_t r,
+                                                       uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+```
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `x0`, `y0` | `int16_t` | Centro del círculo |
+| `r` | `int16_t` | Radio en píxeles |
+| `color` | `uint16_t` | Color RGB565 de relleno |
+| `image` | `uint32_t[38400]` | Frame buffer destino |
+
+**Retorna**: `ILI9341_OK`, `ILI9341_INVALID_PARAM` si `image` es NULL.
 
 ---
 
@@ -985,6 +1160,60 @@ ILI9341_Status_t ILI9341_DrawFilledTriangle_ImageBuffer(uint16_t x0, uint16_t y0
 | `image` | `uint32_t[38400]` | Frame buffer destino |
 
 **Retorna**: `ILI9341_OK`, `ILI9341_INVALID_PARAM` si `image` es NULL.
+
+---
+
+#### `ILI9341_DrawEllipse_ImageBuffer()` - Elipse en Buffer
+
+Misma lógica que `ILI9341_DrawEllipse()` (algoritmo de punto medio de Zingl) pero escribe directamente en el frame buffer mediante `DrawPixelClipped_ImageBuffer()`. Los casos degenerados (`rx == 0` o `ry == 0`) delegan en `ILI9341_DrawLine_ImageBuffer()`.
+
+```c
+ILI9341_Status_t ILI9341_DrawEllipse_ImageBuffer(int16_t x0, int16_t y0, int16_t rx, int16_t ry,
+                                                  uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+```
+
+**Retorna**: `ILI9341_OK`, `ILI9341_INVALID_PARAM` si `image` es NULL o si `rx`/`ry` son negativos.
+
+---
+
+#### `ILI9341_DrawFilledEllipse_ImageBuffer()` - Elipse Rellena en Buffer
+
+Misma lógica que `ILI9341_DrawFilledEllipse()`, pero rellena cada fila con `DrawHSpanClipped_ImageBuffer()` en lugar de graficar píxeles individuales.
+
+```c
+ILI9341_Status_t ILI9341_DrawFilledEllipse_ImageBuffer(int16_t x0, int16_t y0, int16_t rx, int16_t ry,
+                                                        uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+```
+
+**Retorna**: `ILI9341_OK`, `ILI9341_INVALID_PARAM` si `image` es NULL o si `rx`/`ry` son negativos.
+
+---
+
+#### `ILI9341_DrawArc_ImageBuffer()` - Arco en Buffer
+
+Misma lógica que `ILI9341_DrawArc()`, pero la función helper privada `ILI9341_FillArcHelper()` escribe en el frame buffer (`DrawHSpanClipped_ImageBuffer()`) en lugar de enviar los tramos por SPI.
+
+```c
+ILI9341_Status_t ILI9341_DrawArc_ImageBuffer(int16_t x0, int16_t y0, int16_t r1, int16_t r2,
+                                              float start, float end, uint16_t color,
+                                              uint32_t image[IMG_TOTAL_BUF32]);
+```
+
+**Retorna**: `ILI9341_OK`, `ILI9341_NOT_INITIALIZED`, `ILI9341_INVALID_PARAM` si `image` es NULL o si `r1`/`r2` son negativos.
+
+---
+
+#### `ILI9341_DrawFilledArc_ImageBuffer()` - Arco Relleno en Buffer
+
+Misma lógica que `ILI9341_DrawFilledArc()`, aplicada sobre el frame buffer mediante `ILI9341_FillArcHelper()`.
+
+```c
+ILI9341_Status_t ILI9341_DrawFilledArc_ImageBuffer(int16_t x0, int16_t y0, int16_t r1, int16_t r2,
+                                                    float start, float end, uint16_t color,
+                                                    uint32_t image[IMG_TOTAL_BUF32]);
+```
+
+**Retorna**: `ILI9341_OK`, `ILI9341_NOT_INITIALIZED`, `ILI9341_INVALID_PARAM` si `image` es NULL o si `r1`/`r2` son negativos.
 
 ---
 
@@ -1089,29 +1318,173 @@ TP_STATE* ILI9341_TP_GetState(void);
 
 ## Colores Predefinidos
 
-La librería incluye macros de colores en formato **RGB565** listas para usar:
-
-| Macro | Valor | Color |
-|-------|-------|-------|
-| `ILI9341_COLOR_WHITE` | `0xFFFF` | Blanco |
-| `ILI9341_COLOR_BLACK` | `0x0000` | Negro |
-| `ILI9341_COLOR_RED` | `0xF800` | Rojo |
-| `ILI9341_COLOR_GREEN` | `0x07E0` | Verde |
-| `ILI9341_COLOR_GREEN2` | `0xB723` | Verde oscuro |
-| `ILI9341_COLOR_BLUE` | `0x001F` | Azul |
-| `ILI9341_COLOR_BLUE2` | `0x051D` | Azul oscuro |
-| `ILI9341_COLOR_YELLOW` | `0xFFE0` | Amarillo |
-| `ILI9341_COLOR_ORANGE` | `0xFBE4` | Naranja |
-| `ILI9341_COLOR_CYAN` | `0x07FF` | Cian |
-| `ILI9341_COLOR_MAGENTA` | `0xA254` | Magenta |
-| `ILI9341_COLOR_GRAY` | `0x7BEF` | Gris |
-| `ILI9341_COLOR_BROWN` | `0xBBCA` | Café |
-
-Para obtener cualquier color en RGB565 a partir de componentes R, G, B (0–255):
+La librería incluye **147 macros de colores** en formato **RGB565**, generadas a partir de la paleta estándar de nombres de color **X11/CSS** (p. ej. `ILI9341_COLOR_CORNFLOWERBLUE`, `ILI9341_COLOR_MEDIUMSEAGREEN`, `ILI9341_COLOR_DARKSLATEGRAY`). Todas se definen internamente con la macro `RGB565()`.
 
 ```c
-#define RGB565(r, g, b) ((uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)))
+/* Convierte componentes R, G, B de 8 bits (0-255) a un color RGB565 de 16 bits */
+#define RGB565(r, g, b) ((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3))
+
+/* Expande un color RGB565 de 16 bits de vuelta a RGB888 de 24 bits (con pérdida de precisión) */
+#define RGB16TO24(c) ((((uint32_t)(c) & 0xF800) << 8) | (((c) & 0x07E0) << 5) | (((c) & 0x1F) << 3))
 ```
+
+> [!WARNING]
+> **Cambio incompatible respecto a v1.2.0**: `ILI9341_COLOR_GREEN`, `ILI9341_COLOR_ORANGE`, `ILI9341_COLOR_MAGENTA`, `ILI9341_COLOR_GRAY`/`GREY` y `ILI9341_COLOR_BROWN` ahora usan los tonos estándar X11/CSS (valores distintos a los de v1.2.0), y las macros `ILI9341_COLOR_GREEN2` / `ILI9341_COLOR_BLUE2` fueron eliminadas. Ver [Changelog — Migration notes](#migration-notes) antes de actualizar.
+
+<details>
+<summary>Ver los 147 colores predefinidos</summary>
+
+| Macro | Valor RGB565 |
+|-------|--------------|
+| `ILI9341_COLOR_ALICEBLUE` | `0xF7DF` |
+| `ILI9341_COLOR_ANTIQUEWHITE` | `0xFF7B` |
+| `ILI9341_COLOR_AQUA` | `0x07FF` |
+| `ILI9341_COLOR_AQUAMARINE` | `0x87FB` |
+| `ILI9341_COLOR_AZURE` | `0xF7FF` |
+| `ILI9341_COLOR_BEIGE` | `0xFFBC` |
+| `ILI9341_COLOR_BISQUE` | `0xFF39` |
+| `ILI9341_COLOR_BLACK` | `0x0000` |
+| `ILI9341_COLOR_BLANCHEDALMOND` | `0xFF7A` |
+| `ILI9341_COLOR_BLUE` | `0x001F` |
+| `ILI9341_COLOR_BLUEVIOLET` | `0x897C` |
+| `ILI9341_COLOR_BROWN` | `0xA965` |
+| `ILI9341_COLOR_BURLYWOOD` | `0xE5D1` |
+| `ILI9341_COLOR_CADETBLUE` | `0x6514` |
+| `ILI9341_COLOR_CHARTREUSE` | `0x87E0` |
+| `ILI9341_COLOR_CHOCOLATE` | `0xD344` |
+| `ILI9341_COLOR_CORAL` | `0xFC0A` |
+| `ILI9341_COLOR_CORNFLOWERBLUE` | `0x6CBE` |
+| `ILI9341_COLOR_CORNSILK` | `0xFFDC` |
+| `ILI9341_COLOR_CRIMSON` | `0xE0A8` |
+| `ILI9341_COLOR_CYAN` | `0x07FF` |
+| `ILI9341_COLOR_DARKBLUE` | `0x0011` |
+| `ILI9341_COLOR_DARKCYAN` | `0x0471` |
+| `ILI9341_COLOR_DARKGOLDENROD` | `0xBC41` |
+| `ILI9341_COLOR_DARKGRAY` | `0xAD55` |
+| `ILI9341_COLOR_DARKGREEN` | `0x0320` |
+| `ILI9341_COLOR_DARKGREY` | `0xAD55` |
+| `ILI9341_COLOR_DARKKHAKI` | `0xC5CD` |
+| `ILI9341_COLOR_DARKMAGENTA` | `0x8811` |
+| `ILI9341_COLOR_DARKOLIVEGREEN` | `0x5B66` |
+| `ILI9341_COLOR_DARKORANGE` | `0xFC60` |
+| `ILI9341_COLOR_DARKORCHID` | `0x99BA` |
+| `ILI9341_COLOR_DARKRED` | `0x8800` |
+| `ILI9341_COLOR_DARKSALMON` | `0xECCF` |
+| `ILI9341_COLOR_DARKSEAGREEN` | `0x95F2` |
+| `ILI9341_COLOR_DARKSLATEBLUE` | `0x49F1` |
+| `ILI9341_COLOR_DARKSLATEGRAY` | `0x328A` |
+| `ILI9341_COLOR_DARKSLATEGREY` | `0x328A` |
+| `ILI9341_COLOR_DARKTURQUOISE` | `0x069A` |
+| `ILI9341_COLOR_DARKVIOLET` | `0x981A` |
+| `ILI9341_COLOR_DEEPPINK` | `0xF8B2` |
+| `ILI9341_COLOR_DEEPSKYBLUE` | `0x061F` |
+| `ILI9341_COLOR_DIMGRAY` | `0x6B4D` |
+| `ILI9341_COLOR_DIMGREY` | `0x6B4D` |
+| `ILI9341_COLOR_DODGERBLUE` | `0x249F` |
+| `ILI9341_COLOR_FIREBRICK` | `0xB124` |
+| `ILI9341_COLOR_FLORALWHITE` | `0xFFFE` |
+| `ILI9341_COLOR_FORESTGREEN` | `0x2464` |
+| `ILI9341_COLOR_FUCHSIA` | `0xF81F` |
+| `ILI9341_COLOR_GAINSBORO` | `0xE6FC` |
+| `ILI9341_COLOR_GHOSTWHITE` | `0xFFDF` |
+| `ILI9341_COLOR_GOLD` | `0xFEC0` |
+| `ILI9341_COLOR_GOLDENROD` | `0xDD24` |
+| `ILI9341_COLOR_GRAY` | `0x8410` |
+| `ILI9341_COLOR_GREEN` | `0x0400` |
+| `ILI9341_COLOR_GREENYELLOW` | `0xB7E6` |
+| `ILI9341_COLOR_GREY` | `0x8410` |
+| `ILI9341_COLOR_HONEYDEW` | `0xF7FE` |
+| `ILI9341_COLOR_HOTPINK` | `0xFB57` |
+| `ILI9341_COLOR_INDIANRED` | `0xD2EC` |
+| `ILI9341_COLOR_INDIGO` | `0x4810` |
+| `ILI9341_COLOR_IVORY` | `0xFFFE` |
+| `ILI9341_COLOR_KHAKI` | `0xF752` |
+| `ILI9341_COLOR_LAVENDER` | `0xEF5F` |
+| `ILI9341_COLOR_LAVENDERBLUSH` | `0xFF9F` |
+| `ILI9341_COLOR_LAWNGREEN` | `0x87E0` |
+| `ILI9341_COLOR_LEMONCHIFFON` | `0xFFFA` |
+| `ILI9341_COLOR_LIGHTBLUE` | `0xB6DD` |
+| `ILI9341_COLOR_LIGHTCORAL` | `0xF410` |
+| `ILI9341_COLOR_LIGHTCYAN` | `0xE7FF` |
+| `ILI9341_COLOR_LIGHTGOLDENRODYELLOW` | `0xFFFA` |
+| `ILI9341_COLOR_LIGHTGRAY` | `0xD6BA` |
+| `ILI9341_COLOR_LIGHTGREEN` | `0x9792` |
+| `ILI9341_COLOR_LIGHTGREY` | `0xD6BA` |
+| `ILI9341_COLOR_LIGHTPINK` | `0xFDD8` |
+| `ILI9341_COLOR_LIGHTSALMON` | `0xFD0F` |
+| `ILI9341_COLOR_LIGHTSEAGREEN` | `0x25B5` |
+| `ILI9341_COLOR_LIGHTSKYBLUE` | `0x8E9F` |
+| `ILI9341_COLOR_LIGHTSLATEGRAY` | `0x7C53` |
+| `ILI9341_COLOR_LIGHTSLATEGREY` | `0x7C53` |
+| `ILI9341_COLOR_LIGHTSTEELBLUE` | `0xB63C` |
+| `ILI9341_COLOR_LIGHTYELLOW` | `0xFFFC` |
+| `ILI9341_COLOR_LIME` | `0x07E0` |
+| `ILI9341_COLOR_LIMEGREEN` | `0x3666` |
+| `ILI9341_COLOR_LINEN` | `0xFF9D` |
+| `ILI9341_COLOR_MAGENTA` | `0xF81F` |
+| `ILI9341_COLOR_MAROON` | `0x8000` |
+| `ILI9341_COLOR_MEDIUMAQUAMARINE` | `0x6E75` |
+| `ILI9341_COLOR_MEDIUMBLUE` | `0x001A` |
+| `ILI9341_COLOR_MEDIUMORCHID` | `0xBABA` |
+| `ILI9341_COLOR_MEDIUMPURPLE` | `0x939B` |
+| `ILI9341_COLOR_MEDIUMSEAGREEN` | `0x45AE` |
+| `ILI9341_COLOR_MEDIUMSLATEBLUE` | `0x7B5E` |
+| `ILI9341_COLOR_MEDIUMSPRINGGREEN` | `0x07F3` |
+| `ILI9341_COLOR_MEDIUMTURQUOISE` | `0x4E9A` |
+| `ILI9341_COLOR_MEDIUMVIOLETRED` | `0xC8B1` |
+| `ILI9341_COLOR_MIDNIGHTBLUE` | `0x18CE` |
+| `ILI9341_COLOR_MINTCREAM` | `0xFFFF` |
+| `ILI9341_COLOR_MISTYROSE` | `0xFF3C` |
+| `ILI9341_COLOR_MOCCASIN` | `0xFF37` |
+| `ILI9341_COLOR_NAVAJOWHITE` | `0xFF16` |
+| `ILI9341_COLOR_NAVY` | `0x0010` |
+| `ILI9341_COLOR_OLDLACE` | `0xFFBD` |
+| `ILI9341_COLOR_OLIVE` | `0x8400` |
+| `ILI9341_COLOR_OLIVEDRAB` | `0x6C84` |
+| `ILI9341_COLOR_ORANGE` | `0xFD20` |
+| `ILI9341_COLOR_ORANGERED` | `0xFA20` |
+| `ILI9341_COLOR_ORCHID` | `0xDB9B` |
+| `ILI9341_COLOR_PALEGOLDENROD` | `0xF755` |
+| `ILI9341_COLOR_PALEGREEN` | `0x9FF3` |
+| `ILI9341_COLOR_PALETURQUOISE` | `0xB79E` |
+| `ILI9341_COLOR_PALEVIOLETRED` | `0xDB92` |
+| `ILI9341_COLOR_PAPAYAWHIP` | `0xFF9B` |
+| `ILI9341_COLOR_PEACHPUFF` | `0xFEF7` |
+| `ILI9341_COLOR_PERU` | `0xD428` |
+| `ILI9341_COLOR_PINK` | `0xFE19` |
+| `ILI9341_COLOR_PLUM` | `0xE51C` |
+| `ILI9341_COLOR_POWDERBLUE` | `0xB71D` |
+| `ILI9341_COLOR_PURPLE` | `0x8010` |
+| `ILI9341_COLOR_RED` | `0xF800` |
+| `ILI9341_COLOR_ROSYBROWN` | `0xC492` |
+| `ILI9341_COLOR_ROYALBLUE` | `0x435C` |
+| `ILI9341_COLOR_SADDLEBROWN` | `0x8A22` |
+| `ILI9341_COLOR_SALMON` | `0xFC0E` |
+| `ILI9341_COLOR_SANDYBROWN` | `0xFD2C` |
+| `ILI9341_COLOR_SEAGREEN` | `0x346B` |
+| `ILI9341_COLOR_SEASHELL` | `0xFFBE` |
+| `ILI9341_COLOR_SIENNA` | `0xA2A6` |
+| `ILI9341_COLOR_SILVER` | `0xC618` |
+| `ILI9341_COLOR_SKYBLUE` | `0x8E9D` |
+| `ILI9341_COLOR_SLATEBLUE` | `0x6AFA` |
+| `ILI9341_COLOR_SLATEGRAY` | `0x7412` |
+| `ILI9341_COLOR_SLATEGREY` | `0x7412` |
+| `ILI9341_COLOR_SNOW` | `0xFFFF` |
+| `ILI9341_COLOR_SPRINGGREEN` | `0x07F0` |
+| `ILI9341_COLOR_STEELBLUE` | `0x4C37` |
+| `ILI9341_COLOR_TAN` | `0xD5B2` |
+| `ILI9341_COLOR_TEAL` | `0x0410` |
+| `ILI9341_COLOR_THISTLE` | `0xDE1B` |
+| `ILI9341_COLOR_TOMATO` | `0xFB29` |
+| `ILI9341_COLOR_TURQUOISE` | `0x471A` |
+| `ILI9341_COLOR_VIOLET` | `0xF43E` |
+| `ILI9341_COLOR_WHEAT` | `0xFF16` |
+| `ILI9341_COLOR_WHITE` | `0xFFFF` |
+| `ILI9341_COLOR_WHITESMOKE` | `0xFFBF` |
+| `ILI9341_COLOR_YELLOW` | `0xFFE0` |
+| `ILI9341_COLOR_YELLOWGREEN` | `0x9E66` |
+
+</details>
 
 ---
 
@@ -1125,6 +1498,42 @@ Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](../../LI
 
 Todos los cambios notables de esta librería se documentan en esta sección.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
+
+---
+
+### [1.3.0] - 03-07-2026
+
+#### Added
+
+- **Paleta de colores X11/CSS completa**: los 13 colores originales se reemplazan por **147 macros** `ILI9341_COLOR_*` correspondientes a la paleta estándar de nombres de color X11/CSS (p. ej. `ILI9341_COLOR_CORNFLOWERBLUE`, `ILI9341_COLOR_MEDIUMSEAGREEN`, `ILI9341_COLOR_DARKSLATEGRAY`), todas generadas con la nueva macro `RGB565()`.
+  - `RGB565(r, g, b)`: antes solo aparecía como snippet de ejemplo en este README; ahora es una macro pública definida en `ILI9341_Disc1.h` y usada internamente para construir toda la paleta.
+  - `RGB16TO24(c)`: nueva macro que expande un color RGB565 de 16 bits de vuelta a un valor RGB888 de 24 bits.
+- **Líneas rápidas** — `ILI9341_DrawFastVLine()` y `ILI9341_DrawFastHLine()`: nuevas primitivas que dibujan líneas verticales/horizontales delegando directamente en `ILI9341_DrawFilledRectangle()`, sin pasar por el algoritmo de Bresenham. Aceptan alto/ancho negativo (se normaliza invirtiendo el punto de partida) y recortan automáticamente a los límites de la pantalla.
+- **Elipses** — cuatro nuevas primitivas basadas en una implementación entera del algoritmo de punto medio (variante de Zingl):
+  - `ILI9341_DrawEllipse()` / `ILI9341_DrawFilledEllipse()`: contorno y relleno sobre pantalla (el relleno usa `DrawHSpanClipped()` por fila).
+  - `ILI9341_DrawEllipse_ImageBuffer()` / `ILI9341_DrawFilledEllipse_ImageBuffer()` *(solo SDRAM)*: mismas versiones sobre el frame buffer fuera de pantalla.
+  - Los casos degenerados (`rx == 0` o `ry == 0`) delegan en `ILI9341_DrawFastVLine()`/`ILI9341_DrawFastHLine()` (o en `ILI9341_DrawLine_ImageBuffer()` en las variantes de buffer).
+- **Arcos (sectores de anillo)** — cuatro nuevas primitivas para dibujar porciones de corona circular entre dos ángulos (0° = derecha, sentido horario, normalizados con `fmodf()`):
+  - `ILI9341_DrawArc()` / `ILI9341_DrawFilledArc()`: contorno y relleno sobre pantalla.
+  - `ILI9341_DrawArc_ImageBuffer()` / `ILI9341_DrawFilledArc_ImageBuffer()` *(solo SDRAM)*: mismas versiones sobre el frame buffer.
+  - Función privada `ILI9341_FillArcHelper()`: recorre el cuadro delimitador del arco fila por fila y dibuja los tramos horizontales que caen dentro del sector angular `[start, end]` y la corona `[r2, r1]`, usando pendientes trigonométricas (`sinf`/`cosf`) para los bordes rectos. Es compartida por las cuatro funciones públicas de arco, tanto para el contorno (bordes rectos y curvos) como para el relleno completo.
+- **`ILI9341_Fill_ImageBuffer()`** *(solo SDRAM)*: nueva función que rellena el frame buffer completo con un color sólido delegando en `ILI9341_DrawFilledRectangle_ImageBuffer()` sobre el área total del panel (hereda DMA2D R2M cuando está disponible).
+- **`ILI9341_DrawCircle_ImageBuffer()`** *(solo SDRAM)*: nueva función que dibuja el contorno de un círculo directamente en el frame buffer, con la misma lógica de punto medio de Bresenham que `ILI9341_DrawCircle()`.
+- Nuevos includes en `ILI9341_Disc1.h`: `<math.h>` (funciones trigonométricas para los arcos), `<float.h>` (`FLT_EPSILON` para comparar ángulos) y `<stdbool.h>` (tipo `bool` usado en las nuevas primitivas).
+
+#### Changed
+
+- **Valores de color modificados** para alinear la paleta con el estándar X11/CSS: `ILI9341_COLOR_GREEN` (`0x07E0` → `0x0400`), `ILI9341_COLOR_ORANGE` (`0xFBE4` → `0xFD20`), `ILI9341_COLOR_MAGENTA` (`0xA254` → `0xF81F`), `ILI9341_COLOR_GRAY`/`GREY` (`0x7BEF` → `0x8410`) y `ILI9341_COLOR_BROWN` (`0xBBCA` → `0xA965`). `ILI9341_COLOR_WHITE`, `BLACK`, `RED`, `BLUE`, `YELLOW` y `CYAN` conservan su valor anterior.
+
+#### Removed
+
+- `ILI9341_COLOR_GREEN2` (`0xB723`) y `ILI9341_COLOR_BLUE2` (`0x051D`) — reemplazadas por el conjunto completo de la paleta X11 (usa, por ejemplo, `ILI9341_COLOR_DARKGREEN`/`ILI9341_COLOR_FORESTGREEN` y `ILI9341_COLOR_DARKBLUE`/`ILI9341_COLOR_NAVY`/`ILI9341_COLOR_MIDNIGHTBLUE` en su lugar).
+
+#### Migration notes
+
+- Si tu proyecto usa `ILI9341_COLOR_GREEN`, `ILI9341_COLOR_ORANGE`, `ILI9341_COLOR_MAGENTA`, `ILI9341_COLOR_GRAY`/`GREY` o `ILI9341_COLOR_BROWN` esperando el valor RGB565 de v1.2.0, revisa la [tabla de colores](#colores-predefinidos): ahora corresponden a los tonos estándar X11/CSS (visualmente distintos en varios casos).
+- `ILI9341_COLOR_GREEN2` y `ILI9341_COLOR_BLUE2` fueron eliminadas; sustitúyelas por el color X11 equivalente más cercano o calcula tu propio color con la macro `RGB565(r, g, b)`.
+- Las nuevas funciones `ILI9341_DrawEllipse_ImageBuffer()`, `ILI9341_DrawFilledEllipse_ImageBuffer()`, `ILI9341_DrawArc_ImageBuffer()`, `ILI9341_DrawFilledArc_ImageBuffer()`, `ILI9341_Fill_ImageBuffer()` y `ILI9341_DrawCircle_ImageBuffer()` requieren `HAL_SDRAM_MODULE_ENABLED`, igual que el resto del grupo `*_ImageBuffer()` desde la v1.2.0.
 
 ---
 

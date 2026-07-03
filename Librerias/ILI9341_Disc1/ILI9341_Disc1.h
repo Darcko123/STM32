@@ -21,8 +21,8 @@
  *
  * @origin El código de este driver se basa en la librería Petr Machala, Tilen Majerle, 2014.
  * @author Dr. Luis Antonio Raygoza Pérez & Ing. Daniel Ruiz
- * @date June 15, 2026
- * @version 1.2.0
+ * @date July 03, 2026
+ * @version 1.3.0
  */
 
 #ifndef ILI9341_DISC1_H
@@ -35,6 +35,9 @@
 #include "main.h"
 #include "lcd_fonts.h"
 #include <string.h>
+#include <math.h>
+#include <float.h>
+#include <stdbool.h>
 
 // ============================================================================
 // MACROS Y CONSTANTES [ILI9341]
@@ -93,19 +96,156 @@
 #endif /* HAL_SDRAM_MODULE_ENABLED */
 
 /* -- Colores predefinidos (RGB565) -- */
-#define ILI9341_COLOR_WHITE     0xFFFFU /**< Blanco          */
-#define ILI9341_COLOR_BLACK     0x0000U /**< Negro           */
-#define ILI9341_COLOR_RED       0xF800U /**< Rojo puro       */
-#define ILI9341_COLOR_GREEN     0x07E0U /**< Verde puro      */
-#define ILI9341_COLOR_GREEN2    0xB723U /**< Verde oscuro    */
-#define ILI9341_COLOR_BLUE      0x001FU /**< Azul puro       */
-#define ILI9341_COLOR_BLUE2     0x051DU /**< Azul oscuro     */
-#define ILI9341_COLOR_YELLOW    0xFFE0U /**< Amarillo        */
-#define ILI9341_COLOR_ORANGE    0xFBE4U /**< Naranja         */
-#define ILI9341_COLOR_CYAN      0x07FFU /**< Cian            */
-#define ILI9341_COLOR_MAGENTA   0xA254U /**< Magenta         */
-#define ILI9341_COLOR_GRAY      0x7BEFU /**< Gris medio      */
-#define ILI9341_COLOR_BROWN     0xBBCAU /**< Café/marrón     */
+#define RGB565(r, g, b) ((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3))
+#define RGB16TO24(c) ((((uint32_t)(c) & 0xF800) << 8) | (((c) & 0x07E0) << 5) | (((c) & 0x1F) << 3))
+
+#define ILI9341_COLOR_ALICEBLUE         RGB565(240, 248, 248)
+#define ILI9341_COLOR_ANTIQUEWHITE      RGB565(248, 236, 216)
+#define ILI9341_COLOR_AQUA              RGB565(0, 252, 248)
+#define ILI9341_COLOR_AQUAMARINE        RGB565(128, 252, 216)
+#define ILI9341_COLOR_AZURE             RGB565(240, 252, 248)
+#define ILI9341_COLOR_BEIGE             RGB565(248, 244, 224)
+#define ILI9341_COLOR_BISQUE            RGB565(248, 228, 200)
+#define ILI9341_COLOR_BLACK             RGB565(0, 0, 0)
+#define ILI9341_COLOR_BLANCHEDALMOND    RGB565(248, 236, 208)
+#define ILI9341_COLOR_BLUE              RGB565(0, 0, 248)
+#define ILI9341_COLOR_BLUEVIOLET        RGB565(136, 44, 224)
+#define ILI9341_COLOR_BROWN             RGB565(168, 44, 40)
+#define ILI9341_COLOR_BURLYWOOD         RGB565(224, 184, 136)
+#define ILI9341_COLOR_CADETBLUE         RGB565(96, 160, 160)
+#define ILI9341_COLOR_CHARTREUSE        RGB565(128, 252, 0)
+#define ILI9341_COLOR_CHOCOLATE         RGB565(208, 104, 32)
+#define ILI9341_COLOR_CORAL             RGB565(248, 128, 80)
+#define ILI9341_COLOR_CORNFLOWERBLUE    RGB565(104, 148, 240)
+#define ILI9341_COLOR_CORNSILK          RGB565(248, 248, 224)
+#define ILI9341_COLOR_CRIMSON           RGB565(224, 20, 64)
+#define ILI9341_COLOR_CYAN              RGB565(0, 252, 248)
+#define ILI9341_COLOR_DARKBLUE          RGB565(0, 0, 136)
+#define ILI9341_COLOR_DARKCYAN          RGB565(0, 140, 136)
+#define ILI9341_COLOR_DARKGOLDENROD     RGB565(184, 136, 8)
+#define ILI9341_COLOR_DARKGRAY          RGB565(168, 168, 168)
+#define ILI9341_COLOR_DARKGREEN         RGB565(0, 100, 0)
+#define ILI9341_COLOR_DARKGREY          RGB565(168, 168, 168)
+#define ILI9341_COLOR_DARKKHAKI         RGB565(192, 184, 104)
+#define ILI9341_COLOR_DARKMAGENTA       RGB565(136, 0, 136)
+#define ILI9341_COLOR_DARKOLIVEGREEN    RGB565(88, 108, 48)
+#define ILI9341_COLOR_DARKORANGE        RGB565(248, 140, 0)
+#define ILI9341_COLOR_DARKORCHID        RGB565(152, 52, 208)
+#define ILI9341_COLOR_DARKRED           RGB565(136, 0, 0)
+#define ILI9341_COLOR_DARKSALMON        RGB565(232, 152, 120)
+#define ILI9341_COLOR_DARKSEAGREEN      RGB565(144, 188, 144)
+#define ILI9341_COLOR_DARKSLATEBLUE     RGB565(72, 60, 136)
+#define ILI9341_COLOR_DARKSLATEGRAY     RGB565(48, 80, 80)
+#define ILI9341_COLOR_DARKSLATEGREY     RGB565(48, 80, 80)
+#define ILI9341_COLOR_DARKTURQUOISE     RGB565(0, 208, 208)
+#define ILI9341_COLOR_DARKVIOLET        RGB565(152, 0, 208)
+#define ILI9341_COLOR_DEEPPINK          RGB565(248, 20, 144)
+#define ILI9341_COLOR_DEEPSKYBLUE       RGB565(0, 192, 248)
+#define ILI9341_COLOR_DIMGRAY           RGB565(104, 104, 104)
+#define ILI9341_COLOR_DIMGREY           RGB565(104, 104, 104)
+#define ILI9341_COLOR_DODGERBLUE        RGB565(32, 144, 248)
+#define ILI9341_COLOR_FIREBRICK         RGB565(176, 36, 32)
+#define ILI9341_COLOR_FLORALWHITE       RGB565(248, 252, 240)
+#define ILI9341_COLOR_FORESTGREEN       RGB565(32, 140, 32)
+#define ILI9341_COLOR_FUCHSIA           RGB565(248, 0, 248)
+#define ILI9341_COLOR_GAINSBORO         RGB565(224, 220, 224)
+#define ILI9341_COLOR_GHOSTWHITE        RGB565(248, 248, 248)
+#define ILI9341_COLOR_GOLD              RGB565(248, 216, 0)
+#define ILI9341_COLOR_GOLDENROD         RGB565(216, 164, 32)
+#define ILI9341_COLOR_GRAY              RGB565(128, 128, 128)
+#define ILI9341_COLOR_GREEN             RGB565(0, 128, 0)
+#define ILI9341_COLOR_GREENYELLOW       RGB565(176, 252, 48)
+#define ILI9341_COLOR_GREY              RGB565(128, 128, 128)
+#define ILI9341_COLOR_HONEYDEW          RGB565(240, 252, 240)
+#define ILI9341_COLOR_HOTPINK           RGB565(248, 104, 184)
+#define ILI9341_COLOR_INDIANRED         RGB565(208, 92, 96)
+#define ILI9341_COLOR_INDIGO            RGB565(72, 0, 128)
+#define ILI9341_COLOR_IVORY             RGB565(248, 252, 240)
+#define ILI9341_COLOR_KHAKI             RGB565(240, 232, 144)
+#define ILI9341_COLOR_LAVENDER          RGB565(232, 232, 248)
+#define ILI9341_COLOR_LAVENDERBLUSH     RGB565(248, 240, 248)
+#define ILI9341_COLOR_LAWNGREEN         RGB565(128, 252, 0)
+#define ILI9341_COLOR_LEMONCHIFFON      RGB565(248, 252, 208)
+#define ILI9341_COLOR_LIGHTBLUE         RGB565(176, 216, 232)
+#define ILI9341_COLOR_LIGHTCORAL        RGB565(240, 128, 128)
+#define ILI9341_COLOR_LIGHTCYAN         RGB565(224, 252, 248)
+#define ILI9341_COLOR_LIGHTGOLDENRODYELLOW RGB565(248, 252, 208)
+#define ILI9341_COLOR_LIGHTGRAY         RGB565(208, 212, 208)
+#define ILI9341_COLOR_LIGHTGREEN        RGB565(144, 240, 144)
+#define ILI9341_COLOR_LIGHTGREY         RGB565(208, 212, 208)
+#define ILI9341_COLOR_LIGHTPINK         RGB565(248, 184, 192)
+#define ILI9341_COLOR_LIGHTSALMON       RGB565(248, 160, 120)
+#define ILI9341_COLOR_LIGHTSEAGREEN     RGB565(32, 180, 168)
+#define ILI9341_COLOR_LIGHTSKYBLUE      RGB565(136, 208, 248)
+#define ILI9341_COLOR_LIGHTSLATEGRAY    RGB565(120, 136, 152)
+#define ILI9341_COLOR_LIGHTSLATEGREY    RGB565(120, 136, 152)
+#define ILI9341_COLOR_LIGHTSTEELBLUE    RGB565(176, 196, 224)
+#define ILI9341_COLOR_LIGHTYELLOW       RGB565(248, 252, 224)
+#define ILI9341_COLOR_LIME              RGB565(0, 252, 0)
+#define ILI9341_COLOR_LIMEGREEN         RGB565(48, 204, 48)
+#define ILI9341_COLOR_LINEN             RGB565(248, 240, 232)
+#define ILI9341_COLOR_MAGENTA           RGB565(248, 0, 248)
+#define ILI9341_COLOR_MAROON            RGB565(128, 0, 0)
+#define ILI9341_COLOR_MEDIUMAQUAMARINE  RGB565(104, 204, 168)
+#define ILI9341_COLOR_MEDIUMBLUE        RGB565(0, 0, 208)
+#define ILI9341_COLOR_MEDIUMORCHID      RGB565(184, 84, 208)
+#define ILI9341_COLOR_MEDIUMPURPLE      RGB565(144, 112, 216)
+#define ILI9341_COLOR_MEDIUMSEAGREEN    RGB565(64, 180, 112)
+#define ILI9341_COLOR_MEDIUMSLATEBLUE   RGB565(120, 104, 240)
+#define ILI9341_COLOR_MEDIUMSPRINGGREEN RGB565(0, 252, 152)
+#define ILI9341_COLOR_MEDIUMTURQUOISE   RGB565(72, 208, 208)
+#define ILI9341_COLOR_MEDIUMVIOLETRED   RGB565(200, 20, 136)
+#define ILI9341_COLOR_MIDNIGHTBLUE      RGB565(24, 24, 112)
+#define ILI9341_COLOR_MINTCREAM         RGB565(248, 252, 248)
+#define ILI9341_COLOR_MISTYROSE         RGB565(248, 228, 224)
+#define ILI9341_COLOR_MOCCASIN          RGB565(248, 228, 184)
+#define ILI9341_COLOR_NAVAJOWHITE       RGB565(248, 224, 176)
+#define ILI9341_COLOR_NAVY              RGB565(0, 0, 128)
+#define ILI9341_COLOR_OLDLACE           RGB565(248, 244, 232)
+#define ILI9341_COLOR_OLIVE             RGB565(128, 128, 0)
+#define ILI9341_COLOR_OLIVEDRAB         RGB565(104, 144, 32)
+#define ILI9341_COLOR_ORANGE            RGB565(248, 164, 0)
+#define ILI9341_COLOR_ORANGERED         RGB565(248, 68, 0)
+#define ILI9341_COLOR_ORCHID            RGB565(216, 112, 216)
+#define ILI9341_COLOR_PALEGOLDENROD     RGB565(240, 232, 168)
+#define ILI9341_COLOR_PALEGREEN         RGB565(152, 252, 152)
+#define ILI9341_COLOR_PALETURQUOISE     RGB565(176, 240, 240)
+#define ILI9341_COLOR_PALEVIOLETRED     RGB565(216, 112, 144)
+#define ILI9341_COLOR_PAPAYAWHIP        RGB565(248, 240, 216)
+#define ILI9341_COLOR_PEACHPUFF         RGB565(248, 220, 184)
+#define ILI9341_COLOR_PERU              RGB565(208, 132, 64)
+#define ILI9341_COLOR_PINK              RGB565(248, 192, 200)
+#define ILI9341_COLOR_PLUM              RGB565(224, 160, 224)
+#define ILI9341_COLOR_POWDERBLUE        RGB565(176, 224, 232)
+#define ILI9341_COLOR_PURPLE            RGB565(128, 0, 128)
+#define ILI9341_COLOR_RED               RGB565(248, 0, 0)
+#define ILI9341_COLOR_ROSYBROWN         RGB565(192, 144, 144)
+#define ILI9341_COLOR_ROYALBLUE         RGB565(64, 104, 224)
+#define ILI9341_COLOR_SADDLEBROWN       RGB565(136, 68, 16)
+#define ILI9341_COLOR_SALMON            RGB565(248, 128, 112)
+#define ILI9341_COLOR_SANDYBROWN        RGB565(248, 164, 96)
+#define ILI9341_COLOR_SEAGREEN          RGB565(48, 140, 88)
+#define ILI9341_COLOR_SEASHELL          RGB565(248, 244, 240)
+#define ILI9341_COLOR_SIENNA            RGB565(160, 84, 48)
+#define ILI9341_COLOR_SILVER            RGB565(192, 192, 192)
+#define ILI9341_COLOR_SKYBLUE           RGB565(136, 208, 232)
+#define ILI9341_COLOR_SLATEBLUE         RGB565(104, 92, 208)
+#define ILI9341_COLOR_SLATEGRAY         RGB565(112, 128, 144)
+#define ILI9341_COLOR_SLATEGREY         RGB565(112, 128, 144)
+#define ILI9341_COLOR_SNOW              RGB565(248, 252, 248)
+#define ILI9341_COLOR_SPRINGGREEN       RGB565(0, 252, 128)
+#define ILI9341_COLOR_STEELBLUE         RGB565(72, 132, 184)
+#define ILI9341_COLOR_TAN               RGB565(208, 180, 144)
+#define ILI9341_COLOR_TEAL              RGB565(0, 128, 128)
+#define ILI9341_COLOR_THISTLE           RGB565(216, 192, 216)
+#define ILI9341_COLOR_TOMATO            RGB565(248, 100, 72)
+#define ILI9341_COLOR_TURQUOISE         RGB565(64, 224, 208)
+#define ILI9341_COLOR_VIOLET            RGB565(240, 132, 240)
+#define ILI9341_COLOR_WHEAT             RGB565(248, 224, 176)
+#define ILI9341_COLOR_WHITE             RGB565(248, 252, 248)
+#define ILI9341_COLOR_WHITESMOKE        RGB565(248, 244, 248)
+#define ILI9341_COLOR_YELLOW            RGB565(248, 252, 0)
+#define ILI9341_COLOR_YELLOWGREEN       RGB565(152, 204, 48)
 
 /* -- Comandos ILI9341 -- */
 #define ILI9341_RESET           0x01U /**< Reinicio por software                                  */
@@ -377,6 +517,28 @@ ILI9341_Status_t ILI9341_DrawPixel(uint16_t x, uint16_t y, uint16_t color);
 ILI9341_Status_t ILI9341_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color);
 
 /**
+ * @brief Dibuja una línea vertical de forma optimizada (sin Bresenham).
+ *
+ * @param[in] x     Coordenada X de la línea.
+ * @param[in] y     Coordenada Y inicial.
+ * @param[in] h     Alto de la línea (puede ser negativo, se normaliza).
+ * @param[in] color Color de la línea.
+ * @return ILI9341_Status_t
+ */
+ILI9341_Status_t ILI9341_DrawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color);
+
+/**
+ * @brief Dibuja una línea horizontal de forma optimizada (sin Bresenham).
+ *
+ * @param[in] x     Coordenada X inicial.
+ * @param[in] y     Coordenada Y de la línea.
+ * @param[in] w     Ancho de la línea (puede ser negativo, se normaliza).
+ * @param[in] color Color de la línea.
+ * @return ILI9341_Status_t
+ */
+ILI9341_Status_t ILI9341_DrawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color);
+
+/**
  * @brief Dibuja el contorno de un rectángulo en la pantalla LCD.
  *
  * @param[in] x0    Coordenada X superior izquierda.
@@ -513,6 +675,70 @@ ILI9341_Status_t ILI9341_DrawTriangle(uint16_t x0, uint16_t y0, uint16_t x1, uin
  */
 ILI9341_Status_t ILI9341_DrawFilledTriangle(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color);
 
+/**
+ * @brief Dibuja el contorno de una elipse en la pantalla LCD.
+ *
+ * @param[in] x0    Coordenada X del centro.
+ * @param[in] y0    Coordenada Y del centro.
+ * @param[in] rx    Radio horizontal en píxeles.
+ * @param[in] ry    Radio vertical en píxeles.
+ * @param[in] color Color del contorno en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p rx o @p ry son negativos.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawEllipse(int16_t x0, int16_t y0, int16_t rx, int16_t ry, uint16_t color);
+
+/**
+ * @brief Dibuja una elipse rellena en la pantalla LCD.
+ * 
+ * @param[in] x0    Coordenada X del centro.
+ * @param[in] y0    Coordenada Y del centro.
+ * @param[in] rx    Radio horizontal en píxeles.
+ * @param[in] ry    Radio vertical en píxeles.
+ * @param[in] color Color del contorno en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p rx o @p ry son negativos.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawFilledEllipse(int16_t x0, int16_t y0, int16_t rx, int16_t ry, uint16_t color);
+
+/**
+ * @brief Dibuja el contorno de un arco (sector de anillo) entre dos ángulos.
+ *
+ * @param[in] x     Coordenada X del centro.
+ * @param[in] y     Coordenada Y del centro.
+ * @param[in] r1    Radio exterior del arco.
+ * @param[in] r2    Radio interior del arco.
+ * @param[in] start Ángulo inicial en grados (0° = derecha, sentido horario).
+ * @param[in] end   Ángulo final en grados.
+ * @param[in] color Color del contorno.
+ * @return ILI9341_Status_t
+ */
+ILI9341_Status_t ILI9341_DrawArc(int16_t x, int16_t y, int16_t r1, int16_t r2, float start, float end, uint16_t color);
+
+/**
+ * @brief Dibuja un arco relleno (sector de anillo) entre dos ángulos.
+ *
+ * @param[in] x0    Coordenada X del centro.
+ * @param[in] y0    Coordenada Y del centro.
+ * @param[in] r1    Radio exterior del arco.
+ * @param[in] r2    Radio interior del arco.
+ * @param[in] start Ángulo inicial en grados (0° = derecha, sentido horario).
+ * @param[in] end   Ángulo final en grados.
+ * @param[in] color Color del contorno.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p r1 o @p r2 son negativos.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawFilledArc(int16_t x0, int16_t y0, int16_t r1, int16_t r2, float start, float end, uint16_t color);
+
 /* --- Texto en pantalla ---------------------------------------------------- */
 
 /**
@@ -574,6 +800,23 @@ ILI9341_Status_t ILI9341_DisplayImage(uint32_t image[IMG_TOTAL_BUF32]);
 /* --- Frame buffer (escritura fuera de pantalla) --------------------------- */
 
 #ifdef HAL_SDRAM_MODULE_ENABLED
+
+/**
+ * @brief Rellena un frame buffer fuera de pantalla completo con un color sólido.
+ *
+ * @details Delega en ILI9341_DrawFilledRectangle_ImageBuffer() sobre el área
+ *          completa del panel, por lo que usa DMA2D en modo R2M cuando está
+ *          disponible y el camino CPU optimizado (2 píxeles por palabra) en
+ *          caso contrario.
+ *
+ * @param[in]     color  Color de relleno en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_INVALID_PARAM   si @p image es NULL.
+ *         - ILI9341_ERROR           si falla la transferencia DMA2D (solo con HAL_DMA2D_MODULE_ENABLED).
+ */
+ILI9341_Status_t ILI9341_Fill_ImageBuffer(uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
 
 /**
  * @brief Escribe un píxel en un frame buffer fuera de pantalla.
@@ -707,6 +950,24 @@ ILI9341_Status_t ILI9341_DrawRoundRect_ImageBuffer(uint16_t x0, uint16_t y0, uin
 ILI9341_Status_t ILI9341_DrawFilledRoundRect_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t r, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
 
 /**
+ * @brief Dibuja el contorno de un círculo en un frame buffer fuera de pantalla.
+ *
+ * @details Misma lógica que ILI9341_DrawCircle() (Bresenham de punto medio con
+ *          simetría de octantes) pero escribe directamente en el frame buffer.
+ *          Los píxeles se recortan a los límites fijos del panel.
+ *
+ * @param[in]     x0     Coordenada X del centro.
+ * @param[in]     y0     Coordenada Y del centro.
+ * @param[in]     r      Radio en píxeles.
+ * @param[in]     color  Color de la línea en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_INVALID_PARAM   si @p image es NULL.
+ */
+ILI9341_Status_t ILI9341_DrawCircle_ImageBuffer(int16_t x0, int16_t y0, int16_t r, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+
+/**
  * @brief Dibuja un círculo relleno en un frame buffer fuera de pantalla.
  *
  * @param[in]     x0     Coordenada X del centro.
@@ -757,6 +1018,78 @@ ILI9341_Status_t ILI9341_DrawTriangle_ImageBuffer(uint16_t x0, uint16_t y0, uint
  *         - ILI9341_INVALID_PARAM si @p image es NULL.
  */
 ILI9341_Status_t ILI9341_DrawFilledTriangle_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+
+/**
+ * @brief Dibuja el contorno de una elipse en la pantalla LCD.
+ *
+ * @param[in]     x0    Coordenada X del centro.
+ * @param[in]     y0    Coordenada Y del centro.
+ * @param[in]     rx    Radio horizontal en píxeles.
+ * @param[in]     ry    Radio vertical en píxeles.
+ * @param[in]     color Color del contorno en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p rx o @p ry son negativos.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawEllipse_ImageBuffer(int16_t x0, int16_t y0, int16_t rx, int16_t ry, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+
+/**
+ * @brief Dibuja el contorno de una elipse en la pantalla LCD.
+ *
+ * @param[in]     x0    Coordenada X del centro.
+ * @param[in]     y0    Coordenada Y del centro.
+ * @param[in]     rx    Radio horizontal en píxeles.
+ * @param[in]     ry    Radio vertical en píxeles.
+ * @param[in]     color Color del contorno en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p rx o @p ry son negativos.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawFilledEllipse_ImageBuffer(int16_t x0, int16_t y0, int16_t rx, int16_t ry, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+
+/**
+ * @brief Dibuja el contorno de un arco (sector de anillo) entre dos ángulos.
+ *
+ * @param[in] x     Coordenada X del centro.
+ * @param[in] y     Coordenada Y del centro.
+ * @param[in] r1    Radio exterior del arco.
+ * @param[in] r2    Radio interior del arco.
+ * @param[in] start Ángulo inicial en grados (0° = derecha, sentido horario).
+ * @param[in] end   Ángulo final en grados.
+ * @param[in] color Color del contorno.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p rx o @p ry son negativos.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawArc_ImageBuffer(int16_t x, int16_t y, int16_t r1, int16_t r2, float start, float end, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+
+/**
+ * @brief Dibuja un arco relleno (sector de anillo) entre dos ángulos.
+ *
+ * @param[in] x0    Coordenada X del centro.
+ * @param[in] y0    Coordenada Y del centro.
+ * @param[in] r1    Radio exterior del arco.
+ * @param[in] r2    Radio interior del arco.
+ * @param[in] start Ángulo inicial en grados (0° = derecha, sentido horario).
+ * @param[in] end   Ángulo final en grados.
+ * @param[in] color Color del contorno.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p image es NULL, o si @p r1 o @p r2 son negativos.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawFilledArc_ImageBuffer(int16_t x0, int16_t y0, int16_t r1, int16_t r2, float start, float end, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
 
 #endif /* HAL_SDRAM_MODULE_ENABLED */
 
