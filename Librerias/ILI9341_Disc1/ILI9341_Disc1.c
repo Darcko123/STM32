@@ -1914,9 +1914,9 @@ ILI9341_Status_t ILI9341_DrawEllipse(int16_t x0, int16_t y0, int16_t rx, int16_t
 ILI9341_Status_t ILI9341_DrawFilledEllipse(int16_t x0, int16_t y0, int16_t rx, int16_t ry, uint16_t color)
 {
     ILI9341_Status_t st;
-    int32_t x, y;
-    int32_t rx2, ry2;
-    int32_t err, e2;
+    int32_t xa, xb, ya, yb;
+    int32_t a, b, b1;
+    int32_t dx, dy, err, e2;
 
     if (ILI9341_Initialized != 1U) { return ILI9341_NOT_INITIALIZED; }
     if (rx < 0 || ry < 0)          { return ILI9341_INVALID_PARAM;   }
@@ -1930,60 +1930,45 @@ ILI9341_Status_t ILI9341_DrawFilledEllipse(int16_t x0, int16_t y0, int16_t rx, i
         return ILI9341_DrawFastHLine((int16_t)(x0 - rx), y0, (int16_t)(2 * rx + 1), color);
     }
 
-    /* Algoritmo de punto medio para elipses rellenas (versión optimizada de Zingl) */
-    rx2 = rx * rx;
-    ry2 = ry * ry;
+    /* Mismo trazado de contorno que ILI9341_DrawEllipse (Zingl), pero rellenando
+     * cada fila visitada con un tramo horizontal en vez de graficar 4 píxeles. */
+    xa = (int32_t)x0 - rx;
+    xb = (int32_t)x0 + rx;
+    ya = (int32_t)y0 - ry;
+    yb = (int32_t)y0 + ry;
 
-    /* Región 1: pendiente entre 0 y -1 (borde superior/inferior) */
-    x = 0;
-    y = ry;
-    err = rx2 - (2 * ry * rx2) + ry2;
+    a  = xb - xa;
+    b  = yb - ya;
+    b1 = b & 1;
 
-    while (err < 0)
+    dx  = 4 * (1 - a) * b * b;
+    dy  = 4 * (b1 + 1) * a * a;
+    err = dx + dy + b1 * a * a;
+
+    ya += (b + 1) / 2;
+    yb  = ya - b1;
+    a  *= 8 * a;
+    b1  = 8 * b * b;
+
+    do
     {
-        /* Tramo horizontal entre (-x, y) y (+x, y) para la fila y0 ± y */
-        st = DrawHSpanClipped((int16_t)(x0 - x), (int16_t)(x0 + x), (int16_t)(y0 + y), color);
-        if (st != ILI9341_OK) { return st; }
-        st = DrawHSpanClipped((int16_t)(x0 - x), (int16_t)(x0 + x), (int16_t)(y0 - y), color);
+        st  = DrawHSpanClipped((int16_t)xa, (int16_t)xb, (int16_t)ya, color);
+        st  = st ? st : DrawHSpanClipped((int16_t)xa, (int16_t)xb, (int16_t)yb, color);
         if (st != ILI9341_OK) { return st; }
 
-        x++;
-        e2 = err;
-        if (e2 > 0)
-        {
-            y--;
-            err += 4 * rx2 * (1 - y) + 4 * ry2 * (2 * x - 1);
-        }
-        else
-        {
-            err += 4 * ry2 * (2 * x - 1);
-        }
-    }
+        e2 = 2 * err;
+        if (e2 <= dy) { ya++; yb--; dy += a; err += dy; }
+        if (e2 >= dx || 2 * err > dy) { xa++; xb--; dx += b1; err += dx; }
+    } while (xa <= xb);
 
-    /* Región 2: pendiente entre -1 e infinito (bordes laterales) */
-    y = 0;
-    x = rx;
-    err = ry2 - (2 * rx * ry2) + rx2;
-
-    while (err < 0)
+    /* Remate de puntas para elipses muy achatadas (a == 0 en algún eje). */
+    while (ya - yb < b)
     {
-        /* Tramo horizontal entre (-y, x) y (+y, x) para la columna x0 ± x */
-        st = DrawHSpanClipped((int16_t)(x0 - y), (int16_t)(x0 + y), (int16_t)(y0 + x), color);
+        ya++;
+        yb--;
+        st  = DrawHSpanClipped((int16_t)(xa - 1), (int16_t)(xb + 1), (int16_t)ya, color);
+        st  = st ? st : DrawHSpanClipped((int16_t)(xa - 1), (int16_t)(xb + 1), (int16_t)yb, color);
         if (st != ILI9341_OK) { return st; }
-        st = DrawHSpanClipped((int16_t)(x0 - y), (int16_t)(x0 + y), (int16_t)(y0 - x), color);
-        if (st != ILI9341_OK) { return st; }
-
-        y++;
-        e2 = err;
-        if (e2 > 0)
-        {
-            x--;
-            err += 4 * ry2 * (1 - x) + 4 * rx2 * (2 * y - 1);
-        }
-        else
-        {
-            err += 4 * rx2 * (2 * y - 1);
-        }
     }
 
     return ILI9341_OK;
@@ -2996,9 +2981,9 @@ ILI9341_Status_t ILI9341_DrawEllipse_ImageBuffer(int16_t x0, int16_t y0, int16_t
 ILI9341_Status_t ILI9341_DrawFilledEllipse_ImageBuffer(int16_t x0, int16_t y0, int16_t rx, int16_t ry, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
 {
     ILI9341_Status_t st;
-    int32_t x, y;
-    int32_t rx2, ry2;
-    int32_t err, e2;
+    int32_t xa, xb, ya, yb;
+    int32_t a, b, b1;
+    int32_t dx, dy, err, e2;
 
     if (image == NULL)    { return ILI9341_INVALID_PARAM; }
     if (rx < 0 || ry < 0) { return ILI9341_INVALID_PARAM; }
@@ -3012,60 +2997,45 @@ ILI9341_Status_t ILI9341_DrawFilledEllipse_ImageBuffer(int16_t x0, int16_t y0, i
         return ILI9341_DrawLine_ImageBuffer((int16_t)(x0 - rx), y0, (int16_t)(x0 + rx), y0, color, image);
     }
 
-    /* Algoritmo de punto medio para elipses rellenas (versión optimizada de Zingl) */
-    rx2 = rx * rx;
-    ry2 = ry * ry;
+    /* Mismo trazado de contorno que ILI9341_DrawEllipse_ImageBuffer (Zingl), pero rellenando
+     * cada fila visitada con un tramo horizontal en vez de graficar 4 píxeles. */
+    xa = (int32_t)x0 - rx;
+    xb = (int32_t)x0 + rx;
+    ya = (int32_t)y0 - ry;
+    yb = (int32_t)y0 + ry;
 
-    /* Región 1: pendiente entre 0 y -1 (borde superior/inferior) */
-    x = 0;
-    y = ry;
-    err = rx2 - (2 * ry * rx2) + ry2;
+    a  = xb - xa;
+    b  = yb - ya;
+    b1 = b & 1;
 
-    while (err < 0)
+    dx  = 4 * (1 - a) * b * b;
+    dy  = 4 * (b1 + 1) * a * a;
+    err = dx + dy + b1 * a * a;
+
+    ya += (b + 1) / 2;
+    yb  = ya - b1;
+    a  *= 8 * a;
+    b1  = 8 * b * b;
+
+    do
     {
-        /* Tramo horizontal entre (-x, y) y (+x, y) para la fila y0 ± y */
-        st = DrawHSpanClipped_ImageBuffer((int16_t)(x0 - x), (int16_t)(x0 + x), (int16_t)(y0 + y), color, image);
-        if (st != ILI9341_OK) { return st; }
-        st = DrawHSpanClipped_ImageBuffer((int16_t)(x0 - x), (int16_t)(x0 + x), (int16_t)(y0 - y), color, image);
+        st  = DrawHSpanClipped_ImageBuffer((int16_t)xa, (int16_t)xb, (int16_t)ya, color, image);
+        st  = st ? st : DrawHSpanClipped_ImageBuffer((int16_t)xa, (int16_t)xb, (int16_t)yb, color, image);
         if (st != ILI9341_OK) { return st; }
 
-        x++;
-        e2 = err;
-        if (e2 > 0)
-        {
-            y--;
-            err += 4 * rx2 * (1 - y) + 4 * ry2 * (2 * x - 1);
-        }
-        else
-        {
-            err += 4 * ry2 * (2 * x - 1);
-        }
-    }
+        e2 = 2 * err;
+        if (e2 <= dy) { ya++; yb--; dy += a; err += dy; }
+        if (e2 >= dx || 2 * err > dy) { xa++; xb--; dx += b1; err += dx; }
+    } while (xa <= xb);
 
-    /* Región 2: pendiente entre -1 e infinito (bordes laterales) */
-    y = 0;
-    x = rx;
-    err = ry2 - (2 * rx * ry2) + rx2;
-
-    while (err < 0)
+    /* Remate de puntas para elipses muy achatadas (a == 0 en algún eje). */
+    while (ya - yb < b)
     {
-        /* Tramo horizontal entre (-y, x) y (+y, x) para la columna x0 ± x */
-        st = DrawHSpanClipped_ImageBuffer((int16_t)(x0 - y), (int16_t)(x0 + y), (int16_t)(y0 + x), color, image);
+        ya++;
+        yb--;
+        st  = DrawHSpanClipped_ImageBuffer((int16_t)(xa - 1), (int16_t)(xb + 1), (int16_t)ya, color, image);
+        st  = st ? st : DrawHSpanClipped_ImageBuffer((int16_t)(xa - 1), (int16_t)(xb + 1), (int16_t)yb, color, image);
         if (st != ILI9341_OK) { return st; }
-        st = DrawHSpanClipped_ImageBuffer((int16_t)(x0 - y), (int16_t)(x0 + y), (int16_t)(y0 - x), color, image);
-        if (st != ILI9341_OK) { return st; }
-
-        y++;
-        e2 = err;
-        if (e2 > 0)
-        {
-            x--;
-            err += 4 * ry2 * (1 - x) + 4 * rx2 * (2 * y - 1);
-        }
-        else
-        {
-            err += 4 * rx2 * (2 * y - 1);
-        }
     }
 
     return ILI9341_OK;
