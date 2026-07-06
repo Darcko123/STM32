@@ -517,6 +517,28 @@ ILI9341_Status_t ILI9341_DrawPixel(uint16_t x, uint16_t y, uint16_t color);
 ILI9341_Status_t ILI9341_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color);
 
 /**
+ * @brief Dibuja una línea con grosor (ancho de trazo) en la pantalla LCD.
+ *
+ * @details Las líneas horizontales y verticales se rellenan con un único rectángulo
+ *          (recortado a los límites de pantalla). Las líneas diagonales se aproximan
+ *          trazando @p thickness líneas de Bresenham paralelas, desplazadas sobre la
+ *          normal del segmento y centradas en la línea original; en ángulos muy
+ *          pronunciados puede quedar un ligero aliasing entre trazos adyacentes.
+ *
+ * @param[in] x0        Coordenada X de inicio.
+ * @param[in] y0        Coordenada Y de inicio.
+ * @param[in] x1        Coordenada X de fin.
+ * @param[in] y1        Coordenada Y de fin.
+ * @param[in] thickness Grosor de la línea en píxeles (0 y 1 equivalen a ILI9341_DrawLine()).
+ * @param[in] color     Color de la línea en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawThickLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t thickness, uint16_t color);
+
+/**
  * @brief Dibuja una línea vertical de forma optimizada (sin Bresenham).
  *
  * @param[in] x     Coordenada X de la línea.
