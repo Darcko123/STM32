@@ -395,6 +395,16 @@ typedef enum {
     ILI9341_Orientation_Landscape_2    /**< Rotación 270° (-90°)  */
 } ILI9341_Orientation_t;
 
+/**
+ * @brief Alineación horizontal para ILI9341_PutsAligned()/ILI9341_PrintfAligned()
+ *        y sus variantes de frame buffer.
+ */
+typedef enum {
+    ILI9341_ALIGN_LEFT,     /**< Cadena pegada al borde izquierdo de la región   */
+    ILI9341_ALIGN_CENTER,   /**< Cadena centrada dentro de la región             */
+    ILI9341_ALIGN_RIGHT     /**< Cadena pegada al borde derecho de la región     */
+} ILI9341_TextAlign_t;
+
 #ifdef HAL_I2C_MODULE_ENABLED
 /**
  * @brief Estado del panel táctil retornado por ILI9341_TP_GetState().
@@ -857,6 +867,53 @@ ILI9341_Status_t ILI9341_Printf(uint16_t x, uint16_t y, LCD_FontDef_t* font, uin
  */
 void ILI9341_GetStringSize(char* str, LCD_FontDef_t* font, uint16_t* width, uint16_t* height);
 
+/**
+ * @brief Renderiza una cadena terminada en nulo alineada dentro de una región horizontal.
+ *
+ * @details Calcula el ancho de @p str con ILI9341_GetStringSize() y deriva la
+ *          coordenada X según @p align antes de delegar en ILI9341_Puts(). Pensada
+ *          para cadenas de una sola línea (títulos, etiquetas, valores); si
+ *          @p str es más ancha que la región [x0, x1] se alinea contra @p x0.
+ *
+ * @param[in] x0         Borde izquierdo de la región de alineación.
+ * @param[in] x1         Borde derecho de la región de alineación (x1 >= x0).
+ * @param[in] y          Coordenada Y superior izquierda del texto.
+ * @param[in] align      Alineación deseada (izquierda, centro, derecha).
+ * @param[in] str        Puntero a la cadena terminada en nulo.
+ * @param[in] font       Puntero a la definición de la fuente.
+ * @param[in] foreground Color de primer plano en formato RGB565.
+ * @param[in] background Color de fondo en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p str o @p font son NULL, o si x1 < x0.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_PutsAligned(uint16_t x0, uint16_t x1, uint16_t y, ILI9341_TextAlign_t align, char* str, LCD_FontDef_t* font, uint16_t foreground, uint16_t background);
+
+/**
+ * @brief Renderiza una cadena con formato (estilo printf) alineada dentro de una región horizontal.
+ *
+ * @details Formatea los argumentos variádicos con vsnprintf() en un buffer interno
+ *          de ILI9341_PRINTF_BUF_SIZE bytes y delega en ILI9341_PutsAligned().
+ *
+ * @param[in] x0         Borde izquierdo de la región de alineación.
+ * @param[in] x1         Borde derecho de la región de alineación (x1 >= x0).
+ * @param[in] y          Coordenada Y superior izquierda del texto.
+ * @param[in] align      Alineación deseada (izquierda, centro, derecha).
+ * @param[in] font       Puntero a la definición de la fuente.
+ * @param[in] foreground Color de primer plano en formato RGB565.
+ * @param[in] background Color de fondo en formato RGB565.
+ * @param[in] fmt        Cadena de formato estilo printf (terminada en nulo).
+ * @param[in] ...        Argumentos variádicos correspondientes a @p fmt.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p fmt o @p font son NULL, si x1 < x0, o si vsnprintf falla.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_PrintfAligned(uint16_t x0, uint16_t x1, uint16_t y, ILI9341_TextAlign_t align, LCD_FontDef_t* font, uint16_t foreground, uint16_t background, const char* fmt, ...);
+
 /* --- Imagen completa ------------------------------------------------------ */
 
 /**
@@ -956,6 +1013,49 @@ ILI9341_Status_t ILI9341_Puts_ImageBuffer(uint16_t x, uint16_t y, char* str, LCD
  *         - ILI9341_INVALID_PARAM   si @p fmt, @p font o @p image son NULL, o si vsnprintf falla.
  */
 ILI9341_Status_t ILI9341_Printf_ImageBuffer(uint16_t x, uint16_t y, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32], const char* fmt, ...);
+
+/**
+ * @brief Renderiza una cadena terminada en nulo alineada dentro de una región horizontal, en un frame buffer fuera de pantalla.
+ *
+ * @details Calcula el ancho de @p str con ILI9341_GetStringSize() y deriva la
+ *          coordenada X según @p align antes de delegar en ILI9341_Puts_ImageBuffer().
+ *          Pensada para cadenas de una sola línea; si @p str es más ancha que la
+ *          región [x0, x1] se alinea contra @p x0.
+ *
+ * @param[in]     x0         Borde izquierdo de la región de alineación.
+ * @param[in]     x1         Borde derecho de la región de alineación (x1 >= x0).
+ * @param[in]     y          Coordenada Y superior izquierda del texto.
+ * @param[in]     align      Alineación deseada (izquierda, centro, derecha).
+ * @param[in]     str        Puntero a la cadena terminada en nulo.
+ * @param[in]     font       Puntero a la definición de la fuente.
+ * @param[in]     foreground Color de primer plano en formato RGB565.
+ * @param[in,out] image      Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_INVALID_PARAM   si @p str, @p font o @p image son NULL, o si x1 < x0.
+ */
+ILI9341_Status_t ILI9341_PutsAligned_ImageBuffer(uint16_t x0, uint16_t x1, uint16_t y, ILI9341_TextAlign_t align, char* str, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32]);
+
+/**
+ * @brief Renderiza una cadena con formato (estilo printf) alineada dentro de una región horizontal, en un frame buffer fuera de pantalla.
+ *
+ * @details Formatea los argumentos variádicos con vsnprintf() en un buffer interno
+ *          de ILI9341_PRINTF_BUF_SIZE bytes y delega en ILI9341_PutsAligned_ImageBuffer().
+ *
+ * @param[in]     x0         Borde izquierdo de la región de alineación.
+ * @param[in]     x1         Borde derecho de la región de alineación (x1 >= x0).
+ * @param[in]     y          Coordenada Y superior izquierda del texto.
+ * @param[in]     align      Alineación deseada (izquierda, centro, derecha).
+ * @param[in]     font       Puntero a la definición de la fuente.
+ * @param[in]     foreground Color de primer plano en formato RGB565.
+ * @param[in,out] image      Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @param[in]     fmt        Cadena de formato estilo printf (terminada en nulo).
+ * @param[in]     ...        Argumentos variádicos correspondientes a @p fmt.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_INVALID_PARAM   si @p fmt, @p font o @p image son NULL, si x1 < x0, o si vsnprintf falla.
+ */
+ILI9341_Status_t ILI9341_PrintfAligned_ImageBuffer(uint16_t x0, uint16_t x1, uint16_t y, ILI9341_TextAlign_t align, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32], const char* fmt, ...);
 
 /**
  * @brief Dibuja una línea en un frame buffer fuera de pantalla.

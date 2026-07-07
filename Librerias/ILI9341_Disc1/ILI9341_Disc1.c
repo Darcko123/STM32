@@ -2448,6 +2448,98 @@ void ILI9341_GetStringSize(char* str, LCD_FontDef_t* font, uint16_t* width, uint
 }
 
 /**
+ * @brief Deriva la coordenada X de arranque de una cadena dentro de una región horizontal.
+ *
+ * @param[in] x0        Borde izquierdo de la región.
+ * @param[in] x1        Borde derecho de la región.
+ * @param[in] strWidth  Ancho en píxeles de la cadena (de ILI9341_GetStringSize()).
+ * @param[in] align     Alineación deseada.
+ * @return Coordenada X donde debe comenzar el texto.
+ */
+static uint16_t ILI9341_AlignedX(uint16_t x0, uint16_t x1, uint16_t strWidth, ILI9341_TextAlign_t align)
+{
+    uint16_t regionWidth = (uint16_t)(x1 - x0 + 1U);
+
+    if (strWidth >= regionWidth) { return x0; }
+
+    switch (align)
+    {
+        case ILI9341_ALIGN_CENTER: return (uint16_t)(x0 + (regionWidth - strWidth) / 2U);
+        case ILI9341_ALIGN_RIGHT:  return (uint16_t)(x1 - strWidth + 1U);
+        case ILI9341_ALIGN_LEFT:
+        default:                   return x0;
+    }
+}
+
+/**
+ * @brief Renderiza una cadena terminada en nulo alineada dentro de una región horizontal.
+ *
+ * @param[in] x0         Borde izquierdo de la región de alineación.
+ * @param[in] x1         Borde derecho de la región de alineación (x1 >= x0).
+ * @param[in] y          Coordenada Y superior izquierda del texto.
+ * @param[in] align      Alineación deseada (izquierda, centro, derecha).
+ * @param[in] str        Puntero a la cadena terminada en nulo.
+ * @param[in] font       Puntero a la definición de la fuente.
+ * @param[in] foreground Color de primer plano en formato RGB565.
+ * @param[in] background Color de fondo en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si str o font son NULL, o si x1 < x0.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_PutsAligned(uint16_t x0, uint16_t x1, uint16_t y, ILI9341_TextAlign_t align, char* str, LCD_FontDef_t* font, uint16_t foreground, uint16_t background)
+{
+    uint16_t strWidth, strHeight, x;
+
+    if (!ILI9341_Initialized)        { return ILI9341_NOT_INITIALIZED; }
+    if (str == NULL || font == NULL) { return ILI9341_INVALID_PARAM;   }
+    if (x1 < x0)                     { return ILI9341_INVALID_PARAM;   }
+
+    ILI9341_GetStringSize(str, font, &strWidth, &strHeight);
+    x = ILI9341_AlignedX(x0, x1, strWidth, align);
+
+    return ILI9341_Puts(x, y, str, font, foreground, background);
+}
+
+/**
+ * @brief Renderiza una cadena con formato (estilo printf) alineada dentro de una región horizontal.
+ *
+ * @param[in] x0         Borde izquierdo de la región de alineación.
+ * @param[in] x1         Borde derecho de la región de alineación (x1 >= x0).
+ * @param[in] y          Coordenada Y superior izquierda del texto.
+ * @param[in] align      Alineación deseada (izquierda, centro, derecha).
+ * @param[in] font       Puntero a la definición de la fuente.
+ * @param[in] foreground Color de primer plano en formato RGB565.
+ * @param[in] background Color de fondo en formato RGB565.
+ * @param[in] fmt        Cadena de formato estilo printf (terminada en nulo).
+ * @param[in] ...        Argumentos variádicos correspondientes a fmt.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si fmt o font son NULL, si x1 < x0, o si vsnprintf falla.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_PrintfAligned(uint16_t x0, uint16_t x1, uint16_t y, ILI9341_TextAlign_t align, LCD_FontDef_t* font, uint16_t foreground, uint16_t background, const char* fmt, ...)
+{
+    char buf[ILI9341_PRINTF_BUF_SIZE];
+    va_list args;
+    int len;
+
+    if (!ILI9341_Initialized)        { return ILI9341_NOT_INITIALIZED; }
+    if (fmt == NULL || font == NULL) { return ILI9341_INVALID_PARAM;   }
+    if (x1 < x0)                     { return ILI9341_INVALID_PARAM;   }
+
+    va_start(args, fmt);
+    len = vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+
+    if (len < 0) { return ILI9341_INVALID_PARAM; }
+
+    return ILI9341_PutsAligned(x0, x1, y, align, buf, font, foreground, background);
+}
+
+/**
  * @brief Transfiere un frame buffer RGB565 de pantalla completa a la LCD mediante SPI optimizado.
  *
  * @param[in] image Arreglo de IMG_TOTAL_BUF32 palabras uint32_t (dos píxeles RGB565 por palabra).
@@ -2685,6 +2777,68 @@ ILI9341_Status_t ILI9341_Printf_ImageBuffer(uint16_t x, uint16_t y, LCD_FontDef_
     if (len < 0) { return ILI9341_INVALID_PARAM; }
 
     return ILI9341_Puts_ImageBuffer(x, y, buf, font, foreground, image);
+}
+
+/**
+ * @brief Renderiza una cadena terminada en nulo alineada dentro de una región horizontal, en un frame buffer fuera de pantalla.
+ *
+ * @param[in]     x0         Borde izquierdo de la región de alineación.
+ * @param[in]     x1         Borde derecho de la región de alineación (x1 >= x0).
+ * @param[in]     y          Coordenada Y superior izquierda del texto.
+ * @param[in]     align      Alineación deseada (izquierda, centro, derecha).
+ * @param[in]     str        Puntero a la cadena terminada en nulo.
+ * @param[in]     font       Puntero a la definición de la fuente.
+ * @param[in]     foreground Color de primer plano en formato RGB565.
+ * @param[in,out] image      Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_INVALID_PARAM   si str, font o image son NULL, o si x1 < x0.
+ */
+ILI9341_Status_t ILI9341_PutsAligned_ImageBuffer(uint16_t x0, uint16_t x1, uint16_t y, ILI9341_TextAlign_t align, char* str, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32])
+{
+    uint16_t strWidth, strHeight, x;
+
+    if (str == NULL || font == NULL || image == NULL) { return ILI9341_INVALID_PARAM; }
+    if (x1 < x0)                                       { return ILI9341_INVALID_PARAM; }
+
+    ILI9341_GetStringSize(str, font, &strWidth, &strHeight);
+    x = ILI9341_AlignedX(x0, x1, strWidth, align);
+
+    return ILI9341_Puts_ImageBuffer(x, y, str, font, foreground, image);
+}
+
+/**
+ * @brief Renderiza una cadena con formato (estilo printf) alineada dentro de una región horizontal, en un frame buffer fuera de pantalla.
+ *
+ * @param[in]     x0         Borde izquierdo de la región de alineación.
+ * @param[in]     x1         Borde derecho de la región de alineación (x1 >= x0).
+ * @param[in]     y          Coordenada Y superior izquierda del texto.
+ * @param[in]     align      Alineación deseada (izquierda, centro, derecha).
+ * @param[in]     font       Puntero a la definición de la fuente.
+ * @param[in]     foreground Color de primer plano en formato RGB565.
+ * @param[in,out] image      Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @param[in]     fmt        Cadena de formato estilo printf (terminada en nulo).
+ * @param[in]     ...        Argumentos variádicos correspondientes a fmt.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_INVALID_PARAM   si fmt, font o image son NULL, si x1 < x0, o si vsnprintf falla.
+ */
+ILI9341_Status_t ILI9341_PrintfAligned_ImageBuffer(uint16_t x0, uint16_t x1, uint16_t y, ILI9341_TextAlign_t align, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32], const char* fmt, ...)
+{
+    char buf[ILI9341_PRINTF_BUF_SIZE];
+    va_list args;
+    int len;
+
+    if (fmt == NULL || font == NULL || image == NULL) { return ILI9341_INVALID_PARAM; }
+    if (x1 < x0)                                      { return ILI9341_INVALID_PARAM; }
+
+    va_start(args, fmt);
+    len = vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+
+    if (len < 0) { return ILI9341_INVALID_PARAM; }
+
+    return ILI9341_PutsAligned_ImageBuffer(x0, x1, y, align, buf, font, foreground, image);
 }
 
 /**
