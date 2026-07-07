@@ -2391,6 +2391,46 @@ ILI9341_Status_t ILI9341_Puts(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* 
 }
 
 /**
+ * @brief Renderiza una cadena con formato (estilo printf) en la pantalla LCD.
+ *
+ * @details Formatea los argumentos variádicos con vsnprintf() en un buffer
+ *          interno en pila de ILI9341_PRINTF_BUF_SIZE bytes y delega el dibujo
+ *          en ILI9341_Puts(). El uso de vsnprintf con el tamaño del buffer
+ *          garantiza que la cadena siempre quede terminada en nulo y sin
+ *          desbordamiento aunque el resultado se trunque.
+ *
+ * @param[in] x          Coordenada X superior izquierda del primer carácter.
+ * @param[in] y          Coordenada Y superior izquierda del primer carácter.
+ * @param[in] font       Puntero a la definición de la fuente.
+ * @param[in] foreground Color de primer plano en formato RGB565.
+ * @param[in] background Color de fondo en formato RGB565.
+ * @param[in] fmt        Cadena de formato estilo printf (terminada en nulo).
+ * @param[in] ...        Argumentos variádicos correspondientes a fmt.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si fmt o font son NULL, o si vsnprintf falla.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_Printf(uint16_t x, uint16_t y, LCD_FontDef_t* font, uint16_t foreground, uint16_t background, const char* fmt, ...)
+{
+    char buf[ILI9341_PRINTF_BUF_SIZE];
+    va_list args;
+    int len;
+
+    if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
+    if (fmt == NULL || font == NULL) { return ILI9341_INVALID_PARAM; }
+
+    va_start(args, fmt);
+    len = vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+
+    if (len < 0) { return ILI9341_INVALID_PARAM; }
+
+    return ILI9341_Puts(x, y, buf, font, foreground, background);
+}
+
+/**
  * @brief Calcula el bounding-box en píxeles de una cadena para una fuente dada.
  *
  * @param[in]  str    Puntero a la cadena terminada en nulo.

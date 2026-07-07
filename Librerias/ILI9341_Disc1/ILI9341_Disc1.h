@@ -38,6 +38,8 @@
 #include <math.h>
 #include <float.h>
 #include <stdbool.h>
+#include <stdarg.h>
+#include <stdio.h>
 
 // ============================================================================
 // MACROS Y CONSTANTES [ILI9341]
@@ -810,6 +812,40 @@ ILI9341_Status_t ILI9341_Putc(uint16_t x, uint16_t y, char c, LCD_FontDef_t* fon
  *         - ILI9341_ERROR           si falla la transmisión SPI.
  */
 ILI9341_Status_t ILI9341_Puts(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* font, uint16_t foreground, uint16_t background);
+
+/**
+ * @brief Tamaño (en bytes) del buffer interno usado por ILI9341_Printf().
+ *
+ * @details Define la longitud máxima de la cadena ya formateada, incluido el
+ *          terminador nulo. Puede redefinirse antes de incluir este header si
+ *          se necesitan cadenas más largas. El buffer reside en la pila.
+ */
+#ifndef ILI9341_PRINTF_BUF_SIZE
+#define ILI9341_PRINTF_BUF_SIZE 128U
+#endif
+
+/**
+ * @brief Renderiza una cadena con formato (estilo printf) en la pantalla LCD.
+ *
+ * @details Formatea los argumentos variádicos con vsnprintf() en un buffer
+ *          interno de ILI9341_PRINTF_BUF_SIZE bytes y delega el dibujo en
+ *          ILI9341_Puts(). Si el resultado excede el tamaño del buffer, la
+ *          cadena se trunca de forma segura (sin desbordamiento).
+ *
+ * @param[in] x          Coordenada X superior izquierda del primer carácter.
+ * @param[in] y          Coordenada Y superior izquierda del primer carácter.
+ * @param[in] font       Puntero a la definición de la fuente.
+ * @param[in] foreground Color de primer plano en formato RGB565.
+ * @param[in] background Color de fondo en formato RGB565.
+ * @param[in] fmt        Cadena de formato estilo printf (terminada en nulo).
+ * @param[in] ...        Argumentos variádicos correspondientes a @p fmt.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p fmt o @p font son NULL, o si vsnprintf falla.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_Printf(uint16_t x, uint16_t y, LCD_FontDef_t* font, uint16_t foreground, uint16_t background, const char* fmt, ...);
 
 /**
  * @brief Calcula el bounding-box en píxeles de una cadena para una fuente dada.
