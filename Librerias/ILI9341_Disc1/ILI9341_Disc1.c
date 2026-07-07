@@ -2651,6 +2651,43 @@ ILI9341_Status_t ILI9341_Puts_ImageBuffer(uint16_t x, uint16_t y, char* str, LCD
 }
 
 /**
+ * @brief Renderiza una cadena con formato (estilo printf) en un frame buffer fuera de pantalla.
+ *
+ * @details Formatea los argumentos variádicos con vsnprintf() en un buffer
+ *          interno en pila de ILI9341_PRINTF_BUF_SIZE bytes y delega el dibujo
+ *          en ILI9341_Puts_ImageBuffer(). El uso de vsnprintf con el tamaño del
+ *          buffer garantiza que la cadena siempre quede terminada en nulo y sin
+ *          desbordamiento aunque el resultado se trunque.
+ *
+ * @param[in]     x          Coordenada X superior izquierda del primer carácter.
+ * @param[in]     y          Coordenada Y superior izquierda del primer carácter.
+ * @param[in]     font       Puntero a la definición de la fuente.
+ * @param[in]     foreground Color de primer plano en formato RGB565.
+ * @param[in,out] image      Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @param[in]     fmt        Cadena de formato estilo printf (terminada en nulo).
+ * @param[in]     ...        Argumentos variádicos correspondientes a fmt.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_INVALID_PARAM   si fmt, font o image son NULL, o si vsnprintf falla.
+ */
+ILI9341_Status_t ILI9341_Printf_ImageBuffer(uint16_t x, uint16_t y, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32], const char* fmt, ...)
+{
+    char buf[ILI9341_PRINTF_BUF_SIZE];
+    va_list args;
+    int len;
+
+    if (fmt == NULL || font == NULL || image == NULL) { return ILI9341_INVALID_PARAM; }
+
+    va_start(args, fmt);
+    len = vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+
+    if (len < 0) { return ILI9341_INVALID_PARAM; }
+
+    return ILI9341_Puts_ImageBuffer(x, y, buf, font, foreground, image);
+}
+
+/**
  * @brief Dibuja una línea en un frame buffer fuera de pantalla.
  *
  * @param[in]     x0     Coordenada X de inicio.

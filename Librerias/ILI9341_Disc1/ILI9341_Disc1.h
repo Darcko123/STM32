@@ -936,6 +936,28 @@ ILI9341_Status_t ILI9341_Putc_ImageBuffer(uint16_t x, uint16_t y, char c, LCD_Fo
 ILI9341_Status_t ILI9341_Puts_ImageBuffer(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32]);
 
 /**
+ * @brief Renderiza una cadena con formato (estilo printf) en un frame buffer fuera de pantalla.
+ *
+ * @details Formatea los argumentos variádicos con vsnprintf() en un buffer
+ *          interno de ILI9341_PRINTF_BUF_SIZE bytes y delega el dibujo en
+ *          ILI9341_Puts_ImageBuffer(). Escribe en la SDRAM; no toca la LCD hasta
+ *          que se presente el frame. Si el resultado excede el tamaño del buffer,
+ *          la cadena se trunca de forma segura (sin desbordamiento).
+ *
+ * @param[in]     x          Coordenada X superior izquierda del primer carácter.
+ * @param[in]     y          Coordenada Y superior izquierda del primer carácter.
+ * @param[in]     font       Puntero a la definición de la fuente.
+ * @param[in]     foreground Color de primer plano en formato RGB565.
+ * @param[in,out] image      Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @param[in]     fmt        Cadena de formato estilo printf (terminada en nulo).
+ * @param[in]     ...        Argumentos variádicos correspondientes a @p fmt.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_INVALID_PARAM   si @p fmt, @p font o @p image son NULL, o si vsnprintf falla.
+ */
+ILI9341_Status_t ILI9341_Printf_ImageBuffer(uint16_t x, uint16_t y, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32], const char* fmt, ...);
+
+/**
  * @brief Dibuja una línea en un frame buffer fuera de pantalla.
  *
  * @param[in]     x0     Coordenada X de inicio.
