@@ -1365,6 +1365,14 @@ ILI9341_Status_t ILI9341_DrawThickLine(uint16_t x0, uint16_t y0, uint16_t x1, ui
             int32_t           ny1 = (int32_t)y1 + oy;
             ILI9341_Status_t  st;
 
+            /* Descartar el trazo si queda completamente fuera de pantalla; recortar
+             * cada coordenada por separado en ese caso distorsionaría la pendiente. */
+            if ((nx0 < 0 && nx1 < 0) || (nx0 > maxX && nx1 > maxX) ||
+                (ny0 < 0 && ny1 < 0) || (ny0 > maxY && ny1 > maxY))
+            {
+                continue;
+            }
+
             if      (nx0 < 0) { nx0 = 0; } else if (nx0 > maxX) { nx0 = maxX; }
             if      (nx1 < 0) { nx1 = 0; } else if (nx1 > maxX) { nx1 = maxX; }
             if      (ny0 < 0) { ny0 = 0; } else if (ny0 > maxY) { ny0 = maxY; }
@@ -2636,6 +2644,120 @@ ILI9341_Status_t ILI9341_DrawLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t
         e2 = err;
         if (e2 > -dx) { err -= dy; x0 += sx; }
         if (e2 <  dy) { err += dx; y0 += sy; }
+    }
+    return ILI9341_OK;
+}
+
+/**
+ * @brief Dibuja una línea con grosor (ancho de trazo) en la pantalla LCD.
+ *
+ * @details Las líneas horizontales y verticales se rellenan con un único rectángulo
+ *          (recortado a los límites de pantalla). Las líneas diagonales se aproximan
+ *          trazando @p thickness líneas de Bresenham paralelas, desplazadas sobre la
+ *          normal del segmento y centradas en la línea original; en ángulos muy
+ *          pronunciados puede quedar un ligero aliasing entre trazos adyacentes.
+ *
+ * @param[in] x0        Coordenada X de inicio.
+ * @param[in] y0        Coordenada Y de inicio.
+ * @param[in] x1        Coordenada X de fin.
+ * @param[in] y1        Coordenada Y de fin.
+ * @param[in] thickness Grosor de la línea en píxeles (0 y 1 equivalen a ILI9341_DrawLine()).
+ * @param[in] color     Color de la línea en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawThickLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t thickness, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
+{
+    int32_t maxX, maxY, dx, dy;
+
+    if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
+    if (image == NULL) { return ILI9341_INVALID_PARAM; }
+
+    if (thickness <= 1U)
+    {
+        return ILI9341_DrawLine_ImageBuffer(x0, y0, x1, y1, color, image);
+    }
+
+    maxX = (int32_t)ILI9341_Opts.width  - 1;
+    maxY = (int32_t)ILI9341_Opts.height - 1;
+
+    /* Línea horizontal: un único rectángulo relleno recortado a pantalla. */
+    if (y0 == y1)
+    {
+        int32_t xL   = (x0 < x1) ? x0 : x1;
+        int32_t xR   = (x0 < x1) ? x1 : x0;
+        int32_t half = (int32_t)thickness / 2;
+        int32_t yT   = (int32_t)y0 - half;
+        int32_t yB   = yT + (int32_t)thickness - 1;
+
+        if (xL < 0)    { xL = 0;    }
+        if (xR > maxX) { xR = maxX; }
+        if (yT < 0)    { yT = 0;    }
+        if (yB > maxY) { yB = maxY; }
+        if (xL > xR || yT > yB) { return ILI9341_OK; }
+
+        return ILI9341_DrawFilledRectangle_ImageBuffer((uint16_t)xL, (uint16_t)yT, (uint16_t)xR, (uint16_t)yB, color, image);
+    }
+
+    /* Línea vertical: un único rectángulo relleno recortado a pantalla. */
+    if (x0 == x1)
+    {
+        int32_t yT   = (y0 < y1) ? y0 : y1;
+        int32_t yB   = (y0 < y1) ? y1 : y0;
+        int32_t half = (int32_t)thickness / 2;
+        int32_t xL   = (int32_t)x0 - half;
+        int32_t xR   = xL + (int32_t)thickness - 1;
+
+        if (yT < 0)    { yT = 0;    }
+        if (yB > maxY) { yB = maxY; }
+        if (xL < 0)    { xL = 0;    }
+        if (xR > maxX) { xR = maxX; }
+        if (xL > xR || yT > yB) { return ILI9341_OK; }
+
+        return ILI9341_DrawFilledRectangle_ImageBuffer((uint16_t)xL, (uint16_t)yT, (uint16_t)xR, (uint16_t)yB, color, image);
+    }
+
+    /* Línea diagonal: se aproxima con trazos de Bresenham paralelos, desplazados
+     * sobre la normal del segmento y centrados en la línea original. */
+    dx = (int32_t)x1 - (int32_t)x0;
+    dy = (int32_t)y1 - (int32_t)y0;
+    {
+        float   len = sqrtf((float)(dx * dx + dy * dy));
+        float   ux  = -(float)dy / len; /* Normal unitaria (componente X) */
+        float   uy  =  (float)dx / len; /* Normal unitaria (componente Y) */
+        float   mid = ((float)thickness - 1.0f) / 2.0f;
+        int32_t i;
+
+        for (i = 0; i < (int32_t)thickness; i++)
+        {
+            float             off = (float)i - mid;
+            int32_t           ox  = (int32_t)lroundf(ux * off);
+            int32_t           oy  = (int32_t)lroundf(uy * off);
+            int32_t           nx0 = (int32_t)x0 + ox;
+            int32_t           ny0 = (int32_t)y0 + oy;
+            int32_t           nx1 = (int32_t)x1 + ox;
+            int32_t           ny1 = (int32_t)y1 + oy;
+            ILI9341_Status_t  st;
+
+            /* Descartar el trazo si queda completamente fuera de pantalla; recortar
+             * cada coordenada por separado en ese caso distorsionaría la pendiente. */
+            if ((nx0 < 0 && nx1 < 0) || (nx0 > maxX && nx1 > maxX) ||
+                (ny0 < 0 && ny1 < 0) || (ny0 > maxY && ny1 > maxY))
+            {
+                continue;
+            }
+
+            if      (nx0 < 0) { nx0 = 0; } else if (nx0 > maxX) { nx0 = maxX; }
+            if      (nx1 < 0) { nx1 = 0; } else if (nx1 > maxX) { nx1 = maxX; }
+            if      (ny0 < 0) { ny0 = 0; } else if (ny0 > maxY) { ny0 = maxY; }
+            if      (ny1 < 0) { ny1 = 0; } else if (ny1 > maxY) { ny1 = maxY; }
+
+            st = ILI9341_DrawLine_ImageBuffer((uint16_t)nx0, (uint16_t)ny0, (uint16_t)nx1, (uint16_t)ny1, color, image);
+            if (st != ILI9341_OK) { return st; }
+        }
     }
     return ILI9341_OK;
 }

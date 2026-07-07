@@ -899,6 +899,30 @@ ILI9341_Status_t ILI9341_Puts_ImageBuffer(uint16_t x, uint16_t y, char* str, LCD
 ILI9341_Status_t ILI9341_DrawLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
 
 /**
+ * @brief Dibuja una línea con grosor (ancho de trazo) en la pantalla LCD.
+ *
+ * @details Las líneas horizontales y verticales se rellenan con un único rectángulo
+ *          (recortado a los límites de pantalla). Las líneas diagonales se aproximan
+ *          trazando @p thickness líneas de Bresenham paralelas, desplazadas sobre la
+ *          normal del segmento y centradas en la línea original; en ángulos muy
+ *          pronunciados puede quedar un ligero aliasing entre trazos adyacentes.
+ *
+ * @param[in] x0        Coordenada X de inicio.
+ * @param[in] y0        Coordenada Y de inicio.
+ * @param[in] x1        Coordenada X de fin.
+ * @param[in] y1        Coordenada Y de fin.
+ * @param[in] thickness Grosor de la línea en píxeles (0 y 1 equivalen a ILI9341_DrawLine()).
+ * @param[in] color     Color de la línea en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p image es NULL.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawThickLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t thickness, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+
+/**
  * @brief Dibuja el contorno de un rectángulo en un frame buffer fuera de pantalla.
  *
  * @param[in]     x0     Coordenada X superior izquierda.
