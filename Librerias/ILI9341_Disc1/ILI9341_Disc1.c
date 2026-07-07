@@ -1038,6 +1038,19 @@ ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi)
 }
 
 /**
+ * @brief Convierte una componente de color RGB888 (8 bits por canal) a RGB565.
+ *
+ * @param[in] r Componente roja (0-255).
+ * @param[in] g Componente verde (0-255).
+ * @param[in] b Componente azul (0-255).
+ * @return uint16_t Color empaquetado en formato RGB565.
+ */
+uint16_t ILI9341_Color565(uint8_t r, uint8_t g, uint8_t b)
+{
+    return RGB565(r, g, b);
+}
+
+/**
  * @brief Rellena toda la pantalla LCD con un color sólido.
  *
  * @param[in] color Color de relleno en formato RGB565.

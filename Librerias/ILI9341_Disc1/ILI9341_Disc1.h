@@ -462,6 +462,22 @@ ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, DMA2D_HandleTypeDef* hdma
 ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi);
 #endif
 
+/* --- Utilidades de color --------------------------------------------------- */
+
+/**
+ * @brief Convierte una componente de color RGB888 (8 bits por canal) a RGB565.
+ *
+ * @details Equivale a la macro RGB565(r, g, b), pero como función evita que el
+ *          usuario tenga que calcular el empaquetado de bits manualmente y
+ *          permite pasar valores calculados en tiempo de ejecución.
+ *
+ * @param[in] r Componente roja (0-255).
+ * @param[in] g Componente verde (0-255).
+ * @param[in] b Componente azul (0-255).
+ * @return uint16_t Color empaquetado en formato RGB565.
+ */
+uint16_t ILI9341_Color565(uint8_t r, uint8_t g, uint8_t b);
+
 /* --- Dibujo en pantalla --------------------------------------------------- */
 
 /**
