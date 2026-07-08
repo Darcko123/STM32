@@ -21,8 +21,8 @@
  *
  * @origin El código de este driver se basa en la librería Petr Machala, Tilen Majerle, 2014.
  * @author Dr. Luis Antonio Raygoza Pérez & Ing. Daniel Ruiz
- * @date July 03, 2026
- * @version 1.3.0
+ * @date July 08, 2026
+ * @version 1.4.0
  */
 
 #ifndef ILI9341_DISC1_H
@@ -38,6 +38,8 @@
 #include <math.h>
 #include <float.h>
 #include <stdbool.h>
+#include <stdarg.h>
+#include <stdio.h>
 
 // ============================================================================
 // MACROS Y CONSTANTES [ILI9341]
@@ -393,6 +395,16 @@ typedef enum {
     ILI9341_Orientation_Landscape_2    /**< Rotación 270° (-90°)  */
 } ILI9341_Orientation_t;
 
+/**
+ * @brief Alineación horizontal para ILI9341_PutsAligned()/ILI9341_PrintfAligned()
+ *        y sus variantes de frame buffer.
+ */
+typedef enum {
+    ILI9341_ALIGN_LEFT,     /**< Cadena pegada al borde izquierdo de la región   */
+    ILI9341_ALIGN_CENTER,   /**< Cadena centrada dentro de la región             */
+    ILI9341_ALIGN_RIGHT     /**< Cadena pegada al borde derecho de la región     */
+} ILI9341_TextAlign_t;
+
 #ifdef HAL_I2C_MODULE_ENABLED
 /**
  * @brief Estado del panel táctil retornado por ILI9341_TP_GetState().
@@ -462,6 +474,22 @@ ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi, DMA2D_HandleTypeDef* hdma
 ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi);
 #endif
 
+/* --- Utilidades de color --------------------------------------------------- */
+
+/**
+ * @brief Convierte una componente de color RGB888 (8 bits por canal) a RGB565.
+ *
+ * @details Equivale a la macro RGB565(r, g, b), pero como función evita que el
+ *          usuario tenga que calcular el empaquetado de bits manualmente y
+ *          permite pasar valores calculados en tiempo de ejecución.
+ *
+ * @param[in] r Componente roja (0-255).
+ * @param[in] g Componente verde (0-255).
+ * @param[in] b Componente azul (0-255).
+ * @return uint16_t Color empaquetado en formato RGB565.
+ */
+uint16_t ILI9341_Color565(uint8_t r, uint8_t g, uint8_t b);
+
 /* --- Dibujo en pantalla --------------------------------------------------- */
 
 /**
@@ -515,6 +543,28 @@ ILI9341_Status_t ILI9341_DrawPixel(uint16_t x, uint16_t y, uint16_t color);
  *         - ILI9341_ERROR           si falla la transmisión SPI.
  */
 ILI9341_Status_t ILI9341_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color);
+
+/**
+ * @brief Dibuja una línea con grosor (ancho de trazo) en la pantalla LCD.
+ *
+ * @details Las líneas horizontales y verticales se rellenan con un único rectángulo
+ *          (recortado a los límites de pantalla). Las líneas diagonales se aproximan
+ *          trazando @p thickness líneas de Bresenham paralelas, desplazadas sobre la
+ *          normal del segmento y centradas en la línea original; en ángulos muy
+ *          pronunciados puede quedar un ligero aliasing entre trazos adyacentes.
+ *
+ * @param[in] x0        Coordenada X de inicio.
+ * @param[in] y0        Coordenada Y de inicio.
+ * @param[in] x1        Coordenada X de fin.
+ * @param[in] y1        Coordenada Y de fin.
+ * @param[in] thickness Grosor de la línea en píxeles (0 y 1 equivalen a ILI9341_DrawLine()).
+ * @param[in] color     Color de la línea en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawThickLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t thickness, uint16_t color);
 
 /**
  * @brief Dibuja una línea vertical de forma optimizada (sin Bresenham).
@@ -774,6 +824,40 @@ ILI9341_Status_t ILI9341_Putc(uint16_t x, uint16_t y, char c, LCD_FontDef_t* fon
 ILI9341_Status_t ILI9341_Puts(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* font, uint16_t foreground, uint16_t background);
 
 /**
+ * @brief Tamaño (en bytes) del buffer interno usado por ILI9341_Printf().
+ *
+ * @details Define la longitud máxima de la cadena ya formateada, incluido el
+ *          terminador nulo. Puede redefinirse antes de incluir este header si
+ *          se necesitan cadenas más largas. El buffer reside en la pila.
+ */
+#ifndef ILI9341_PRINTF_BUF_SIZE
+#define ILI9341_PRINTF_BUF_SIZE 128U
+#endif
+
+/**
+ * @brief Renderiza una cadena con formato (estilo printf) en la pantalla LCD.
+ *
+ * @details Formatea los argumentos variádicos con vsnprintf() en un buffer
+ *          interno de ILI9341_PRINTF_BUF_SIZE bytes y delega el dibujo en
+ *          ILI9341_Puts(). Si el resultado excede el tamaño del buffer, la
+ *          cadena se trunca de forma segura (sin desbordamiento).
+ *
+ * @param[in] x          Coordenada X superior izquierda del primer carácter.
+ * @param[in] y          Coordenada Y superior izquierda del primer carácter.
+ * @param[in] font       Puntero a la definición de la fuente.
+ * @param[in] foreground Color de primer plano en formato RGB565.
+ * @param[in] background Color de fondo en formato RGB565.
+ * @param[in] fmt        Cadena de formato estilo printf (terminada en nulo).
+ * @param[in] ...        Argumentos variádicos correspondientes a @p fmt.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p fmt o @p font son NULL, o si vsnprintf falla.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_Printf(uint16_t x, uint16_t y, LCD_FontDef_t* font, uint16_t foreground, uint16_t background, const char* fmt, ...);
+
+/**
  * @brief Calcula el bounding-box en píxeles de una cadena para una fuente dada.
  *
  * @param[in]  str    Puntero a la cadena terminada en nulo.
@@ -782,6 +866,53 @@ ILI9341_Status_t ILI9341_Puts(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* 
  * @param[out] height Alto total en píxeles.
  */
 void ILI9341_GetStringSize(char* str, LCD_FontDef_t* font, uint16_t* width, uint16_t* height);
+
+/**
+ * @brief Renderiza una cadena terminada en nulo alineada dentro de una región horizontal.
+ *
+ * @details Calcula el ancho de @p str con ILI9341_GetStringSize() y deriva la
+ *          coordenada X según @p align antes de delegar en ILI9341_Puts(). Pensada
+ *          para cadenas de una sola línea (títulos, etiquetas, valores); si
+ *          @p str es más ancha que la región [x0, x1] se alinea contra @p x0.
+ *
+ * @param[in] x0         Borde izquierdo de la región de alineación.
+ * @param[in] x1         Borde derecho de la región de alineación (x1 >= x0).
+ * @param[in] y          Coordenada Y superior izquierda del texto.
+ * @param[in] align      Alineación deseada (izquierda, centro, derecha).
+ * @param[in] str        Puntero a la cadena terminada en nulo.
+ * @param[in] font       Puntero a la definición de la fuente.
+ * @param[in] foreground Color de primer plano en formato RGB565.
+ * @param[in] background Color de fondo en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p str o @p font son NULL, o si x1 < x0.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_PutsAligned(uint16_t x0, uint16_t x1, uint16_t y, ILI9341_TextAlign_t align, char* str, LCD_FontDef_t* font, uint16_t foreground, uint16_t background);
+
+/**
+ * @brief Renderiza una cadena con formato (estilo printf) alineada dentro de una región horizontal.
+ *
+ * @details Formatea los argumentos variádicos con vsnprintf() en un buffer interno
+ *          de ILI9341_PRINTF_BUF_SIZE bytes y delega en ILI9341_PutsAligned().
+ *
+ * @param[in] x0         Borde izquierdo de la región de alineación.
+ * @param[in] x1         Borde derecho de la región de alineación (x1 >= x0).
+ * @param[in] y          Coordenada Y superior izquierda del texto.
+ * @param[in] align      Alineación deseada (izquierda, centro, derecha).
+ * @param[in] font       Puntero a la definición de la fuente.
+ * @param[in] foreground Color de primer plano en formato RGB565.
+ * @param[in] background Color de fondo en formato RGB565.
+ * @param[in] fmt        Cadena de formato estilo printf (terminada en nulo).
+ * @param[in] ...        Argumentos variádicos correspondientes a @p fmt.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p fmt o @p font son NULL, si x1 < x0, o si vsnprintf falla.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_PrintfAligned(uint16_t x0, uint16_t x1, uint16_t y, ILI9341_TextAlign_t align, LCD_FontDef_t* font, uint16_t foreground, uint16_t background, const char* fmt, ...);
 
 /* --- Imagen completa ------------------------------------------------------ */
 
@@ -862,6 +993,71 @@ ILI9341_Status_t ILI9341_Putc_ImageBuffer(uint16_t x, uint16_t y, char c, LCD_Fo
 ILI9341_Status_t ILI9341_Puts_ImageBuffer(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32]);
 
 /**
+ * @brief Renderiza una cadena con formato (estilo printf) en un frame buffer fuera de pantalla.
+ *
+ * @details Formatea los argumentos variádicos con vsnprintf() en un buffer
+ *          interno de ILI9341_PRINTF_BUF_SIZE bytes y delega el dibujo en
+ *          ILI9341_Puts_ImageBuffer(). Escribe en la SDRAM; no toca la LCD hasta
+ *          que se presente el frame. Si el resultado excede el tamaño del buffer,
+ *          la cadena se trunca de forma segura (sin desbordamiento).
+ *
+ * @param[in]     x          Coordenada X superior izquierda del primer carácter.
+ * @param[in]     y          Coordenada Y superior izquierda del primer carácter.
+ * @param[in]     font       Puntero a la definición de la fuente.
+ * @param[in]     foreground Color de primer plano en formato RGB565.
+ * @param[in,out] image      Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @param[in]     fmt        Cadena de formato estilo printf (terminada en nulo).
+ * @param[in]     ...        Argumentos variádicos correspondientes a @p fmt.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_INVALID_PARAM   si @p fmt, @p font o @p image son NULL, o si vsnprintf falla.
+ */
+ILI9341_Status_t ILI9341_Printf_ImageBuffer(uint16_t x, uint16_t y, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32], const char* fmt, ...);
+
+/**
+ * @brief Renderiza una cadena terminada en nulo alineada dentro de una región horizontal, en un frame buffer fuera de pantalla.
+ *
+ * @details Calcula el ancho de @p str con ILI9341_GetStringSize() y deriva la
+ *          coordenada X según @p align antes de delegar en ILI9341_Puts_ImageBuffer().
+ *          Pensada para cadenas de una sola línea; si @p str es más ancha que la
+ *          región [x0, x1] se alinea contra @p x0.
+ *
+ * @param[in]     x0         Borde izquierdo de la región de alineación.
+ * @param[in]     x1         Borde derecho de la región de alineación (x1 >= x0).
+ * @param[in]     y          Coordenada Y superior izquierda del texto.
+ * @param[in]     align      Alineación deseada (izquierda, centro, derecha).
+ * @param[in]     str        Puntero a la cadena terminada en nulo.
+ * @param[in]     font       Puntero a la definición de la fuente.
+ * @param[in]     foreground Color de primer plano en formato RGB565.
+ * @param[in,out] image      Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_INVALID_PARAM   si @p str, @p font o @p image son NULL, o si x1 < x0.
+ */
+ILI9341_Status_t ILI9341_PutsAligned_ImageBuffer(uint16_t x0, uint16_t x1, uint16_t y, ILI9341_TextAlign_t align, char* str, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32]);
+
+/**
+ * @brief Renderiza una cadena con formato (estilo printf) alineada dentro de una región horizontal, en un frame buffer fuera de pantalla.
+ *
+ * @details Formatea los argumentos variádicos con vsnprintf() en un buffer interno
+ *          de ILI9341_PRINTF_BUF_SIZE bytes y delega en ILI9341_PutsAligned_ImageBuffer().
+ *
+ * @param[in]     x0         Borde izquierdo de la región de alineación.
+ * @param[in]     x1         Borde derecho de la región de alineación (x1 >= x0).
+ * @param[in]     y          Coordenada Y superior izquierda del texto.
+ * @param[in]     align      Alineación deseada (izquierda, centro, derecha).
+ * @param[in]     font       Puntero a la definición de la fuente.
+ * @param[in]     foreground Color de primer plano en formato RGB565.
+ * @param[in,out] image      Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @param[in]     fmt        Cadena de formato estilo printf (terminada en nulo).
+ * @param[in]     ...        Argumentos variádicos correspondientes a @p fmt.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_INVALID_PARAM   si @p fmt, @p font o @p image son NULL, si x1 < x0, o si vsnprintf falla.
+ */
+ILI9341_Status_t ILI9341_PrintfAligned_ImageBuffer(uint16_t x0, uint16_t x1, uint16_t y, ILI9341_TextAlign_t align, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32], const char* fmt, ...);
+
+/**
  * @brief Dibuja una línea en un frame buffer fuera de pantalla.
  *
  * @param[in]     x0     Coordenada X de inicio.
@@ -875,6 +1071,30 @@ ILI9341_Status_t ILI9341_Puts_ImageBuffer(uint16_t x, uint16_t y, char* str, LCD
  *         - ILI9341_INVALID_PARAM   si @p image es NULL.
  */
 ILI9341_Status_t ILI9341_DrawLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
+
+/**
+ * @brief Dibuja una línea con grosor (ancho de trazo) en la pantalla LCD.
+ *
+ * @details Las líneas horizontales y verticales se rellenan con un único rectángulo
+ *          (recortado a los límites de pantalla). Las líneas diagonales se aproximan
+ *          trazando @p thickness líneas de Bresenham paralelas, desplazadas sobre la
+ *          normal del segmento y centradas en la línea original; en ángulos muy
+ *          pronunciados puede quedar un ligero aliasing entre trazos adyacentes.
+ *
+ * @param[in] x0        Coordenada X de inicio.
+ * @param[in] y0        Coordenada Y de inicio.
+ * @param[in] x1        Coordenada X de fin.
+ * @param[in] y1        Coordenada Y de fin.
+ * @param[in] thickness Grosor de la línea en píxeles (0 y 1 equivalen a ILI9341_DrawLine()).
+ * @param[in] color     Color de la línea en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p image es NULL.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawThickLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t thickness, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
 
 /**
  * @brief Dibuja el contorno de un rectángulo en un frame buffer fuera de pantalla.

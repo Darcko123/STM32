@@ -5,8 +5,8 @@
  *
  * @origin El código de este driver se basa en la librería Petr Machala, Tilen Majerle, 2014.
  * @author Dr. Luis Antonio Raygoza Pérez & Ing. Daniel Ruiz
- * @date July 03, 2026
- * @version 1.3.0
+ * @date July 08, 2026
+ * @version 1.4.0
  */
 
 #include "ILI9341_Disc1.h"
@@ -1038,6 +1038,19 @@ ILI9341_Status_t ILI9341_Init(SPI_HandleTypeDef* hspi)
 }
 
 /**
+ * @brief Convierte una componente de color RGB888 (8 bits por canal) a RGB565.
+ *
+ * @param[in] r Componente roja (0-255).
+ * @param[in] g Componente verde (0-255).
+ * @param[in] b Componente azul (0-255).
+ * @return uint16_t Color empaquetado en formato RGB565.
+ */
+uint16_t ILI9341_Color565(uint8_t r, uint8_t g, uint8_t b)
+{
+    return RGB565(r, g, b);
+}
+
+/**
  * @brief Rellena toda la pantalla LCD con un color sólido.
  *
  * @param[in] color Color de relleno en formato RGB565.
@@ -1269,6 +1282,118 @@ ILI9341_Status_t ILI9341_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_
         e2 = err;
         if (e2 > -dx) { err -= dy; x0 += (uint16_t)sx; }
         if (e2 <  dy) { err += dx; y0 += (uint16_t)sy; }
+    }
+    return ILI9341_OK;
+}
+
+/**
+ * @brief Dibuja una línea con grosor (ancho de trazo) en la pantalla LCD.
+ *
+ * @details Las líneas horizontales y verticales se rellenan con un único rectángulo
+ *          (recortado a los límites de pantalla). Las líneas diagonales se aproximan
+ *          trazando @p thickness líneas de Bresenham paralelas, desplazadas sobre la
+ *          normal del segmento y centradas en la línea original; en ángulos muy
+ *          pronunciados puede quedar un ligero aliasing entre trazos adyacentes.
+ *
+ * @param[in] x0        Coordenada X de inicio.
+ * @param[in] y0        Coordenada Y de inicio.
+ * @param[in] x1        Coordenada X de fin.
+ * @param[in] y1        Coordenada Y de fin.
+ * @param[in] thickness Grosor de la línea en píxeles (0 y 1 equivalen a ILI9341_DrawLine()).
+ * @param[in] color     Color de la línea en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawThickLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t thickness, uint16_t color)
+{
+    int32_t maxX, maxY, dx, dy;
+
+    if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
+
+    if (thickness <= 1U)
+    {
+        return ILI9341_DrawLine(x0, y0, x1, y1, color);
+    }
+
+    maxX = (int32_t)ILI9341_Opts.width  - 1;
+    maxY = (int32_t)ILI9341_Opts.height - 1;
+
+    /* Línea horizontal: un único rectángulo relleno recortado a pantalla. */
+    if (y0 == y1)
+    {
+        int32_t xL   = (x0 < x1) ? x0 : x1;
+        int32_t xR   = (x0 < x1) ? x1 : x0;
+        int32_t half = (int32_t)thickness / 2;
+        int32_t yT   = (int32_t)y0 - half;
+        int32_t yB   = yT + (int32_t)thickness - 1;
+
+        if (xL < 0)    { xL = 0;    }
+        if (xR > maxX) { xR = maxX; }
+        if (yT < 0)    { yT = 0;    }
+        if (yB > maxY) { yB = maxY; }
+        if (xL > xR || yT > yB) { return ILI9341_OK; }
+
+        return ILI9341_DrawFilledRectangle((uint16_t)xL, (uint16_t)yT, (uint16_t)xR, (uint16_t)yB, color);
+    }
+
+    /* Línea vertical: un único rectángulo relleno recortado a pantalla. */
+    if (x0 == x1)
+    {
+        int32_t yT   = (y0 < y1) ? y0 : y1;
+        int32_t yB   = (y0 < y1) ? y1 : y0;
+        int32_t half = (int32_t)thickness / 2;
+        int32_t xL   = (int32_t)x0 - half;
+        int32_t xR   = xL + (int32_t)thickness - 1;
+
+        if (yT < 0)    { yT = 0;    }
+        if (yB > maxY) { yB = maxY; }
+        if (xL < 0)    { xL = 0;    }
+        if (xR > maxX) { xR = maxX; }
+        if (xL > xR || yT > yB) { return ILI9341_OK; }
+
+        return ILI9341_DrawFilledRectangle((uint16_t)xL, (uint16_t)yT, (uint16_t)xR, (uint16_t)yB, color);
+    }
+
+    /* Línea diagonal: se aproxima con trazos de Bresenham paralelos, desplazados
+     * sobre la normal del segmento y centrados en la línea original. */
+    dx = (int32_t)x1 - (int32_t)x0;
+    dy = (int32_t)y1 - (int32_t)y0;
+    {
+        float   len = sqrtf((float)(dx * dx + dy * dy));
+        float   ux  = -(float)dy / len; /* Normal unitaria (componente X) */
+        float   uy  =  (float)dx / len; /* Normal unitaria (componente Y) */
+        float   mid = ((float)thickness - 1.0f) / 2.0f;
+        int32_t i;
+
+        for (i = 0; i < (int32_t)thickness; i++)
+        {
+            float             off = (float)i - mid;
+            int32_t           ox  = (int32_t)lroundf(ux * off);
+            int32_t           oy  = (int32_t)lroundf(uy * off);
+            int32_t           nx0 = (int32_t)x0 + ox;
+            int32_t           ny0 = (int32_t)y0 + oy;
+            int32_t           nx1 = (int32_t)x1 + ox;
+            int32_t           ny1 = (int32_t)y1 + oy;
+            ILI9341_Status_t  st;
+
+            /* Descartar el trazo si queda completamente fuera de pantalla; recortar
+             * cada coordenada por separado en ese caso distorsionaría la pendiente. */
+            if ((nx0 < 0 && nx1 < 0) || (nx0 > maxX && nx1 > maxX) ||
+                (ny0 < 0 && ny1 < 0) || (ny0 > maxY && ny1 > maxY))
+            {
+                continue;
+            }
+
+            if      (nx0 < 0) { nx0 = 0; } else if (nx0 > maxX) { nx0 = maxX; }
+            if      (nx1 < 0) { nx1 = 0; } else if (nx1 > maxX) { nx1 = maxX; }
+            if      (ny0 < 0) { ny0 = 0; } else if (ny0 > maxY) { ny0 = maxY; }
+            if      (ny1 < 0) { ny1 = 0; } else if (ny1 > maxY) { ny1 = maxY; }
+
+            st = ILI9341_DrawLine((uint16_t)nx0, (uint16_t)ny0, (uint16_t)nx1, (uint16_t)ny1, color);
+            if (st != ILI9341_OK) { return st; }
+        }
     }
     return ILI9341_OK;
 }
@@ -2266,6 +2391,46 @@ ILI9341_Status_t ILI9341_Puts(uint16_t x, uint16_t y, char* str, LCD_FontDef_t* 
 }
 
 /**
+ * @brief Renderiza una cadena con formato (estilo printf) en la pantalla LCD.
+ *
+ * @details Formatea los argumentos variádicos con vsnprintf() en un buffer
+ *          interno en pila de ILI9341_PRINTF_BUF_SIZE bytes y delega el dibujo
+ *          en ILI9341_Puts(). El uso de vsnprintf con el tamaño del buffer
+ *          garantiza que la cadena siempre quede terminada en nulo y sin
+ *          desbordamiento aunque el resultado se trunque.
+ *
+ * @param[in] x          Coordenada X superior izquierda del primer carácter.
+ * @param[in] y          Coordenada Y superior izquierda del primer carácter.
+ * @param[in] font       Puntero a la definición de la fuente.
+ * @param[in] foreground Color de primer plano en formato RGB565.
+ * @param[in] background Color de fondo en formato RGB565.
+ * @param[in] fmt        Cadena de formato estilo printf (terminada en nulo).
+ * @param[in] ...        Argumentos variádicos correspondientes a fmt.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si fmt o font son NULL, o si vsnprintf falla.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_Printf(uint16_t x, uint16_t y, LCD_FontDef_t* font, uint16_t foreground, uint16_t background, const char* fmt, ...)
+{
+    char buf[ILI9341_PRINTF_BUF_SIZE];
+    va_list args;
+    int len;
+
+    if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
+    if (fmt == NULL || font == NULL) { return ILI9341_INVALID_PARAM; }
+
+    va_start(args, fmt);
+    len = vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+
+    if (len < 0) { return ILI9341_INVALID_PARAM; }
+
+    return ILI9341_Puts(x, y, buf, font, foreground, background);
+}
+
+/**
  * @brief Calcula el bounding-box en píxeles de una cadena para una fuente dada.
  *
  * @param[in]  str    Puntero a la cadena terminada en nulo.
@@ -2280,6 +2445,98 @@ void ILI9341_GetStringSize(char* str, LCD_FontDef_t* font, uint16_t* width, uint
     *height = font->FontHeight;
     while (*str++) { w += font->FontWidth; }
     *width = w;
+}
+
+/**
+ * @brief Deriva la coordenada X de arranque de una cadena dentro de una región horizontal.
+ *
+ * @param[in] x0        Borde izquierdo de la región.
+ * @param[in] x1        Borde derecho de la región.
+ * @param[in] strWidth  Ancho en píxeles de la cadena (de ILI9341_GetStringSize()).
+ * @param[in] align     Alineación deseada.
+ * @return Coordenada X donde debe comenzar el texto.
+ */
+static uint16_t ILI9341_AlignedX(uint16_t x0, uint16_t x1, uint16_t strWidth, ILI9341_TextAlign_t align)
+{
+    uint16_t regionWidth = (uint16_t)(x1 - x0 + 1U);
+
+    if (strWidth >= regionWidth) { return x0; }
+
+    switch (align)
+    {
+        case ILI9341_ALIGN_CENTER: return (uint16_t)(x0 + (regionWidth - strWidth) / 2U);
+        case ILI9341_ALIGN_RIGHT:  return (uint16_t)(x1 - strWidth + 1U);
+        case ILI9341_ALIGN_LEFT:
+        default:                   return x0;
+    }
+}
+
+/**
+ * @brief Renderiza una cadena terminada en nulo alineada dentro de una región horizontal.
+ *
+ * @param[in] x0         Borde izquierdo de la región de alineación.
+ * @param[in] x1         Borde derecho de la región de alineación (x1 >= x0).
+ * @param[in] y          Coordenada Y superior izquierda del texto.
+ * @param[in] align      Alineación deseada (izquierda, centro, derecha).
+ * @param[in] str        Puntero a la cadena terminada en nulo.
+ * @param[in] font       Puntero a la definición de la fuente.
+ * @param[in] foreground Color de primer plano en formato RGB565.
+ * @param[in] background Color de fondo en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si str o font son NULL, o si x1 < x0.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_PutsAligned(uint16_t x0, uint16_t x1, uint16_t y, ILI9341_TextAlign_t align, char* str, LCD_FontDef_t* font, uint16_t foreground, uint16_t background)
+{
+    uint16_t strWidth, strHeight, x;
+
+    if (!ILI9341_Initialized)        { return ILI9341_NOT_INITIALIZED; }
+    if (str == NULL || font == NULL) { return ILI9341_INVALID_PARAM;   }
+    if (x1 < x0)                     { return ILI9341_INVALID_PARAM;   }
+
+    ILI9341_GetStringSize(str, font, &strWidth, &strHeight);
+    x = ILI9341_AlignedX(x0, x1, strWidth, align);
+
+    return ILI9341_Puts(x, y, str, font, foreground, background);
+}
+
+/**
+ * @brief Renderiza una cadena con formato (estilo printf) alineada dentro de una región horizontal.
+ *
+ * @param[in] x0         Borde izquierdo de la región de alineación.
+ * @param[in] x1         Borde derecho de la región de alineación (x1 >= x0).
+ * @param[in] y          Coordenada Y superior izquierda del texto.
+ * @param[in] align      Alineación deseada (izquierda, centro, derecha).
+ * @param[in] font       Puntero a la definición de la fuente.
+ * @param[in] foreground Color de primer plano en formato RGB565.
+ * @param[in] background Color de fondo en formato RGB565.
+ * @param[in] fmt        Cadena de formato estilo printf (terminada en nulo).
+ * @param[in] ...        Argumentos variádicos correspondientes a fmt.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si fmt o font son NULL, si x1 < x0, o si vsnprintf falla.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_PrintfAligned(uint16_t x0, uint16_t x1, uint16_t y, ILI9341_TextAlign_t align, LCD_FontDef_t* font, uint16_t foreground, uint16_t background, const char* fmt, ...)
+{
+    char buf[ILI9341_PRINTF_BUF_SIZE];
+    va_list args;
+    int len;
+
+    if (!ILI9341_Initialized)        { return ILI9341_NOT_INITIALIZED; }
+    if (fmt == NULL || font == NULL) { return ILI9341_INVALID_PARAM;   }
+    if (x1 < x0)                     { return ILI9341_INVALID_PARAM;   }
+
+    va_start(args, fmt);
+    len = vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+
+    if (len < 0) { return ILI9341_INVALID_PARAM; }
+
+    return ILI9341_PutsAligned(x0, x1, y, align, buf, font, foreground, background);
 }
 
 /**
@@ -2486,6 +2743,105 @@ ILI9341_Status_t ILI9341_Puts_ImageBuffer(uint16_t x, uint16_t y, char* str, LCD
 }
 
 /**
+ * @brief Renderiza una cadena con formato (estilo printf) en un frame buffer fuera de pantalla.
+ *
+ * @details Formatea los argumentos variádicos con vsnprintf() en un buffer
+ *          interno en pila de ILI9341_PRINTF_BUF_SIZE bytes y delega el dibujo
+ *          en ILI9341_Puts_ImageBuffer(). El uso de vsnprintf con el tamaño del
+ *          buffer garantiza que la cadena siempre quede terminada en nulo y sin
+ *          desbordamiento aunque el resultado se trunque.
+ *
+ * @param[in]     x          Coordenada X superior izquierda del primer carácter.
+ * @param[in]     y          Coordenada Y superior izquierda del primer carácter.
+ * @param[in]     font       Puntero a la definición de la fuente.
+ * @param[in]     foreground Color de primer plano en formato RGB565.
+ * @param[in,out] image      Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @param[in]     fmt        Cadena de formato estilo printf (terminada en nulo).
+ * @param[in]     ...        Argumentos variádicos correspondientes a fmt.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_INVALID_PARAM   si fmt, font o image son NULL, o si vsnprintf falla.
+ */
+ILI9341_Status_t ILI9341_Printf_ImageBuffer(uint16_t x, uint16_t y, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32], const char* fmt, ...)
+{
+    char buf[ILI9341_PRINTF_BUF_SIZE];
+    va_list args;
+    int len;
+
+    if (fmt == NULL || font == NULL || image == NULL) { return ILI9341_INVALID_PARAM; }
+
+    va_start(args, fmt);
+    len = vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+
+    if (len < 0) { return ILI9341_INVALID_PARAM; }
+
+    return ILI9341_Puts_ImageBuffer(x, y, buf, font, foreground, image);
+}
+
+/**
+ * @brief Renderiza una cadena terminada en nulo alineada dentro de una región horizontal, en un frame buffer fuera de pantalla.
+ *
+ * @param[in]     x0         Borde izquierdo de la región de alineación.
+ * @param[in]     x1         Borde derecho de la región de alineación (x1 >= x0).
+ * @param[in]     y          Coordenada Y superior izquierda del texto.
+ * @param[in]     align      Alineación deseada (izquierda, centro, derecha).
+ * @param[in]     str        Puntero a la cadena terminada en nulo.
+ * @param[in]     font       Puntero a la definición de la fuente.
+ * @param[in]     foreground Color de primer plano en formato RGB565.
+ * @param[in,out] image      Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_INVALID_PARAM   si str, font o image son NULL, o si x1 < x0.
+ */
+ILI9341_Status_t ILI9341_PutsAligned_ImageBuffer(uint16_t x0, uint16_t x1, uint16_t y, ILI9341_TextAlign_t align, char* str, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32])
+{
+    uint16_t strWidth, strHeight, x;
+
+    if (str == NULL || font == NULL || image == NULL) { return ILI9341_INVALID_PARAM; }
+    if (x1 < x0)                                       { return ILI9341_INVALID_PARAM; }
+
+    ILI9341_GetStringSize(str, font, &strWidth, &strHeight);
+    x = ILI9341_AlignedX(x0, x1, strWidth, align);
+
+    return ILI9341_Puts_ImageBuffer(x, y, str, font, foreground, image);
+}
+
+/**
+ * @brief Renderiza una cadena con formato (estilo printf) alineada dentro de una región horizontal, en un frame buffer fuera de pantalla.
+ *
+ * @param[in]     x0         Borde izquierdo de la región de alineación.
+ * @param[in]     x1         Borde derecho de la región de alineación (x1 >= x0).
+ * @param[in]     y          Coordenada Y superior izquierda del texto.
+ * @param[in]     align      Alineación deseada (izquierda, centro, derecha).
+ * @param[in]     font       Puntero a la definición de la fuente.
+ * @param[in]     foreground Color de primer plano en formato RGB565.
+ * @param[in,out] image      Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @param[in]     fmt        Cadena de formato estilo printf (terminada en nulo).
+ * @param[in]     ...        Argumentos variádicos correspondientes a fmt.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_INVALID_PARAM   si fmt, font o image son NULL, si x1 < x0, o si vsnprintf falla.
+ */
+ILI9341_Status_t ILI9341_PrintfAligned_ImageBuffer(uint16_t x0, uint16_t x1, uint16_t y, ILI9341_TextAlign_t align, LCD_FontDef_t* font, uint16_t foreground, uint32_t image[IMG_TOTAL_BUF32], const char* fmt, ...)
+{
+    char buf[ILI9341_PRINTF_BUF_SIZE];
+    va_list args;
+    int len;
+
+    if (fmt == NULL || font == NULL || image == NULL) { return ILI9341_INVALID_PARAM; }
+    if (x1 < x0)                                      { return ILI9341_INVALID_PARAM; }
+
+    va_start(args, fmt);
+    len = vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+
+    if (len < 0) { return ILI9341_INVALID_PARAM; }
+
+    return ILI9341_PutsAligned_ImageBuffer(x0, x1, y, align, buf, font, foreground, image);
+}
+
+/**
  * @brief Dibuja una línea en un frame buffer fuera de pantalla.
  *
  * @param[in]     x0     Coordenada X de inicio.
@@ -2532,6 +2888,120 @@ ILI9341_Status_t ILI9341_DrawLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t
         e2 = err;
         if (e2 > -dx) { err -= dy; x0 += sx; }
         if (e2 <  dy) { err += dx; y0 += sy; }
+    }
+    return ILI9341_OK;
+}
+
+/**
+ * @brief Dibuja una línea con grosor (ancho de trazo) en la pantalla LCD.
+ *
+ * @details Las líneas horizontales y verticales se rellenan con un único rectángulo
+ *          (recortado a los límites de pantalla). Las líneas diagonales se aproximan
+ *          trazando @p thickness líneas de Bresenham paralelas, desplazadas sobre la
+ *          normal del segmento y centradas en la línea original; en ángulos muy
+ *          pronunciados puede quedar un ligero aliasing entre trazos adyacentes.
+ *
+ * @param[in] x0        Coordenada X de inicio.
+ * @param[in] y0        Coordenada Y de inicio.
+ * @param[in] x1        Coordenada X de fin.
+ * @param[in] y1        Coordenada Y de fin.
+ * @param[in] thickness Grosor de la línea en píxeles (0 y 1 equivalen a ILI9341_DrawLine()).
+ * @param[in] color     Color de la línea en formato RGB565.
+ * @param[in,out] image  Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawThickLine_ImageBuffer(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t thickness, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
+{
+    int32_t maxX, maxY, dx, dy;
+
+    if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
+    if (image == NULL) { return ILI9341_INVALID_PARAM; }
+
+    if (thickness <= 1U)
+    {
+        return ILI9341_DrawLine_ImageBuffer(x0, y0, x1, y1, color, image);
+    }
+
+    maxX = (int32_t)ILI9341_Opts.width  - 1;
+    maxY = (int32_t)ILI9341_Opts.height - 1;
+
+    /* Línea horizontal: un único rectángulo relleno recortado a pantalla. */
+    if (y0 == y1)
+    {
+        int32_t xL   = (x0 < x1) ? x0 : x1;
+        int32_t xR   = (x0 < x1) ? x1 : x0;
+        int32_t half = (int32_t)thickness / 2;
+        int32_t yT   = (int32_t)y0 - half;
+        int32_t yB   = yT + (int32_t)thickness - 1;
+
+        if (xL < 0)    { xL = 0;    }
+        if (xR > maxX) { xR = maxX; }
+        if (yT < 0)    { yT = 0;    }
+        if (yB > maxY) { yB = maxY; }
+        if (xL > xR || yT > yB) { return ILI9341_OK; }
+
+        return ILI9341_DrawFilledRectangle_ImageBuffer((uint16_t)xL, (uint16_t)yT, (uint16_t)xR, (uint16_t)yB, color, image);
+    }
+
+    /* Línea vertical: un único rectángulo relleno recortado a pantalla. */
+    if (x0 == x1)
+    {
+        int32_t yT   = (y0 < y1) ? y0 : y1;
+        int32_t yB   = (y0 < y1) ? y1 : y0;
+        int32_t half = (int32_t)thickness / 2;
+        int32_t xL   = (int32_t)x0 - half;
+        int32_t xR   = xL + (int32_t)thickness - 1;
+
+        if (yT < 0)    { yT = 0;    }
+        if (yB > maxY) { yB = maxY; }
+        if (xL < 0)    { xL = 0;    }
+        if (xR > maxX) { xR = maxX; }
+        if (xL > xR || yT > yB) { return ILI9341_OK; }
+
+        return ILI9341_DrawFilledRectangle_ImageBuffer((uint16_t)xL, (uint16_t)yT, (uint16_t)xR, (uint16_t)yB, color, image);
+    }
+
+    /* Línea diagonal: se aproxima con trazos de Bresenham paralelos, desplazados
+     * sobre la normal del segmento y centrados en la línea original. */
+    dx = (int32_t)x1 - (int32_t)x0;
+    dy = (int32_t)y1 - (int32_t)y0;
+    {
+        float   len = sqrtf((float)(dx * dx + dy * dy));
+        float   ux  = -(float)dy / len; /* Normal unitaria (componente X) */
+        float   uy  =  (float)dx / len; /* Normal unitaria (componente Y) */
+        float   mid = ((float)thickness - 1.0f) / 2.0f;
+        int32_t i;
+
+        for (i = 0; i < (int32_t)thickness; i++)
+        {
+            float             off = (float)i - mid;
+            int32_t           ox  = (int32_t)lroundf(ux * off);
+            int32_t           oy  = (int32_t)lroundf(uy * off);
+            int32_t           nx0 = (int32_t)x0 + ox;
+            int32_t           ny0 = (int32_t)y0 + oy;
+            int32_t           nx1 = (int32_t)x1 + ox;
+            int32_t           ny1 = (int32_t)y1 + oy;
+            ILI9341_Status_t  st;
+
+            /* Descartar el trazo si queda completamente fuera de pantalla; recortar
+             * cada coordenada por separado en ese caso distorsionaría la pendiente. */
+            if ((nx0 < 0 && nx1 < 0) || (nx0 > maxX && nx1 > maxX) ||
+                (ny0 < 0 && ny1 < 0) || (ny0 > maxY && ny1 > maxY))
+            {
+                continue;
+            }
+
+            if      (nx0 < 0) { nx0 = 0; } else if (nx0 > maxX) { nx0 = maxX; }
+            if      (nx1 < 0) { nx1 = 0; } else if (nx1 > maxX) { nx1 = maxX; }
+            if      (ny0 < 0) { ny0 = 0; } else if (ny0 > maxY) { ny0 = maxY; }
+            if      (ny1 < 0) { ny1 = 0; } else if (ny1 > maxY) { ny1 = maxY; }
+
+            st = ILI9341_DrawLine_ImageBuffer((uint16_t)nx0, (uint16_t)ny0, (uint16_t)nx1, (uint16_t)ny1, color, image);
+            if (st != ILI9341_OK) { return st; }
+        }
     }
     return ILI9341_OK;
 }
