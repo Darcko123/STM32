@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![STM32](https://img.shields.io/badge/Platform-STM32F429--Discovery-black)](https://www.st.com/en/evaluation-tools/32f429idiscovery.html)
-[![Version](https://img.shields.io/badge/Version-1.3.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/ILI9341_Disc1)
+[![Version](https://img.shields.io/badge/Version-1.4.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/ILI9341_Disc1)
 [![Protocol](https://img.shields.io/badge/Protocol-SPI%20%2B%20I2C%20%2B%20SDRAM%20%2B%20DMA2D%20%2B%20SPI--DMA-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/ILI9341_Disc1)
 
 ---
@@ -34,14 +34,17 @@
     - [1. Tipos de Datos](#1-tipos-de-datos)
       - [`ILI9341_Status_t` - Estados de Retorno](#ili9341_status_t---estados-de-retorno)
       - [`ILI9341_Orientation_t` - Orientaciones de Pantalla](#ili9341_orientation_t---orientaciones-de-pantalla)
+      - [`ILI9341_TextAlign_t` - Alineación de Texto](#ili9341_textalign_t---alineación-de-texto)
       - [`TP_STATE` - Estado del Panel Táctil](#tp_state---estado-del-panel-táctil)
     - [2. Funciones Públicas](#2-funciones-públicas)
       - [`ILI9341_Init()` - Inicialización del Driver](#ili9341_init---inicialización-del-driver)
       - [`ILI9341_DeInit()` - Desinicialización del Driver](#ili9341_deinit---desinicialización-del-driver)
+      - [`ILI9341_Color565()` - Convertir RGB888 a RGB565](#ili9341_color565---convertir-rgb888-a-rgb565)
       - [`ILI9341_Fill()` - Rellenar Pantalla](#ili9341_fill---rellenar-pantalla)
       - [`ILI9341_Rotate()` - Rotar Pantalla](#ili9341_rotate---rotar-pantalla)
       - [`ILI9341_DrawPixel()` - Dibujar Píxel](#ili9341_drawpixel---dibujar-píxel)
       - [`ILI9341_DrawLine()` - Dibujar Línea](#ili9341_drawline---dibujar-línea)
+      - [`ILI9341_DrawThickLine()` - Dibujar Línea con Grosor](#ili9341_drawthickline---dibujar-línea-con-grosor)
       - [`ILI9341_DrawFastVLine()` / `ILI9341_DrawFastHLine()` - Líneas Rápidas](#ili9341_drawfastvline--ili9341_drawfasthline---líneas-rápidas)
       - [`ILI9341_DrawRectangle()` - Dibujar Rectángulo](#ili9341_drawrectangle---dibujar-rectángulo)
       - [`ILI9341_DrawFilledRectangle()` - Dibujar Rectángulo Relleno](#ili9341_drawfilledrectangle---dibujar-rectángulo-relleno)
@@ -57,9 +60,14 @@
       - [`ILI9341_DrawFilledArc()` - Dibujar Arco Relleno](#ili9341_drawfilledarc---dibujar-arco-relleno)
       - [`ILI9341_Putc()` - Renderizar Carácter](#ili9341_putc---renderizar-carácter)
       - [`ILI9341_Puts()` - Renderizar Cadena](#ili9341_puts---renderizar-cadena)
+      - [`ILI9341_Printf()` - Renderizar Texto Formateado](#ili9341_printf---renderizar-texto-formateado)
       - [`ILI9341_GetStringSize()` - Calcular Tamaño de Cadena](#ili9341_getstringsize---calcular-tamaño-de-cadena)
+      - [`ILI9341_PutsAligned()` / `ILI9341_PrintfAligned()` - Texto Alineado Horizontalmente](#ili9341_putsaligned--ili9341_printfaligned---texto-alineado-horizontalmente)
       - [`ILI9341_DisplayImage()` - Transferir Frame Buffer](#ili9341_displayimage---transferir-frame-buffer)
       - [Funciones de Frame Buffer fuera de Pantalla](#funciones-de-frame-buffer-fuera-de-pantalla)
+      - [`ILI9341_Printf_ImageBuffer()` - Texto Formateado en Buffer](#ili9341_printf_imagebuffer---texto-formateado-en-buffer)
+      - [`ILI9341_PutsAligned_ImageBuffer()` / `ILI9341_PrintfAligned_ImageBuffer()` - Texto Alineado en Buffer](#ili9341_putsaligned_imagebuffer--ili9341_printfaligned_imagebuffer---texto-alineado-en-buffer)
+      - [`ILI9341_DrawThickLine_ImageBuffer()` - Línea con Grosor en Buffer](#ili9341_drawthickline_imagebuffer---línea-con-grosor-en-buffer)
       - [`ILI9341_DrawRoundRect_ImageBuffer()` - Rectángulo Redondeado en Buffer](#ili9341_drawroundrect_imagebuffer---rectángulo-redondeado-en-buffer)
       - [`ILI9341_DrawFilledRoundRect_ImageBuffer()` - Rectángulo Redondeado Relleno en Buffer](#ili9341_drawfilledroundrect_imagebuffer---rectángulo-redondeado-relleno-en-buffer)
       - [`ILI9341_DrawCircle_ImageBuffer()` - Círculo en Buffer](#ili9341_drawcircle_imagebuffer---círculo-en-buffer)
@@ -79,24 +87,26 @@
   - [Colores Predefinidos](#colores-predefinidos)
   - [Licencia](#licencia)
   - [Changelog](#changelog)
-    - [\[1.3.0\] - 03-07-2026](#130---03-07-2026)
+    - [\[1.4.0\] - 07-07-2026](#140---07-07-2026)
       - [Added](#added)
+    - [\[1.3.0\] - 03-07-2026](#130---03-07-2026)
+      - [Added](#added-1)
       - [Changed](#changed)
       - [Removed](#removed)
       - [Migration notes](#migration-notes)
     - [\[1.2.0\] - 15-06-2026](#120---15-06-2026)
-      - [Added](#added-1)
+      - [Added](#added-2)
       - [Changed](#changed-1)
       - [Fixed](#fixed)
       - [Migration notes](#migration-notes-1)
     - [\[1.1.0\] - 14-06-2026](#110---14-06-2026)
-      - [Added](#added-2)
+      - [Added](#added-3)
       - [Changed](#changed-2)
       - [Fixed](#fixed-1)
     - [\[1.0.1\]](#101)
       - [Fixed](#fixed-2)
     - [\[1.0.0\] - 08-06-2026](#100---08-06-2026)
-      - [Added](#added-3)
+      - [Added](#added-4)
 
 ---
 
@@ -114,9 +124,9 @@ Diseñada para ser portable y robusta: toda función pública (incluidas las var
 - **Escrituras SPI optimizadas mediante acceso directo al registro `DR`**: `ILI9341_Fill()`, `ILI9341_DrawFilledRectangle()` e `ILI9341_Putc()` acceden directamente al registro `DR` del SPI. El sondeo de TXE usa un contador de iteraciones (`SPI_ILI9341_WaitTXE`) en lugar de `HAL_GetTick()`, eliminando una llamada a función y una lectura de tick por byte en los bucles críticos de volcado.
 - **Volcado de frame buffer por DMA SPI**: `ILI9341_DisplayImage()` e `ILI9341_Flush()` transfieren los 76 800 píxeles del frame buffer a la pantalla usando **DMA2\_Stream6** vinculado a SPI5\_TX en modo 16 bits. El SPI en modo 16 bits serializa cada `uint16_t` MSB-first, produciendo automáticamente el orden big-endian esperado por el ILI9341 sin swap manual de bytes. La transferencia se divide en dos tramos de 38 400 píxeles para respetar el límite de 65 535 items del registro NDTR del DMA.
 - **Aceleración DMA2D** *(requiere `HAL_DMA2D_MODULE_ENABLED`)*: `ILI9341_Init()` acepta un `DMA2D_HandleTypeDef*` opcional; si no es NULL, configura el periférico DMA2D una sola vez y lo reutiliza en modo R2M (relleno) para `ILI9341_DrawFilledRectangle_ImageBuffer()` y en modo M2M (copia) para `ILI9341_BlitImage()`. Si se pasa NULL, ambas operaciones usan el camino CPU.
-- **Primitivas de dibujo completas**: Píxeles, líneas (algoritmo de Bresenham) con variantes rápidas horizontal/vertical (`ILI9341_DrawFastHLine`/`ILI9341_DrawFastVLine`), rectángulos (contorno y relleno), círculos (contorno y relleno), triángulos (contorno y relleno por scanline), elipses (contorno y relleno, algoritmo de punto medio de Zingl) y arcos/sectores de anillo entre dos ángulos (contorno y relleno) directamente sobre la pantalla.
-- **Paleta de 147 colores predefinidos** en formato RGB565 basada en el estándar de nombres de color X11/CSS, generada con la macro pública `RGB565(r, g, b)`. Incluye también `RGB16TO24(c)` para expandir un color RGB565 de vuelta a RGB888.
-- **Renderizado de texto**: `ILI9341_Putc()` / `ILI9341_Puts()` con soporte de saltos de línea, retorno de carro y fuentes de ancho variable mediante `LCD_FontDef_t`.
+- **Primitivas de dibujo completas**: Píxeles, líneas (algoritmo de Bresenham) con variantes rápidas horizontal/vertical (`ILI9341_DrawFastHLine`/`ILI9341_DrawFastVLine`) y con grosor configurable (`ILI9341_DrawThickLine`), rectángulos (contorno y relleno), círculos (contorno y relleno), triángulos (contorno y relleno por scanline), elipses (contorno y relleno, algoritmo de punto medio de Zingl) y arcos/sectores de anillo entre dos ángulos (contorno y relleno) directamente sobre la pantalla.
+- **Paleta de 147 colores predefinidos** en formato RGB565 basada en el estándar de nombres de color X11/CSS, generada con la macro pública `RGB565(r, g, b)`. Incluye también `RGB16TO24(c)` para expandir un color RGB565 de vuelta a RGB888, y la función `ILI9341_Color565(r, g, b)` para convertir componentes RGB888 calculadas en tiempo de ejecución.
+- **Renderizado de texto**: `ILI9341_Putc()` / `ILI9341_Puts()` con soporte de saltos de línea, retorno de carro y fuentes de ancho variable mediante `LCD_FontDef_t`. `ILI9341_Printf()` añade formateo estilo printf (vía `vsnprintf()` sobre un buffer interno configurable con `ILI9341_PRINTF_BUF_SIZE`), y `ILI9341_PutsAligned()` / `ILI9341_PrintfAligned()` permiten alinear el texto (izquierda, centro, derecha) dentro de una región horizontal.
 - **Frame buffer fuera de pantalla (RAM)**: Juego completo de funciones `*_ImageBuffer()` que operan sobre un array `uint32_t[38 400]` en RAM interna, empaquetando dos píxeles RGB565 por palabra de 32 bits. Todas estas funciones retornan `ILI9341_Status_t` para detectar errores (puntero NULL, fallo DMA2D). Ideal para composición de imagen sin parpadeo.
 - **Frame buffer en SDRAM** *(requiere `HAL_SDRAM_MODULE_ENABLED`)*: `ILI9341_Init()` acepta un `SDRAM_HandleTypeDef*` opcional; si no es NULL, inicializa la IS42S16400J y reserva los primeros 153 600 bytes de `0xD0000000` como frame buffer interno. `ILI9341_Flush()` vuelca el buffer a pantalla con una sola llamada.
 - **Panel táctil resistivo STMPE811**: Configuración, lectura de coordenadas X/Y calibradas ([0, 239] × [0, 319]) y presión Z por I2C, con filtro de histeresis de 5 puntos.
@@ -369,6 +379,9 @@ ILI9341_DrawPixel(120, 160, ILI9341_COLOR_RED);
 /* Dibujar una línea azul */
 ILI9341_DrawLine(0, 0, 239, 319, ILI9341_COLOR_BLUE);
 
+/* Dibujar una línea con grosor de 5 píxeles */
+ILI9341_DrawThickLine(20, 20, 200, 80, 5, ILI9341_COLOR_RED);
+
 /* Dibujar el contorno de un rectángulo */
 ILI9341_DrawRectangle(20, 20, 220, 100, ILI9341_COLOR_GREEN);
 
@@ -438,7 +451,28 @@ ILI9341_GetStringSize("Texto", &Font_11x18, &w, &h);
 ILI9341_Puts((240 - w) / 2, 150, "Texto",
                  &Font_11x18,
                  ILI9341_COLOR_YELLOW, ILI9341_COLOR_BLACK);
+
+/* Renderizar texto con formato estilo printf */
+uint16_t temp = 235;
+ILI9341_Printf(10, 60, &Font_11x18,
+                   ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK,
+                   "Temp: %u.%u C", temp / 10, temp % 10);
+
+/* Alinear una cadena (izquierda, centro o derecha) dentro de una región horizontal,
+ * sin necesidad de calcular manualmente el ancho con ILI9341_GetStringSize() */
+ILI9341_PutsAligned(0, 239, 80, ILI9341_ALIGN_CENTER, "Centrado",
+                        &Font_11x18,
+                        ILI9341_COLOR_YELLOW, ILI9341_COLOR_BLACK);
+
+/* Combinar formato printf + alineación (por ejemplo, un valor pegado al borde derecho) */
+ILI9341_PrintfAligned(0, 239, 100, ILI9341_ALIGN_RIGHT,
+                          &Font_11x18,
+                          ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK,
+                          "%d%%", 87);
 ```
+
+> [!NOTE]
+> `ILI9341_Printf()` y `ILI9341_PrintfAligned()` formatean los argumentos variádicos con `vsnprintf()` en un buffer interno en pila de `ILI9341_PRINTF_BUF_SIZE` bytes (128 por defecto). Redefine esta macro antes de incluir `ILI9341_Disc1.h` si necesitas cadenas más largas. Si el resultado formateado excede el buffer, la cadena se trunca de forma segura (sin desbordamiento).
 
 ---
 
@@ -567,6 +601,29 @@ typedef enum {
 
 ---
 
+#### `ILI9341_TextAlign_t` - Alineación de Texto
+
+Usada por `ILI9341_PutsAligned()` / `ILI9341_PrintfAligned()` y sus variantes de frame buffer para posicionar una cadena dentro de una región horizontal `[x0, x1]`.
+
+```c
+typedef enum {
+    ILI9341_ALIGN_LEFT,     /**< Cadena pegada al borde izquierdo de la región */
+    ILI9341_ALIGN_CENTER,   /**< Cadena centrada dentro de la región           */
+    ILI9341_ALIGN_RIGHT     /**< Cadena pegada al borde derecho de la región   */
+} ILI9341_TextAlign_t;
+```
+
+| Valor | Descripción |
+|-------|-------------|
+| `ILI9341_ALIGN_LEFT`   | Equivalente a dibujar en `x0` |
+| `ILI9341_ALIGN_CENTER` | Centra la cadena en `(x1 - x0 + 1)` |
+| `ILI9341_ALIGN_RIGHT`  | Alinea el extremo derecho de la cadena con `x1` |
+
+> [!NOTE]
+> Si la cadena es más ancha que la región `[x0, x1]`, se alinea contra `x0` independientemente del valor de `align`.
+
+---
+
 #### `TP_STATE` - Estado del Panel Táctil
 
 ```c
@@ -637,6 +694,24 @@ ILI9341_Status_t ILI9341_DeInit(void);
 
 ---
 
+#### `ILI9341_Color565()` - Convertir RGB888 a RGB565
+
+Convierte una componente de color RGB888 (8 bits por canal) a RGB565. Equivale a la macro `RGB565(r, g, b)`, pero como función evita que el usuario tenga que calcular el empaquetado de bits manualmente y permite pasar valores calculados en tiempo de ejecución (por ejemplo, resultado de una interpolación de color).
+
+```c
+uint16_t ILI9341_Color565(uint8_t r, uint8_t g, uint8_t b);
+```
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `r` | `uint8_t` | Componente roja (0-255) |
+| `g` | `uint8_t` | Componente verde (0-255) |
+| `b` | `uint8_t` | Componente azul (0-255) |
+
+**Retorna**: `uint16_t` — color empaquetado en formato RGB565.
+
+---
+
 #### `ILI9341_Fill()` - Rellenar Pantalla
 
 Rellena toda la pantalla con un color sólido en formato RGB565.
@@ -696,6 +771,27 @@ ILI9341_Status_t ILI9341_DrawLine(uint16_t x0, uint16_t y0,
 ```
 
 **Retorna**: `ILI9341_OK`, `ILI9341_NOT_INITIALIZED`, `ILI9341_ERROR` o `ILI9341_TIMEOUT`.
+
+---
+
+#### `ILI9341_DrawThickLine()` - Dibujar Línea con Grosor
+
+Dibuja una línea con grosor (ancho de trazo) configurable. Las líneas horizontales y verticales se rellenan con un único rectángulo (recortado a los límites de pantalla, vía `ILI9341_DrawFilledRectangle()`). Las líneas diagonales se aproximan trazando `thickness` líneas de Bresenham paralelas, desplazadas sobre la normal del segmento y centradas en la línea original; en ángulos muy pronunciados puede quedar un ligero aliasing entre trazos adyacentes.
+
+```c
+ILI9341_Status_t ILI9341_DrawThickLine(uint16_t x0, uint16_t y0,
+                                        uint16_t x1, uint16_t y1,
+                                        uint16_t thickness, uint16_t color);
+```
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `x0`, `y0` | `uint16_t` | Coordenada de inicio |
+| `x1`, `y1` | `uint16_t` | Coordenada de fin |
+| `thickness` | `uint16_t` | Grosor de la línea en píxeles (`0` y `1` equivalen a `ILI9341_DrawLine()`) |
+| `color` | `uint16_t` | Color de la línea en formato RGB565 |
+
+**Retorna**: `ILI9341_OK`, `ILI9341_NOT_INITIALIZED` o `ILI9341_ERROR` si falla la transmisión SPI.
 
 ---
 
@@ -979,6 +1075,33 @@ ILI9341_Status_t ILI9341_Puts(uint16_t x, uint16_t y, char* str,
 
 ---
 
+#### `ILI9341_Printf()` - Renderizar Texto Formateado
+
+Renderiza una cadena con formato estilo `printf`. Formatea los argumentos variádicos con `vsnprintf()` en un buffer interno en pila de `ILI9341_PRINTF_BUF_SIZE` bytes y delega el dibujo en `ILI9341_Puts()`. El uso de `vsnprintf()` con el tamaño del buffer garantiza que la cadena siempre quede terminada en nulo y sin desbordamiento, aunque el resultado se trunque.
+
+```c
+#ifndef ILI9341_PRINTF_BUF_SIZE
+#define ILI9341_PRINTF_BUF_SIZE 128U   /* Redefinible antes de incluir el header */
+#endif
+
+ILI9341_Status_t ILI9341_Printf(uint16_t x, uint16_t y,
+                                 LCD_FontDef_t* font,
+                                 uint16_t foreground, uint16_t background,
+                                 const char* fmt, ...);
+```
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `x`, `y` | `uint16_t` | Esquina superior izquierda del primer carácter |
+| `font` | `LCD_FontDef_t*` | Puntero a la definición de la fuente |
+| `foreground` | `uint16_t` | Color de primer plano (RGB565) |
+| `background` | `uint16_t` | Color de fondo (RGB565) |
+| `fmt`, `...` | `const char*`, variádicos | Cadena de formato estilo printf y sus argumentos |
+
+**Retorna**: `ILI9341_OK`, `ILI9341_NOT_INITIALIZED`, `ILI9341_INVALID_PARAM` si `fmt` o `font` son NULL, o si `vsnprintf()` falla, `ILI9341_ERROR` si falla la transmisión SPI.
+
+---
+
 #### `ILI9341_GetStringSize()` - Calcular Tamaño de Cadena
 
 Calcula el bounding-box en píxeles de una cadena para una fuente dada, sin dibujar nada. Útil para centrar texto.
@@ -994,6 +1117,39 @@ void ILI9341_GetStringSize(char* str, LCD_FontDef_t* font,
 | `font` | `LCD_FontDef_t*` | Definición de la fuente |
 | `width` | `uint16_t*` | Ancho total en píxeles (salida) |
 | `height` | `uint16_t*` | Alto total en píxeles (salida) = `font->FontHeight` |
+
+---
+
+#### `ILI9341_PutsAligned()` / `ILI9341_PrintfAligned()` - Texto Alineado Horizontalmente
+
+Renderizan una cadena alineada (izquierda, centro o derecha) dentro de una región horizontal `[x0, x1]`, sin que el usuario tenga que calcular manualmente el ancho con `ILI9341_GetStringSize()`. Pensadas para cadenas de una sola línea (títulos, etiquetas, valores numéricos); si la cadena es más ancha que la región, se alinea contra `x0`. `ILI9341_PrintfAligned()` añade formateo estilo `printf` (mismo mecanismo interno que `ILI9341_Printf()`) y delega en `ILI9341_PutsAligned()`.
+
+```c
+ILI9341_Status_t ILI9341_PutsAligned(uint16_t x0, uint16_t x1, uint16_t y,
+                                      ILI9341_TextAlign_t align, char* str,
+                                      LCD_FontDef_t* font,
+                                      uint16_t foreground, uint16_t background);
+
+ILI9341_Status_t ILI9341_PrintfAligned(uint16_t x0, uint16_t x1, uint16_t y,
+                                        ILI9341_TextAlign_t align,
+                                        LCD_FontDef_t* font,
+                                        uint16_t foreground, uint16_t background,
+                                        const char* fmt, ...);
+```
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `x0` | `uint16_t` | Borde izquierdo de la región de alineación |
+| `x1` | `uint16_t` | Borde derecho de la región de alineación (`x1 >= x0`) |
+| `y` | `uint16_t` | Coordenada Y superior izquierda del texto |
+| `align` | `ILI9341_TextAlign_t` | Alineación deseada |
+| `str` | `char*` | Cadena terminada en nulo (solo `PutsAligned`) |
+| `font` | `LCD_FontDef_t*` | Puntero a la definición de la fuente |
+| `foreground` | `uint16_t` | Color de primer plano (RGB565) |
+| `background` | `uint16_t` | Color de fondo (RGB565) |
+| `fmt`, `...` | `const char*`, variádicos | Cadena de formato estilo printf y sus argumentos (solo `PrintfAligned`) |
+
+**Retorna**: `ILI9341_OK`, `ILI9341_NOT_INITIALIZED`, `ILI9341_INVALID_PARAM` si `str`/`fmt` o `font` son NULL, si `x1 < x0`, o si `vsnprintf()` falla (`PrintfAligned`), `ILI9341_ERROR` si falla la transmisión SPI.
 
 ---
 
@@ -1032,6 +1188,7 @@ Todas retornan `ILI9341_Status_t` (`ILI9341_OK`, `ILI9341_INVALID_PARAM` o `ILI9
 | `ILI9341_Fill_ImageBuffer(color, image)` | Rellena el buffer completo con un color sólido (delega en `DrawFilledRectangle_ImageBuffer` sobre toda el área; DMA2D R2M si disponible) |
 | `ILI9341_DrawPixel_ImageBuffer(x, y, color, image)` | Escribe un píxel en el buffer |
 | `ILI9341_DrawLine_ImageBuffer(x0, y0, x1, y1, color, image)` | Dibuja una línea (Bresenham) |
+| `ILI9341_DrawThickLine_ImageBuffer(x0, y0, x1, y1, thickness, color, image)` | Línea con grosor configurable |
 | `ILI9341_DrawRectangle_ImageBuffer(x0, y0, x1, y1, color, image)` | Contorno de rectángulo |
 | `ILI9341_DrawFilledRectangle_ImageBuffer(x0, y0, x1, y1, color, image)` | Rectángulo relleno (DMA2D R2M si disponible) |
 | `ILI9341_DrawRoundRect_ImageBuffer(x0, y0, x1, y1, r, color, image)` | Contorno de rectángulo redondeado (Bresenham) |
@@ -1042,6 +1199,60 @@ Todas retornan `ILI9341_Status_t` (`ILI9341_OK`, `ILI9341_INVALID_PARAM` o `ILI9
 | `ILI9341_DrawFilledTriangle_ImageBuffer(x0, y0, x1, y1, x2, y2, color, image)` | Triángulo relleno (scanline, aritmética entera) |
 | `ILI9341_Putc_ImageBuffer(x, y, c, font, fg, image)` | Carácter (sin fondo) |
 | `ILI9341_Puts_ImageBuffer(x, y, str, font, fg, image)` | Cadena (sin fondo) |
+| `ILI9341_Printf_ImageBuffer(x, y, font, fg, image, fmt, ...)` | Cadena con formato printf (sin fondo) |
+| `ILI9341_PutsAligned_ImageBuffer(x0, x1, y, align, str, font, fg, image)` | Cadena alineada horizontalmente (sin fondo) |
+| `ILI9341_PrintfAligned_ImageBuffer(x0, x1, y, align, font, fg, image, fmt, ...)` | Cadena con formato printf y alineada (sin fondo) |
+
+---
+
+#### `ILI9341_Printf_ImageBuffer()` - Texto Formateado en Buffer
+
+Misma lógica que `ILI9341_Printf()` pero escribe en el frame buffer fuera de pantalla: formatea los argumentos variádicos con `vsnprintf()` en el buffer interno de `ILI9341_PRINTF_BUF_SIZE` bytes y delega en `ILI9341_Puts_ImageBuffer()` (sin color de fondo).
+
+```c
+ILI9341_Status_t ILI9341_Printf_ImageBuffer(uint16_t x, uint16_t y,
+                                             LCD_FontDef_t* font, uint16_t foreground,
+                                             uint32_t image[IMG_TOTAL_BUF32],
+                                             const char* fmt, ...);
+```
+
+**Retorna**: `ILI9341_OK`, `ILI9341_INVALID_PARAM` si `fmt`, `font` o `image` son NULL, o si `vsnprintf()` falla.
+
+---
+
+#### `ILI9341_PutsAligned_ImageBuffer()` / `ILI9341_PrintfAligned_ImageBuffer()` - Texto Alineado en Buffer
+
+Mismas variantes de alineación horizontal que `ILI9341_PutsAligned()` / `ILI9341_PrintfAligned()`, pero escriben en el frame buffer (sin color de fondo) delegando en `ILI9341_Puts_ImageBuffer()`.
+
+```c
+ILI9341_Status_t ILI9341_PutsAligned_ImageBuffer(uint16_t x0, uint16_t x1, uint16_t y,
+                                                  ILI9341_TextAlign_t align, char* str,
+                                                  LCD_FontDef_t* font, uint16_t foreground,
+                                                  uint32_t image[IMG_TOTAL_BUF32]);
+
+ILI9341_Status_t ILI9341_PrintfAligned_ImageBuffer(uint16_t x0, uint16_t x1, uint16_t y,
+                                                    ILI9341_TextAlign_t align,
+                                                    LCD_FontDef_t* font, uint16_t foreground,
+                                                    uint32_t image[IMG_TOTAL_BUF32],
+                                                    const char* fmt, ...);
+```
+
+**Retorna**: `ILI9341_OK`, `ILI9341_INVALID_PARAM` si `str`/`fmt`, `font` o `image` son NULL, si `x1 < x0`, o si `vsnprintf()` falla (`PrintfAligned_ImageBuffer`).
+
+---
+
+#### `ILI9341_DrawThickLine_ImageBuffer()` - Línea con Grosor en Buffer
+
+Misma lógica que `ILI9341_DrawThickLine()` (rectángulo relleno para horizontales/verticales, trazos de Bresenham paralelos para diagonales) pero escribe directamente en el frame buffer, delegando en `ILI9341_DrawFilledRectangle_ImageBuffer()` y `ILI9341_DrawLine_ImageBuffer()` según el caso.
+
+```c
+ILI9341_Status_t ILI9341_DrawThickLine_ImageBuffer(uint16_t x0, uint16_t y0,
+                                                    uint16_t x1, uint16_t y1,
+                                                    uint16_t thickness, uint16_t color,
+                                                    uint32_t image[IMG_TOTAL_BUF32]);
+```
+
+**Retorna**: `ILI9341_OK`, `ILI9341_NOT_INITIALIZED`, `ILI9341_INVALID_PARAM` si `image` es NULL, `ILI9341_ERROR` si falla la transmisión SPI.
 
 ---
 
@@ -1498,6 +1709,21 @@ Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](../../LI
 
 Todos los cambios notables de esta librería se documentan en esta sección.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
+
+---
+
+### [1.4.0] - 07-07-2026
+
+#### Added
+
+- **Renderizado de texto formateado** — `ILI9341_Printf()` y `ILI9341_Printf_ImageBuffer()` *(solo SDRAM)*: renderizan una cadena con formato estilo `printf`, formateando los argumentos variádicos con `vsnprintf()` en un buffer interno en pila de tamaño configurable `ILI9341_PRINTF_BUF_SIZE` (128 bytes por defecto, redefinible antes de incluir el header) y delegando el dibujo en `ILI9341_Puts()` / `ILI9341_Puts_ImageBuffer()`. El resultado se trunca de forma segura si excede el buffer.
+- **Alineación horizontal de texto** — nuevo tipo `ILI9341_TextAlign_t` (`ILI9341_ALIGN_LEFT` / `ILI9341_ALIGN_CENTER` / `ILI9341_ALIGN_RIGHT`) y cuatro nuevas funciones que posicionan una cadena dentro de una región horizontal `[x0, x1]` sin que el usuario tenga que calcular el ancho manualmente con `ILI9341_GetStringSize()`:
+  - `ILI9341_PutsAligned()` / `ILI9341_PrintfAligned()`: sobre pantalla.
+  - `ILI9341_PutsAligned_ImageBuffer()` / `ILI9341_PrintfAligned_ImageBuffer()` *(solo SDRAM)*: sobre el frame buffer fuera de pantalla.
+  - Función privada `ILI9341_AlignedX()`: deriva la coordenada X de arranque según la alineación solicitada; si la cadena es más ancha que la región, se alinea contra `x0`.
+- **Líneas con grosor** — `ILI9341_DrawThickLine()` y `ILI9341_DrawThickLine_ImageBuffer()` *(solo SDRAM)*: dibujan una línea con grosor configurable. Las líneas horizontales y verticales se rellenan con un único rectángulo recortado a pantalla (`ILI9341_DrawFilledRectangle()` / `_ImageBuffer()`); las diagonales se aproximan trazando `thickness` líneas de Bresenham paralelas, desplazadas sobre la normal del segmento y centradas en la línea original. Con `thickness <= 1` delegan directamente en `ILI9341_DrawLine()` / `_ImageBuffer()`.
+- **`ILI9341_Color565()`**: nueva función pública que convierte una componente de color RGB888 (8 bits por canal) a RGB565, equivalente a la macro `RGB565(r, g, b)` pero utilizable con valores calculados en tiempo de ejecución.
+- Nuevos includes en `ILI9341_Disc1.h`: `<stdarg.h>` y `<stdio.h>` (soporte de `va_list`/`vsnprintf()` para las funciones `Printf*`).
 
 ---
 

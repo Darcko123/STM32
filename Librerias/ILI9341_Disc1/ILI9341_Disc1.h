@@ -21,8 +21,8 @@
  *
  * @origin El código de este driver se basa en la librería Petr Machala, Tilen Majerle, 2014.
  * @author Dr. Luis Antonio Raygoza Pérez & Ing. Daniel Ruiz
- * @date July 03, 2026
- * @version 1.3.0
+ * @date July 08, 2026
+ * @version 1.4.0
  */
 
 #ifndef ILI9341_DISC1_H
