@@ -3,16 +3,20 @@
  * @brief Driver genérico para la pantalla TFT LCD ILI9341 (320×240, interfaz SPI).
  *
  * @details Controla la pantalla TFT ILI9341 por SPI y, opcionalmente, un panel
- *          táctil STMPE811 por I2C. El SPI debe inicializarse a 2 Mbit/s antes de
- *          llamar a ILI9341_Init(); tras la inicialización el preescalador se
- *          eleva a 45 Mbit/s automáticamente.
+ *          táctil. Se soportan dos controladores de touch intercambiables:
+ *          - STMPE811 (I2C), configurado con ILI9341_TP_Config().
+ *          - XPT2046 (SPI, comparte el bus del LCD con un CS propio), configurado
+ *            con ILI9341_TP_ConfigXPT2046().
+ *          Ambos exponen el mismo estado a través de ILI9341_TP_GetState(). El SPI
+ *          debe inicializarse a 2 Mbit/s antes de llamar a ILI9341_Init(); tras la
+ *          inicialización el preescalador se eleva a 45 Mbit/s automáticamente.
  *
- *          Los pines SCK/MOSI/MISO del SPI (y SCL/SDA del I2C del touch, si se usa)
- *          se configuran junto con el periférico correspondiente (p. ej. en
- *          STM32CubeMX) antes de llamar a ILI9341_Init(). Los pines CS, RESET y D/C
- *          (WRX) del LCD son de propósito general y se indican como parámetros de
- *          ILI9341_Init(); el usuario debe configurarlos como salida push-pull antes
- *          de inicializar el driver.
+ *          Los pines SCK/MOSI/MISO del SPI (y SCL/SDA del I2C del touch, si se usa
+ *          el STMPE811) se configuran junto con el periférico correspondiente
+ *          (p. ej. en STM32CubeMX) antes de llamar a ILI9341_Init(). Los pines CS,
+ *          RESET y D/C (WRX) del LCD son de propósito general y se indican como
+ *          parámetros de ILI9341_Init(); el usuario debe configurarlos como salida
+ *          push-pull antes de inicializar el driver.
  *
  * @origin El código de este driver se basa en la librería Petr Machala, Tilen Majerle, 2014.
  * @author Dr. Luis Antonio Raygoza Pérez & Ing. Daniel Ruiz
@@ -321,6 +325,58 @@
 #define TOUCH_IO_ALL            ((uint32_t)(IO_Pin_1 | IO_Pin_2 | IO_Pin_3 | IO_Pin_4)) /**< Máscara de todos los pines táctiles */
 #endif /* HAL_I2C_MODULE_ENABLED */
 
+/* -- Touch panel XPT2046 (SPI) -- */
+/* Bytes de comando: S=1, A2-A0=canal, MODE=12 bits, SER/DFR=diferencial, PD1:0=00 */
+#define XPT2046_CMD_X           0xD0U  /**< Canal X+ (posición X)                */
+#define XPT2046_CMD_Y           0x90U  /**< Canal Y+ (posición Y)                */
+#define XPT2046_CMD_Z1          0xB0U  /**< Canal Z1 (presión, referencia baja)  */
+#define XPT2046_CMD_Z2          0xC0U  /**< Canal Z2 (presión, referencia alta)  */
+
+/** @brief Preescalador SPI usado durante las transacciones con el XPT2046.
+ *  @details El XPT2046 admite hasta ~2 MHz de reloj SPI; tras la inicialización
+ *           el bus del LCD corre a ~45 Mbit/s (@ref SPI_ILI9341_BaudRateUp), por lo
+ *           que debe bajarse temporalmente antes de leer el touch. Ajustar este
+ *           valor según la frecuencia de reloj APB del proyecto si 2 MHz no cae
+ *           dentro del preescalador por defecto. */
+#ifndef XPT2046_SPI_PRESCALER
+#define XPT2046_SPI_PRESCALER   SPI_BAUDRATEPRESCALER_32
+#endif
+
+/** @brief Umbral mínimo de presión (Z1 crudo) para considerar un toque válido
+ *         cuando no se dispone de pin PENIRQ (ver ILI9341_TP_ConfigXPT2046). */
+#ifndef XPT2046_PRESSURE_THRESHOLD
+#define XPT2046_PRESSURE_THRESHOLD  50U
+#endif
+
+/* -- Calibración XPT2046: rango crudo del ADC (0-4095) mapeado a la pantalla --
+ *    Estos valores varían por panel/cableado; redefinir antes de incluir el
+ *    header (o como macro de proyecto) si el touch queda desalineado. */
+#ifndef XPT2046_X_MIN
+#define XPT2046_X_MIN   200U
+#endif
+#ifndef XPT2046_X_MAX
+#define XPT2046_X_MAX   3900U
+#endif
+#ifndef XPT2046_Y_MIN
+#define XPT2046_Y_MIN   200U
+#endif
+#ifndef XPT2046_Y_MAX
+#define XPT2046_Y_MAX   3900U
+#endif
+
+/** @brief Si el cableado intercambia los ejes X/Y crudos respecto a la pantalla. */
+#ifndef XPT2046_SWAP_XY
+#define XPT2046_SWAP_XY 0
+#endif
+/** @brief Invierte la dirección del eje X calibrado. */
+#ifndef XPT2046_INVERT_X
+#define XPT2046_INVERT_X 0
+#endif
+/** @brief Invierte la dirección del eje Y calibrado. */
+#ifndef XPT2046_INVERT_Y
+#define XPT2046_INVERT_Y 0
+#endif
+
 // ============================================================================
 // ENUMERACIONES Y ESTRUCTURAS
 // ============================================================================
@@ -356,7 +412,17 @@ typedef enum {
     ILI9341_ALIGN_RIGHT     /**< Cadena pegada al borde derecho de la región     */
 } ILI9341_TextAlign_t;
 
-#ifdef HAL_I2C_MODULE_ENABLED
+/**
+ * @brief Controlador de panel táctil activo, seleccionado por la función de
+ *        configuración de touch que se haya invocado (ILI9341_TP_Config() para
+ *        STMPE811, ILI9341_TP_ConfigXPT2046() para XPT2046).
+ */
+typedef enum {
+    ILI9341_TOUCH_NONE = 0,    /**< Ningún panel táctil configurado */
+    ILI9341_TOUCH_STMPE811,    /**< Controlador STMPE811 por I2C    */
+    ILI9341_TOUCH_XPT2046      /**< Controlador XPT2046 por SPI     */
+} ILI9341_TouchDriver_t;
+
 /**
  * @brief Estado del panel táctil retornado por ILI9341_TP_GetState().
  */
@@ -366,7 +432,6 @@ typedef struct {
     uint16_t Y;                 /**< Coordenada Y calibrada [0, 319]          */
     uint16_t Z;                 /**< Índice de presión (valor ADC crudo)      */
 } TP_STATE;
-#endif /* HAL_I2C_MODULE_ENABLED */
 
 // ============================================================================
 // PROTOTIPOS DE FUNCIONES PÚBLICAS
@@ -1029,7 +1094,11 @@ ILI9341_Status_t ILI9341_DeInit(void);
 
 #ifdef HAL_I2C_MODULE_ENABLED
 /**
- * @brief Configura el controlador del panel táctil STMPE811.
+ * @brief Configura el controlador del panel táctil STMPE811 (I2C).
+ *
+ * @details Tras una configuración exitosa, ILI9341_TP_GetState() consulta este
+ *          controlador hasta que se llame a ILI9341_TP_ConfigXPT2046() o a
+ *          ILI9341_DeInit().
  *
  * @return ILI9341_Status_t
  *         - ILI9341_OK              si el dispositivo fue detectado y configurado.
@@ -1037,15 +1106,45 @@ ILI9341_Status_t ILI9341_DeInit(void);
  *         - ILI9341_ERROR           si el ID del chip no coincidió con STMPE811_ID.
  */
 ILI9341_Status_t ILI9341_TP_Config(void);
+#endif /* HAL_I2C_MODULE_ENABLED */
+
+/**
+ * @brief Configura el controlador del panel táctil XPT2046 (SPI).
+ *
+ * @details Reutiliza el mismo periférico SPI pasado a ILI9341_Init() (debe estar
+ *          en modo 0, CPOL=0/CPHA=0, igual que el LCD); el XPT2046 se selecciona
+ *          con su propio pin CS, distinto del CS del LCD. Durante cada lectura de
+ *          touch el preescalador SPI se reduce temporalmente a XPT2046_SPI_PRESCALER
+ *          y se restaura al terminar.
+ *
+ *          Tras una configuración exitosa, ILI9341_TP_GetState() consulta este
+ *          controlador hasta que se llame a ILI9341_TP_Config() (STMPE811) o a
+ *          ILI9341_DeInit().
+ *
+ * @param[in] csPort  Puerto GPIO del pin CS (T_CS) del XPT2046.
+ * @param[in] csPin   Pin GPIO del pin CS del XPT2046.
+ * @param[in] irqPort Puerto GPIO del pin PENIRQ (T_IRQ) del XPT2046, o NULL si no
+ *                    está conectado. Sin PENIRQ, la detección de toque usa el
+ *                    umbral XPT2046_PRESSURE_THRESHOLD sobre la lectura de presión.
+ * @param[in] irqPin  Pin GPIO del pin PENIRQ (ignorado si irqPort es NULL).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si csPort es NULL.
+ */
+ILI9341_Status_t ILI9341_TP_ConfigXPT2046(GPIO_TypeDef* csPort, uint16_t csPin,
+                                           GPIO_TypeDef* irqPort, uint16_t irqPin);
 
 /**
  * @brief Lee el estado actual del panel táctil (coordenadas y detección de toque).
  *
+ * @details Despacha internamente al controlador configurado con ILI9341_TP_Config()
+ *          o ILI9341_TP_ConfigXPT2046(); si no se configuró ninguno, retorna NULL.
+ *
  * @return Puntero a la estructura TP_STATE interna con valores actualizados,
- *         o NULL si el driver no ha sido inicializado.
+ *         o NULL si el driver no ha sido inicializado o no hay touch configurado.
  */
 TP_STATE* ILI9341_TP_GetState(void);
-#endif /* HAL_I2C_MODULE_ENABLED */
 
 #ifdef __cplusplus
 }

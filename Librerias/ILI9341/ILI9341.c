@@ -52,9 +52,14 @@ static uint16_t              ILI9341_x           = 0U;   /**< Columna del cursor
 static uint16_t              ILI9341_y           = 0U;   /**< Fila    del cursor de texto activo                        */
 static ILI9341_Options_t ILI9341_Opts;                   /**< Geometría y orientación actuales de la pantalla           */
 
-#ifdef HAL_I2C_MODULE_ENABLED
 static TP_STATE TP_State; /**< Estado interno del panel táctil (actualizado en ILI9341_TP_GetState()) */
-#endif
+static ILI9341_TouchDriver_t ILI9341_TouchDriver = ILI9341_TOUCH_NONE; /**< Controlador de touch activo */
+
+/* -- Pines del XPT2046 (parametrizados en ILI9341_TP_ConfigXPT2046) -- */
+static GPIO_TypeDef* XPT2046_CS_Port  = NULL; /**< Puerto GPIO del pin CS (T_CS) del XPT2046   */
+static uint16_t      XPT2046_CS_Pin   = 0U;   /**< Pin GPIO del pin CS del XPT2046             */
+static GPIO_TypeDef* XPT2046_IRQ_Port = NULL; /**< Puerto GPIO del pin PENIRQ, o NULL si no usado */
+static uint16_t      XPT2046_IRQ_Pin  = 0U;   /**< Pin GPIO del pin PENIRQ                     */
 
 static uint32_t* ILI9341_framebuffer      = NULL; /**< Front buffer: transmitido a la LCD por DMA en modo doble buffer     */
 static uint32_t* ILI9341_back_framebuffer = NULL; /**< Back buffer: la CPU dibuja aquí mientras el DMA envía el front      */
@@ -93,7 +98,12 @@ static ILI9341_Status_t ILI9341_TP_Reset(void);
 static uint16_t ILI9341_TP_Read_X(void);
 static uint16_t ILI9341_TP_Read_Y(void);
 static uint16_t ILI9341_TP_Read_Z(void);
+static TP_STATE* STMPE811_TP_GetState(void);
 #endif /* HAL_I2C_MODULE_ENABLED */
+static void SPI_ILI9341_SetPrescaler(uint32_t prescaler);
+static ILI9341_Status_t XPT2046_ReadChannel(uint8_t cmd, uint16_t* result);
+static ILI9341_Status_t XPT2046_ReadRaw(uint16_t* x, uint16_t* y, uint16_t* z);
+static TP_STATE* XPT2046_TP_GetState(void);
 static ILI9341_Status_t DrawPixelClipped(int16_t x, int16_t y, uint16_t color);
 static ILI9341_Status_t DrawHSpanClipped(int16_t xL, int16_t xR, int16_t y, uint16_t color);
 static ILI9341_Status_t DrawHSpanClipped_ImageBuffer(int16_t xL, int16_t xR, int16_t y, uint16_t color, uint32_t* image);
@@ -141,6 +151,30 @@ static ILI9341_Status_t SPI_ILI9341_BaudRateUp(void)
  *  Un byte a ~45 Mbit/s tarda ~32 ciclos de CPU; este límite (decenas de ms)
  *  solo se agota ante una falla real del bus. */
 #define ILI9341_SPI_TXE_SPIN_MAX 1000000U
+
+/**
+ * @brief Cambia el preescalador de baud rate del SPI sin reinicializar el handle completo.
+ *
+ * @details Usado para bajar la velocidad del bus SPI compartido antes de dialogar con
+ *          el XPT2046 (máx. ~2 MHz) y restaurarla después, sin el costo de un ciclo
+ *          completo HAL_SPI_DeInit/Init como hace SPI_ILI9341_BaudRateUp(). Espera a
+ *          que el bus esté libre antes de tocar el registro, igual que
+ *          ILI9341_SPI_SetDataSize().
+ *
+ * @param[in] prescaler Uno de los valores SPI_BAUDRATEPRESCALER_x del HAL.
+ */
+static void SPI_ILI9341_SetPrescaler(uint32_t prescaler)
+{
+    uint32_t spin = ILI9341_SPI_TXE_SPIN_MAX;
+    while (__HAL_SPI_GET_FLAG(ILI9341_hspi, SPI_FLAG_BSY))
+    {
+        if (--spin == 0U) { break; }
+    }
+    __HAL_SPI_DISABLE(ILI9341_hspi);
+    MODIFY_REG(ILI9341_hspi->Instance->CR1, SPI_CR1_BR, prescaler);
+    ILI9341_hspi->Init.BaudRatePrescaler = prescaler;
+    __HAL_SPI_ENABLE(ILI9341_hspi);
+}
 
 /**
  * @brief Espera a que TXE se active tras escribir en el DR (ruta crítica de envío de píxeles).
@@ -3837,6 +3871,7 @@ ILI9341_Status_t ILI9341_DeInit(void)
     ILI9341_back_framebuffer = NULL;
     ILI9341_dma_state        = 0U;
     ILI9341_dma_cs_held      = 0U;
+    ILI9341_TouchDriver      = ILI9341_TOUCH_NONE;
 
     ILI9341_hspi = NULL;
 #ifdef HAL_I2C_MODULE_ENABLED
@@ -3850,7 +3885,7 @@ ILI9341_Status_t ILI9341_DeInit(void)
 }
 
 // ============================================================================
-// FUNCIONES PÚBLICAS — Touch panel (STMPE811)
+// FUNCIONES PÚBLICAS — Touch panel
 // ============================================================================
 
 #ifdef HAL_I2C_MODULE_ENABLED
@@ -3891,22 +3926,20 @@ ILI9341_Status_t ILI9341_TP_Config(void)
     if ((status = ILI9341_TP_WriteDeviceRegister(TP_REG_INT_STA,      0xFFU))     != ILI9341_OK) { return status; }
 
     TP_State.TouchDetected = TP_State.X = TP_State.Y = TP_State.Z = 0U;
+    ILI9341_TouchDriver = ILI9341_TOUCH_STMPE811;
 
     return ILI9341_OK;
 }
 
 /**
- * @brief Lee el estado actual del panel táctil (coordenadas y detección de toque).
+ * @brief Implementación STMPE811 de la lectura de estado táctil.
  *
- * @return Puntero a la estructura TP_STATE interna con valores actualizados,
- *         o NULL si el driver no ha sido inicializado.
+ * @return Puntero a la estructura TP_STATE interna con valores actualizados.
  */
-TP_STATE* ILI9341_TP_GetState(void)
+static TP_STATE* STMPE811_TP_GetState(void)
 {
     uint32_t xDiff, yDiff, x, y;
     static uint32_t _x = 0U, _y = 0U;
-
-    if (!ILI9341_Initialized) { return NULL; }
 
     TP_State.TouchDetected = (ILI9341_TP_ReadDeviceRegister(TP_REG_TP_CTRL) & 0x80U);
 
@@ -3929,3 +3962,176 @@ TP_STATE* ILI9341_TP_GetState(void)
     return &TP_State;
 }
 #endif /* HAL_I2C_MODULE_ENABLED */
+
+/**
+ * @brief Configura el controlador del panel táctil XPT2046 (SPI).
+ *
+ * @param[in] csPort  Puerto GPIO del pin CS (T_CS) del XPT2046.
+ * @param[in] csPin   Pin GPIO del pin CS del XPT2046.
+ * @param[in] irqPort Puerto GPIO del pin PENIRQ (T_IRQ), o NULL si no está conectado.
+ * @param[in] irqPin  Pin GPIO del pin PENIRQ (ignorado si irqPort es NULL).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              en caso de éxito.
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si csPort es NULL.
+ */
+ILI9341_Status_t ILI9341_TP_ConfigXPT2046(GPIO_TypeDef* csPort, uint16_t csPin,
+                                           GPIO_TypeDef* irqPort, uint16_t irqPin)
+{
+    if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
+    if (csPort == NULL) { return ILI9341_INVALID_PARAM; }
+
+    XPT2046_CS_Port  = csPort;  XPT2046_CS_Pin  = csPin;
+    XPT2046_IRQ_Port = irqPort; XPT2046_IRQ_Pin = irqPin;
+
+    HAL_GPIO_WritePin(XPT2046_CS_Port, XPT2046_CS_Pin, GPIO_PIN_SET);
+
+    TP_State.TouchDetected = TP_State.X = TP_State.Y = TP_State.Z = 0U;
+    ILI9341_TouchDriver = ILI9341_TOUCH_XPT2046;
+
+    return ILI9341_OK;
+}
+
+/**
+ * @brief Lee un canal ADC del XPT2046 (control byte + 2 bytes de resultado de 12 bits).
+ *
+ * @param[in]  cmd    Byte de control (XPT2046_CMD_X, _Y, _Z1 o _Z2).
+ * @param[out] result Valor de 12 bits leído (0-4095).
+ * @return ILI9341_OK si la transacción SPI fue exitosa; ILI9341_ERROR en caso contrario.
+ */
+static ILI9341_Status_t XPT2046_ReadChannel(uint8_t cmd, uint16_t* result)
+{
+    uint8_t tx[3] = { cmd, 0x00U, 0x00U };
+    uint8_t rx[3] = { 0U, 0U, 0U };
+
+    if (HAL_SPI_TransmitReceive(ILI9341_hspi, tx, rx, 3U, 100U) != HAL_OK) { return ILI9341_ERROR; }
+
+    *result = (((uint16_t)rx[1] << 8) | (uint16_t)rx[2]) >> 3;
+    return ILI9341_OK;
+}
+
+/**
+ * @brief Lee las coordenadas X/Y crudas y la presión (Z1) del XPT2046.
+ *
+ * @details Baja el preescalador SPI a XPT2046_SPI_PRESCALER, selecciona el XPT2046
+ *          con su CS dedicado, descarta la primera muestra de X/Y (asentamiento del
+ *          multiplexor analógico) y restaura el preescalador original al terminar.
+ *
+ * @param[out] x Coordenada X cruda (0-4095).
+ * @param[out] y Coordenada Y cruda (0-4095).
+ * @param[out] z Presión cruda (canal Z1, mayor valor = mayor presión).
+ * @return ILI9341_OK en caso de éxito; ILI9341_ERROR si falla la transacción SPI o si
+ *         el bus SPI está ocupado con un volcado de frame buffer asíncrono en curso
+ *         (ILI9341_FlushAsync); reintentar en el siguiente ciclo de sondeo.
+ */
+static ILI9341_Status_t XPT2046_ReadRaw(uint16_t* x, uint16_t* y, uint16_t* z)
+{
+    ILI9341_Status_t st;
+    uint16_t discard, rawX = 0U, rawY = 0U, rawZ = 0U;
+    uint32_t savedPrescaler = ILI9341_hspi->Init.BaudRatePrescaler;
+
+    if (ILI9341_dma_state != 0U) { return ILI9341_ERROR; }
+
+    SPI_ILI9341_SetPrescaler(XPT2046_SPI_PRESCALER);
+    HAL_GPIO_WritePin(XPT2046_CS_Port, XPT2046_CS_Pin, GPIO_PIN_RESET);
+
+    st  = XPT2046_ReadChannel(XPT2046_CMD_X, &discard);
+    st  = (st == ILI9341_OK) ? XPT2046_ReadChannel(XPT2046_CMD_X,  &rawX) : st;
+    st  = (st == ILI9341_OK) ? XPT2046_ReadChannel(XPT2046_CMD_Y,  &discard) : st;
+    st  = (st == ILI9341_OK) ? XPT2046_ReadChannel(XPT2046_CMD_Y,  &rawY) : st;
+    st  = (st == ILI9341_OK) ? XPT2046_ReadChannel(XPT2046_CMD_Z1, &rawZ) : st;
+
+    HAL_GPIO_WritePin(XPT2046_CS_Port, XPT2046_CS_Pin, GPIO_PIN_SET);
+    SPI_ILI9341_SetPrescaler(savedPrescaler);
+
+    if (st != ILI9341_OK) { return st; }
+
+    *x = rawX;
+    *y = rawY;
+    *z = rawZ;
+    return ILI9341_OK;
+}
+
+/**
+ * @brief Implementación XPT2046 de la lectura de estado táctil.
+ *
+ * @details Si se configuró un pin PENIRQ, este determina la detección de toque
+ *          (activo en bajo) y solo entonces se leen las coordenadas por SPI. Sin
+ *          PENIRQ, se lee siempre y la detección se basa en XPT2046_PRESSURE_THRESHOLD.
+ *
+ * @return Puntero a la estructura TP_STATE interna con valores actualizados.
+ */
+static TP_STATE* XPT2046_TP_GetState(void)
+{
+    uint16_t rawX, rawY, rawZ;
+    int32_t mapX, mapY;
+    static uint32_t _x = 0U, _y = 0U;
+
+    if (XPT2046_IRQ_Port != NULL && HAL_GPIO_ReadPin(XPT2046_IRQ_Port, XPT2046_IRQ_Pin) == GPIO_PIN_SET)
+    {
+        TP_State.TouchDetected = 0U;
+        TP_State.Z             = 0U;
+        return &TP_State;
+    }
+
+    if (XPT2046_ReadRaw(&rawX, &rawY, &rawZ) != ILI9341_OK)
+    {
+        TP_State.TouchDetected = 0U;
+        return &TP_State;
+    }
+
+    TP_State.TouchDetected = (XPT2046_IRQ_Port != NULL) ? 1U : (rawZ >= XPT2046_PRESSURE_THRESHOLD);
+    TP_State.Z              = rawZ;
+
+    if (TP_State.TouchDetected)
+    {
+#if XPT2046_SWAP_XY
+        { uint16_t tmp = rawX; rawX = rawY; rawY = tmp; }
+#endif
+        mapX = ((int32_t)rawX - (int32_t)XPT2046_X_MIN) * (int32_t)ILI9341_WIDTH
+               / ((int32_t)XPT2046_X_MAX - (int32_t)XPT2046_X_MIN);
+        mapY = ((int32_t)rawY - (int32_t)XPT2046_Y_MIN) * (int32_t)ILI9341_HEIGHT
+               / ((int32_t)XPT2046_Y_MAX - (int32_t)XPT2046_Y_MIN);
+
+        if (mapX < 0) { mapX = 0; } else if (mapX >= (int32_t)ILI9341_WIDTH)  { mapX = (int32_t)ILI9341_WIDTH  - 1; }
+        if (mapY < 0) { mapY = 0; } else if (mapY >= (int32_t)ILI9341_HEIGHT) { mapY = (int32_t)ILI9341_HEIGHT - 1; }
+
+#if XPT2046_INVERT_X
+        mapX = (int32_t)ILI9341_WIDTH  - 1 - mapX;
+#endif
+#if XPT2046_INVERT_Y
+        mapY = (int32_t)ILI9341_HEIGHT - 1 - mapY;
+#endif
+
+        _x = (uint32_t)mapX;
+        _y = (uint32_t)mapY;
+    }
+
+    TP_State.X = (uint16_t)_x;
+    TP_State.Y = (uint16_t)_y;
+
+    return &TP_State;
+}
+
+/**
+ * @brief Lee el estado actual del panel táctil (coordenadas y detección de toque).
+ *
+ * @details Despacha al controlador configurado con ILI9341_TP_Config() (STMPE811)
+ *          o ILI9341_TP_ConfigXPT2046() (XPT2046).
+ *
+ * @return Puntero a la estructura TP_STATE interna con valores actualizados,
+ *         o NULL si el driver no ha sido inicializado o no hay touch configurado.
+ */
+TP_STATE* ILI9341_TP_GetState(void)
+{
+    if (!ILI9341_Initialized) { return NULL; }
+
+    switch (ILI9341_TouchDriver)
+    {
+#ifdef HAL_I2C_MODULE_ENABLED
+        case ILI9341_TOUCH_STMPE811: return STMPE811_TP_GetState();
+#endif
+        case ILI9341_TOUCH_XPT2046:  return XPT2046_TP_GetState();
+        default:                     return NULL;
+    }
+}
