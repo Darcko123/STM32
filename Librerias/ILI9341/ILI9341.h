@@ -370,7 +370,7 @@
 #endif
 /** @brief Invierte la dirección del eje X calibrado. */
 #ifndef XPT2046_INVERT_X
-#define XPT2046_INVERT_X 0
+#define XPT2046_INVERT_X 1
 #endif
 /** @brief Invierte la dirección del eje Y calibrado. */
 #ifndef XPT2046_INVERT_Y
