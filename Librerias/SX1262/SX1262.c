@@ -503,7 +503,7 @@ SX1262_Status_t SX1262_Init(SPI_HandleTypeDef *hspi,
   if (hspi == NULL || nss_port == NULL || busy_port == NULL ||
       dio_port == NULL || rst_port == NULL)
   {
-    return SX1262_ERROR;
+    return SX1262_INVALID_PARAM;
   }
 
   // Almacenar configuración para uso en funciones posteriores

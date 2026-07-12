@@ -12,13 +12,11 @@
 #ifndef SX1262_H
 #define SX1262_H
 
-/**
- * @brief Incluir el encabezado adecuado según la familia STM32 utilizada.
- * Por ejemplo:
- * - Para STM32F1xx: "stm32f1xx_hal.h"
- * - Para STM32F4xx: "stm32f4xx_hal.h"
- */
-#include "stm32f4xx_hal.h"
+// ============================================================================
+// INCLUDES
+// ============================================================================
+
+#include "main.h"
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -162,8 +160,9 @@ typedef enum {
 	SX1262_ERROR = 1,			/**< Error en la operación */
 	SX1262_TIMEOUT = 2,			/**< Timeout en la operación */
 	SX1262_NOT_INITIALIZED = 3,	/**< Módulo no inicializado */
-	SX1262_RX_BUSY = 4,			/**< El módulo está en modo RX, esperando paquete (modo IT) */
-	SX1262_TX_BUSY = 5			/**< El módulo está en modo TX, enviando paquete (modo IT) */
+	SX1262_INVALID_PARAM = 4,	/**< Parámetro inválido */
+	SX1262_RX_BUSY = 5,			/**< El módulo está en modo RX, esperando paquete (modo IT) */
+	SX1262_TX_BUSY = 6			/**< El módulo está en modo TX, enviando paquete (modo IT) */
 }SX1262_Status_t;
 
 // ============================================================================
