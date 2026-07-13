@@ -138,6 +138,16 @@ lora_config_t ShortFast = {
  */
 static volatile uint8_t SX1262_TxActive = 0;
 
+/**
+ * @brief Semáforo binario privado: 1 si hay una recepción IT en curso (modo RX
+ *        continuo armado). Escrito desde el main loop (StartReceiveIT arma,
+ *        AbortReceive libera, StartTransmitIT lo libera al forzar Standby).
+ *        Se usa únicamente como guardia de reentrada; el dispatcher del ISR
+ *        decide TX/RX con SX1262_TxActive (TX y RX son mutuamente excluyentes).
+ *        Declarado volatile por coherencia con el resto de banderas compartidas.
+ */
+static volatile uint8_t SX1262_RxActive = 0;
+
 // ============================================================================
 // FUNCIONES PRIVADAS - ABSTRACCIÓN SPI
 // ============================================================================
@@ -816,6 +826,9 @@ SX1262_Status_t SX1262_LoRa_StartTransmitIT(uint8_t *data, uint8_t length)
 
   // 7. Armar el semáforo ANTES de SetTx para evitar perder el IRQ si el
   //    paquete es muy corto y DIO1 sube antes de que el main loop lo compruebe.
+  //    La TX ha forzado Standby (paso 1), por lo que cualquier RX continuo
+  //    previo queda cancelado: liberar SX1262_RxActive para no dejar estado obsoleto.
+  SX1262_RxActive = 0;
   SX1262_TxActive = 1;
 
   // 8. Iniciar TX (timeout = 0x000000 => sin timeout de chip; soft-timeout en
@@ -1091,6 +1104,18 @@ SX1262_Status_t SX1262_LoRa_StartReceiveIT(void)
     return SX1262_ERROR; // Llamar a SX1262_LoRa_ApplyConfig() antes de recibir
   }
 
+  if (SX1262_TxActive)
+  {
+    // Hay una TX IT en vuelo. Armar RX ahora forzaría Standby sobre la TX y
+    // el dispatcher del ISR (SX1262_IRQ_Handler) despacharía mal el flanco DIO1.
+    return SX1262_TX_BUSY;
+  }
+
+  if (SX1262_RxActive)
+  {
+    return SX1262_RX_BUSY; // Ya hay una recepción IT (RX continuo) en curso
+  }
+
   uint8_t buf[8];
   SX1262_Status_t st = SX1262_OK;
 
@@ -1122,6 +1147,14 @@ SX1262_Status_t SX1262_LoRa_StartReceiveIT(void)
   buf[1] = 0xFF;
   buf[2] = 0xFF;
   st = st ? st : SX1262_WriteCommand(SX126X_CMD_SET_RX, buf, 3);
+
+  // Marcar RX activa solo si toda la secuencia de configuración tuvo éxito.
+  // RX es continuo (timeout 0xFFFFFF): la bandera se mantiene tras cada RxDone
+  // y solo se libera en AbortReceive o al iniciar una TX (StartTransmitIT).
+  if (st == SX1262_OK)
+  {
+    SX1262_RxActive = 1;
+  }
 
   // Retorno inmediato — sin polling en DIO1
   return st;
@@ -1219,6 +1252,10 @@ SX1262_Status_t SX1262_LoRa_AbortReceive(void)
   }
 
   uint8_t buf[2];
+
+  // Liberar el semáforo de RX aunque el comando falle: la intención es
+  // abandonar el modo RX, y dejarlo en 1 impediría rearmar RX más tarde.
+  SX1262_RxActive = 0;
 
   // Regresar a Standby RC para detener la escucha
   buf[0] = RADIOLIB_SX126X_STANDBY_RC;

@@ -406,6 +406,8 @@ SX1262_Status_t SX1262_LoRa_Receive(uint8_t* data, uint8_t* length, uint32_t tim
  *        en STM32CubeMX y que HAL_GPIO_EXTI_Callback llame a SX1262_IRQ_Handler().
  *
  * @return SX1262_Status_t SX1262_OK si el chip entró en modo RX,
+ *                         SX1262_TX_BUSY si hay una TX IT en vuelo,
+ *                         SX1262_RX_BUSY si ya hay una RX IT (RX continuo) en curso,
  *                         SX1262_ERROR si falla SPI,
  *                         SX1262_NOT_INITIALIZED si no se inicializó.
  */
