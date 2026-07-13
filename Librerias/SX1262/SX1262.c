@@ -34,6 +34,7 @@ static uint16_t RST_GPIO_Pin          = 0;
 static uint8_t SX1262_Initialized     = 0;    /**< Bandera para verificar si el módulo está inicializado */
 
 static lora_config_t  SX1262_LoRa_CurrentConfig;   /**< Configuración actual aplicada al módulo */
+static fsk_config_t   SX1262_FSK_CurrentConfig;    /**< Configuración FSK actual (aplicada o cacheada por defecto) */
 
 /**
  * @brief Bandera de recepción no bloqueante (productor: ISR, consumidor: main
@@ -571,7 +572,7 @@ SX1262_Status_t SX1262_Init(SPI_HandleTypeDef *hspi,
     {
         .frequency = 915000000,
         .bitrate = 50000,
-        .freq_dev = 25000,
+        .freq_dev = 25.0f,
         .shaping = LORA_FSK_SHAPING_NONE,
         .rx_bandwidth = FSK_RXBW_156_2_KHZ,
         .tx_power = 22,
@@ -584,6 +585,11 @@ SX1262_Status_t SX1262_Init(SPI_HandleTypeDef *hspi,
         .whitening = true,
         .config_pending = false
     };
+
+    // Cachear los valores por defecto de FSK sin enviarlos al chip: el chip
+    // arranca en modo LoRa (ver ApplyConfig de abajo) y solo cambia a GFSK
+    // cuando el usuario llama explícitamente a SX1262_FSK_ApplyConfig().
+    SX1262_FSK_CurrentConfig = default_fsk_config;
 
     // Habilitar marca para permitir comandos internos
     SX1262_Initialized = 1;
@@ -1549,6 +1555,155 @@ SX1262_Status_t SX1262_LoRa_GetConfig(lora_config_t *config)
     }
 
     *config = SX1262_LoRa_CurrentConfig;
+
+    return SX1262_OK;
+}
+
+// ============================================================================
+// CONFIGURACIÓN FSK/GFSK
+// ============================================================================
+
+/**
+ * @brief Aplica la configuración de modulación FSK/GFSK al chip.
+ *
+ *        Cambia el packet type del chip a GFSK (SX126X_PACKET_TYPE_GFSK).
+ *        LoRa y FSK son modos mutuamente excluyentes en el chip: tras aplicar
+ *        esta configuración, el chip queda en modo GFSK hasta la siguiente
+ *        llamada a SX1262_LoRa_ApplyConfig().
+ *
+ *        Fórmulas de conversión (datasheet SX1262 §13.4.5, Fxtal = 32 MHz):
+ *          BitRate reg = 32 * Fxtal / bitrate(bps)
+ *          Fdev    reg = Fdev(Hz) * 2^25 / Fxtal
+ *
+ * @param config Puntero a la estructura de configuración (fsk_config_t)
+ * @return SX1262_Status_t
+ */
+SX1262_Status_t SX1262_FSK_ApplyConfig(fsk_config_t *config)
+{
+    if (SX1262_Initialized != 1)
+    {
+        return SX1262_NOT_INITIALIZED;
+    }
+
+    if (config == NULL)
+    {
+        return SX1262_INVALID_PARAM;
+    }
+
+    if (config->bitrate == 0 || config->sync_word_len > 8)
+    {
+        return SX1262_INVALID_PARAM;
+    }
+
+    uint8_t buf[16];
+    SX1262_Status_t st = SX1262_OK;
+
+    // Modo Standby RC necesario para configurar
+    buf[0] = SX126X_STANDBY_RC;
+    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
+
+    // --- 1. TIPO DE PAQUETE: GFSK ---
+    buf[0] = SX126X_PACKET_TYPE_GFSK;
+    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_PACKET_TYPE, buf, 1);
+
+    // --- 2. FRECUENCIA ---
+    uint32_t frf = (uint32_t)(((uint64_t)config->frequency * 16384ULL) / 15625ULL);
+    buf[0] = (frf >> 24) & 0xFF;
+    buf[1] = (frf >> 16) & 0xFF;
+    buf[2] = (frf >> 8) & 0xFF;
+    buf[3] = (frf & 0xFF);
+    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_RF_FREQUENCY, buf, 4);
+
+    // --- 3. POTENCIA TX ---
+    // Configuración PA por defecto para transceptores SX1262 (+22dBm Max)
+    buf[0] = 0x04;
+    buf[1] = 0x07;
+    buf[2] = 0x00;
+    buf[3] = 0x01;
+    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_PA_CONFIG, buf, 4);
+
+    buf[0] = config->tx_power; // power
+    buf[1] = 0x02;              // rampTime 40us
+    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_TX_PARAMS, buf, 2);
+
+    // --- 4. MODULACIÓN GFSK ---
+    uint32_t br_reg = (uint32_t)(((uint64_t)32U * 32000000ULL) / config->bitrate);
+
+    uint32_t fdev_hz = (uint32_t)(config->freq_dev * 1000.0f);
+    uint32_t fdev_reg = (uint32_t)(((uint64_t)fdev_hz * 33554432ULL) / 32000000ULL);
+
+    buf[0] = (br_reg >> 16) & 0xFF;
+    buf[1] = (br_reg >> 8) & 0xFF;
+    buf[2] = br_reg & 0xFF;
+    buf[3] = config->shaping;
+    buf[4] = config->rx_bandwidth;
+    buf[5] = (fdev_reg >> 16) & 0xFF;
+    buf[6] = (fdev_reg >> 8) & 0xFF;
+    buf[7] = fdev_reg & 0xFF;
+    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_MODULATION_PARAMS, buf, 8);
+
+    // --- 5. SYNC WORD ---
+    // Escribe sync_word_len bytes en el registro base 0x06C0 (WriteRegister
+    // toma dirección de 2 bytes seguida de los datos).
+    buf[0] = (SX126X_REG_SYNC_WORD_BASE >> 8) & 0xFF;
+    buf[1] = SX126X_REG_SYNC_WORD_BASE & 0xFF;
+    for (uint8_t i = 0; i < config->sync_word_len; i++)
+    {
+        buf[2 + i] = config->fsk_sync_word[i];
+    }
+    st = st ? st : sx1262_WriteCommand(SX126X_CMD_WRITE_REGISTER, buf, 2U + config->sync_word_len);
+
+    // --- 6. PARÁMETROS DEL PAQUETE ---
+    // PreambleLength y SyncWordLength se expresan en bits en el comando GFSK
+    // (los campos de la struct están en bytes).
+    uint16_t preamble_bits = (uint16_t)config->preamble_len * 8U;
+    buf[0] = (preamble_bits >> 8) & 0xFF;
+    buf[1] = preamble_bits & 0xFF;
+    buf[2] = 0x04; // PreambleDetectorLength: 8 bits
+    buf[3] = config->sync_word_len * 8U; // SyncWordLength en bits
+    buf[4] = 0x00; // AddrComp: off
+    buf[5] = config->fixed_length ? 0x00 : 0x01; // HeaderType: fijo/variable
+    buf[6] = config->payload_len;
+    buf[7] = config->crc_type;
+    buf[8] = config->whitening ? 0x01 : 0x00;
+    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_PACKET_PARAMS, buf, 9);
+
+    // Solo persistir la configuración si toda la secuencia se aplicó con éxito
+    if (st != SX1262_OK)
+    {
+        return st;
+    }
+
+    // Guardar estado actual
+    SX1262_FSK_CurrentConfig = *config;
+    SX1262_FSK_CurrentConfig.config_pending = false;
+
+    return SX1262_OK;
+}
+
+/**
+ * @brief Retorna una copia de la configuración FSK actualmente aplicada al chip.
+ *
+ *        No realiza ninguna comunicación SPI. Refleja el estado enviado en la
+ *        última llamada exitosa a SX1262_FSK_ApplyConfig(), o los valores
+ *        cacheados por defecto durante SX1262_Init() si aún no se aplicó
+ *        ninguna configuración FSK.
+ *
+ * @param config Puntero a la estructura donde se copiará la configuración actual.
+ * @return SX1262_Status_t
+ */
+SX1262_Status_t SX1262_FSK_GetConfig(fsk_config_t *config)
+{
+    if (SX1262_Initialized != 1)
+    {
+        return SX1262_NOT_INITIALIZED;
+    }
+    if (config == NULL)
+    {
+        return SX1262_INVALID_PARAM;
+    }
+
+    *config = SX1262_FSK_CurrentConfig;
 
     return SX1262_OK;
 }

@@ -49,8 +49,12 @@
 #define SX126X_CMD_SET_REGULATOR_MODE         0x96
 
 // Valores comunes
+#define SX126X_PACKET_TYPE_GFSK      0x00
 #define SX126X_PACKET_TYPE_LORA      0x01
 #define SX126X_STANDBY_RC            0x00
+
+// Dirección base del registro de Sync Word en modo GFSK (8 bytes: 0x06C0-0x06C7)
+#define SX126X_REG_SYNC_WORD_BASE    0x06C0
 
 // Modos de reposo (Sleep)
 #define SX126X_SLEEP_START_WARM               0x00  /**< Mantiene la configuración en retención */
@@ -580,6 +584,44 @@ SX1262_Status_t SX1262_LoRa_GetSNR(int8_t *snr_db);
  *                         SX1262_NOT_INITIALIZED si no se inicializó.
  */
 SX1262_Status_t SX1262_LoRa_GetConfig(lora_config_t *config);
+
+// ----------------------------------------------------------------------------
+// Configuración FSK/GFSK
+// ----------------------------------------------------------------------------
+
+/**
+ * @brief Aplica la configuración de modulación FSK/GFSK al chip.
+ *
+ *        Cambia el packet type del chip a GFSK (SX126X_PACKET_TYPE_GFSK).
+ *        LoRa y FSK son modos mutuamente excluyentes: tras llamar a esta
+ *        función, el chip queda en modo GFSK hasta que se llame a
+ *        SX1262_LoRa_ApplyConfig() para volver a LoRa. Las funciones de
+ *        transmisión/recepción LoRa asumen que el chip permanece en modo
+ *        LoRa, por lo que no deben usarse mientras el chip esté en GFSK.
+ *
+ * @param config Puntero a la estructura de configuración (fsk_config_t)
+ * @return SX1262_Status_t SX1262_OK si la configuración se aplicó,
+ *                         SX1262_INVALID_PARAM si config es NULL,
+ *                         SX1262_NOT_INITIALIZED si no se inicializó,
+ *                         SX1262_ERROR ante fallos de SPI.
+ */
+SX1262_Status_t SX1262_FSK_ApplyConfig(fsk_config_t *config);
+
+/**
+ * @brief Retorna una copia de la configuración FSK actualmente aplicada al chip.
+ *
+ *        No realiza ninguna comunicación SPI. Refleja el estado enviado en la
+ *        última llamada exitosa a SX1262_FSK_ApplyConfig(), o los valores por
+ *        defecto cacheados durante SX1262_Init() si aún no se ha aplicado
+ *        ninguna configuración FSK. El campo config_pending de la copia
+ *        siempre será false.
+ *
+ * @param config Puntero a la estructura donde se copiará la configuración actual.
+ * @return SX1262_Status_t SX1262_OK si se copió la configuración,
+ *                         SX1262_INVALID_PARAM si config es NULL,
+ *                         SX1262_NOT_INITIALIZED si no se inicializó.
+ */
+SX1262_Status_t SX1262_FSK_GetConfig(fsk_config_t *config);
 
 #ifdef __cplusplus
 }
