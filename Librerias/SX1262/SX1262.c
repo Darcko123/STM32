@@ -520,6 +520,7 @@ SX1262_Status_t SX1262_Init(SPI_HandleTypeDef *hspi,
 
   SX1262_Reset();
   uint8_t buf[8];
+  SX1262_Status_t st = SX1262_OK;
 
   // 0. Si se usara Sleep, idealmente usaríamos Wakeup.
   // Llamamos Wakeup explícitamente para emular la robustez de RadioLib
@@ -527,16 +528,15 @@ SX1262_Status_t SX1262_Init(SPI_HandleTypeDef *hspi,
 
   // 1. Standby RC mode
   buf[0] = RADIOLIB_SX126X_STANDBY_RC;
-  if (SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1) != SX1262_OK)
-  {
-    return SX1262_ERROR;
-  }
+  st = st ? st : SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
 
   // 2. Set Packet Type (LORA)
   buf[0] = RADIOLIB_SX126X_PACKET_TYPE_LORA;
-  if (SX1262_WriteCommand(SX126X_CMD_SET_PACKET_TYPE, buf, 1) != SX1262_OK)
+  st = st ? st : SX1262_WriteCommand(SX126X_CMD_SET_PACKET_TYPE, buf, 1);
+
+  if (st != SX1262_OK)
   {
-    return SX1262_ERROR;
+    return st;
   }
 
   // Configuración base por defecto
@@ -556,18 +556,20 @@ SX1262_Status_t SX1262_Init(SPI_HandleTypeDef *hspi,
 
   // Habilitar marca para permitir comandos internos
   SX1262_Initialized = 1;
-  if (SX1262_LoRa_ApplyConfig(&default_lora_config) != SX1262_OK)
+  st = SX1262_LoRa_ApplyConfig(&default_lora_config);
+  if (st != SX1262_OK)
   {
     SX1262_Initialized = 0;
-    return SX1262_ERROR;
+    return st;
   }
 
   // Configurar DIO2 como RF Switch (si el layout usa el sw de semtech)
   buf[0] = 0x01; // enable
-  if (SX1262_WriteCommand(SX126X_CMD_SET_DIO2_AS_RF_SWITCH_CTRL, buf, 1) != SX1262_OK)
+  st = SX1262_WriteCommand(SX126X_CMD_SET_DIO2_AS_RF_SWITCH_CTRL, buf, 1);
+  if (st != SX1262_OK)
   {
     SX1262_Initialized = 0;
-    return SX1262_ERROR;
+    return st;
   }
 
   return SX1262_OK;
@@ -595,27 +597,19 @@ SX1262_Status_t SX1262_LoRa_Transmit(uint8_t *data, uint8_t length)
   }
 
   uint8_t buf[8];
+  SX1262_Status_t st = SX1262_OK;
 
   // Set Standby
   buf[0] = RADIOLIB_SX126X_STANDBY_RC;
-  if (SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1) != SX1262_OK)
-  {
-    return SX1262_ERROR;
-  }
+  st = st ? st : SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
 
   // Buffer base address
   buf[0] = 0x00; // TX Base
   buf[1] = 0x00; // RX Base
-  if (SX1262_WriteCommand(SX126X_CMD_SET_BUFFER_BASE_ADDRESS, buf, 2) != SX1262_OK)
-  {
-    return SX1262_ERROR;
-  }
+  st = st ? st : SX1262_WriteCommand(SX126X_CMD_SET_BUFFER_BASE_ADDRESS, buf, 2);
 
   // Escribir datos
-  if (SX1262_WriteBuffer(0x00, data, length) != SX1262_OK)
-  {
-    return SX1262_ERROR;
-  }
+  st = st ? st : SX1262_WriteBuffer(0x00, data, length);
 
   // Actualizar longitud de payload (requerido antes de Tx)
   buf[0] = (SX1262_LoRa_CurrentConfig.preamble_len >> 8) & 0xFF;
@@ -624,18 +618,12 @@ SX1262_Status_t SX1262_LoRa_Transmit(uint8_t *data, uint8_t length)
   buf[3] = length;
   buf[4] = 0x01; // CRC On
   buf[5] = SX1262_LoRa_CurrentConfig.iq_inverted ? 0x01 : 0x00;
-  if (SX1262_WriteCommand(SX126X_CMD_SET_PACKET_PARAMS, buf, 6) != SX1262_OK)
-  {
-    return SX1262_ERROR;
-  }
+  st = st ? st : SX1262_WriteCommand(SX126X_CMD_SET_PACKET_PARAMS, buf, 6);
 
   // Limpiar alertas (Clear IRQ)
   buf[0] = 0x03;
   buf[1] = 0xFF; // Limpiar todo (0x03FF)
-  if (SX1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2) != SX1262_OK)
-  {
-    return SX1262_ERROR;
-  }
+  st = st ? st : SX1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2);
 
   // Habilitar DIO1 para TxDone y TxTimeout
   uint16_t irqMask = SX126X_IRQ_TX_DONE | SX126X_IRQ_TIMEOUT;
@@ -647,19 +635,19 @@ SX1262_Status_t SX1262_LoRa_Transmit(uint8_t *data, uint8_t length)
   buf[5] = 0x00; // DIO2
   buf[6] = 0x00;
   buf[7] = 0x00; // DIO3
-  if (SX1262_WriteCommand(SX126X_CMD_SET_DIO_IRQ_PARAMS, buf, 8) != SX1262_OK)
-  {
-    return SX1262_ERROR;
-  }
+  st = st ? st : SX1262_WriteCommand(SX126X_CMD_SET_DIO_IRQ_PARAMS, buf, 8);
 
   // Iniciar Transmisión (timeout de chip desactivado: el soft-timeout lo
   // controla)
   buf[0] = 0x00;
   buf[1] = 0x00;
   buf[2] = 0x00;
-  if (SX1262_WriteCommand(SX126X_CMD_SET_TX, buf, 3) != SX1262_OK)
+  st = st ? st : SX1262_WriteCommand(SX126X_CMD_SET_TX, buf, 3);
+
+  // Abortar si algún comando de la secuencia de armado de TX falló
+  if (st != SX1262_OK)
   {
-    return SX1262_ERROR;
+    return st;
   }
 
   // Calcular timeout de software basado en el ToA real del paquete + 50 % de
@@ -675,19 +663,15 @@ SX1262_Status_t SX1262_LoRa_Transmit(uint8_t *data, uint8_t length)
   {
     if ((HAL_GetTick() - start) > tx_timeout)
     {
-      // Timeout de software: volver a Standby y abortar
+      // Timeout de software: volver a Standby y limpiar IRQ (best-effort).
+      // El evento real es un timeout, así que se reporta como tal aunque la
+      // limpieza falle.
       buf[0] = RADIOLIB_SX126X_STANDBY_RC;
-      if (SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1) != SX1262_OK)
-      {
-        return SX1262_ERROR;
-      }
+      SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
 
       buf[0] = 0x03;
       buf[1] = 0xFF;
-      if (SX1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2) != SX1262_OK)
-      {
-        return SX1262_ERROR;
-      }
+      SX1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2);
 
       return SX1262_TIMEOUT;
     }
@@ -695,9 +679,10 @@ SX1262_Status_t SX1262_LoRa_Transmit(uint8_t *data, uint8_t length)
 
   // Leer y verificar los bits del registro IRQ
   uint8_t irqStatus[2];
-  if (SX1262_ReadCommand(SX126X_CMD_GET_IRQ_STATUS, irqStatus, 2) != SX1262_OK) 
+  st = SX1262_ReadCommand(SX126X_CMD_GET_IRQ_STATUS, irqStatus, 2);
+  if (st != SX1262_OK)
   {
-    return SX1262_ERROR;
+    return st;
   }
   uint16_t irqReg = ((uint16_t)irqStatus[0] << 8) | irqStatus[1];
 
@@ -778,27 +763,19 @@ SX1262_Status_t SX1262_LoRa_StartTransmitIT(uint8_t *data, uint8_t length)
   }
 
   uint8_t buf[8];
+  SX1262_Status_t st = SX1262_OK;
 
   // 1. Standby RC (chip debe estar en Standby antes de configurar TX)
   buf[0] = RADIOLIB_SX126X_STANDBY_RC;
-  if (SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1) != SX1262_OK)
-  {
-    return SX1262_ERROR;
-  }
+  st = st ? st : SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
 
   // 2. Fijar base addresses del buffer interno
   buf[0] = 0x00; // TX base en offset 0
   buf[1] = 0x00; // RX base en offset 0
-  if (SX1262_WriteCommand(SX126X_CMD_SET_BUFFER_BASE_ADDRESS, buf, 2) != SX1262_OK)
-  {
-    return SX1262_ERROR;
-  }
+  st = st ? st : SX1262_WriteCommand(SX126X_CMD_SET_BUFFER_BASE_ADDRESS, buf, 2);
 
   // 3. Escribir payload en el buffer interno del chip
-  if (SX1262_WriteBuffer(0x00, data, length) != SX1262_OK)
-  {
-    return SX1262_ERROR;
-  }
+  st = st ? st : SX1262_WriteBuffer(0x00, data, length);
 
   // 4. Actualizar parámetros del paquete con la longitud real del payload
   buf[0] = (SX1262_LoRa_CurrentConfig.preamble_len >> 8) & 0xFF; // Preamble MSB
@@ -807,18 +784,12 @@ SX1262_Status_t SX1262_LoRa_StartTransmitIT(uint8_t *data, uint8_t length)
   buf[3] = length;                                                // PayloadLength real
   buf[4] = 0x01;                                                  // CRC On
   buf[5] = SX1262_LoRa_CurrentConfig.iq_inverted ? 0x01 : 0x00;  // Invert IQ
-  if (SX1262_WriteCommand(SX126X_CMD_SET_PACKET_PARAMS, buf, 6) != SX1262_OK)
-  {
-    return SX1262_ERROR;
-  }
+  st = st ? st : SX1262_WriteCommand(SX126X_CMD_SET_PACKET_PARAMS, buf, 6);
 
   // 5. Limpiar IRQ pendientes
   buf[0] = 0x03;
   buf[1] = 0xFF; // Limpiar todos los bits (0x03FF)
-  if (SX1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2) != SX1262_OK)
-  {
-    return SX1262_ERROR;
-  }
+  st = st ? st : SX1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2);
 
   // 6. Enrutar TX_DONE y TIMEOUT a DIO1
   uint16_t irqMask = SX126X_IRQ_TX_DONE | SX126X_IRQ_TIMEOUT;
@@ -830,9 +801,12 @@ SX1262_Status_t SX1262_LoRa_StartTransmitIT(uint8_t *data, uint8_t length)
   buf[5] = 0x00; // DIO2 (no usado)
   buf[6] = 0x00;
   buf[7] = 0x00; // DIO3 (no usado)
-  if (SX1262_WriteCommand(SX126X_CMD_SET_DIO_IRQ_PARAMS, buf, 8) != SX1262_OK)
+  st = st ? st : SX1262_WriteCommand(SX126X_CMD_SET_DIO_IRQ_PARAMS, buf, 8);
+
+  // Abortar antes de armar TX si algún comando de configuración falló
+  if (st != SX1262_OK)
   {
-    return SX1262_ERROR;
+    return st;
   }
 
   // 7. Armar el semáforo ANTES de SetTx para evitar perder el IRQ si el
@@ -844,10 +818,11 @@ SX1262_Status_t SX1262_LoRa_StartTransmitIT(uint8_t *data, uint8_t length)
   buf[0] = 0x00;
   buf[1] = 0x00;
   buf[2] = 0x00;
-  if (SX1262_WriteCommand(SX126X_CMD_SET_TX, buf, 3) != SX1262_OK)
+  st = SX1262_WriteCommand(SX126X_CMD_SET_TX, buf, 3);
+  if (st != SX1262_OK)
   {
     SX1262_TxActive = 0; // Rollback del semáforo si el comando falla
-    return SX1262_ERROR;
+    return st;
   }
 
   // 9. Retorno inmediato — el CPU queda libre
@@ -880,10 +855,11 @@ SX1262_Status_t SX1262_LoRa_GetTransmitStatus(void)
   // 1. Leer registro IRQ del chip
   uint8_t irqStatus[2];
 
-  if (SX1262_ReadCommand(SX126X_CMD_GET_IRQ_STATUS, irqStatus, 2) != SX1262_OK)
+  SX1262_Status_t st = SX1262_ReadCommand(SX126X_CMD_GET_IRQ_STATUS, irqStatus, 2);
+  if (st != SX1262_OK)
   {
     SX1262_TxActive = 0; // Liberar semáforo aunque haya fallo SPI
-    return SX1262_ERROR;
+    return st;
   }
 
   uint16_t irqReg = ((uint16_t)irqStatus[0] << 8) | irqStatus[1];
@@ -933,10 +909,11 @@ SX1262_Status_t SX1262_LoRa_AbortTransmit(void)
 
   // Regresar a Standby RC para detener la transmisión
   buf[0] = RADIOLIB_SX126X_STANDBY_RC;
-  if (SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1) != SX1262_OK)
+  SX1262_Status_t st = SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
+  if (st != SX1262_OK)
   {
     SX1262_TxActive = 0; // Liberar semáforo aunque falle el comando
-    return SX1262_ERROR;
+    return st;
   }
 
   // Limpiar IRQ residuales
@@ -976,21 +953,16 @@ SX1262_Status_t SX1262_LoRa_Receive(uint8_t *data, uint8_t *length, uint32_t tim
   }
 
   uint8_t buf[8];
+  SX1262_Status_t st = SX1262_OK;
 
   // Set Standby
   buf[0] = RADIOLIB_SX126X_STANDBY_RC;
-  if (SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1) != SX1262_OK)
-  {
-    return SX1262_ERROR;
-  }
+  st = st ? st : SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
 
   // Clear IRQ
   buf[0] = 0x03;
   buf[1] = 0xFF;
-  if (SX1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2) != SX1262_OK)
-  {
-    return SX1262_ERROR;
-  }
+  st = st ? st : SX1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2);
 
   // Habilitar DIO1 para RxDone y RxTimeout (y CRC Err)
   uint16_t irqMask = SX126X_IRQ_RX_DONE | SX126X_IRQ_TIMEOUT | SX126X_IRQ_CRC_ERR;
@@ -1002,10 +974,7 @@ SX1262_Status_t SX1262_LoRa_Receive(uint8_t *data, uint8_t *length, uint32_t tim
   buf[5] = 0x00;
   buf[6] = 0x00;
   buf[7] = 0x00;
-  if (SX1262_WriteCommand(SX126X_CMD_SET_DIO_IRQ_PARAMS, buf, 8) != SX1262_OK)
-  {
-    return SX1262_ERROR;
-  }
+  st = st ? st : SX1262_WriteCommand(SX126X_CMD_SET_DIO_IRQ_PARAMS, buf, 8);
 
   // Iniciar Recepción
   // Pasamos de MS a Ticks (Timeout interno de chip). 1 tick = 15.625 us
@@ -1015,9 +984,12 @@ SX1262_Status_t SX1262_LoRa_Receive(uint8_t *data, uint8_t *length, uint32_t tim
   buf[0] = (timeoutBytes >> 16) & 0xFF;
   buf[1] = (timeoutBytes >> 8) & 0xFF;
   buf[2] = (timeoutBytes & 0xFF);
-  if (SX1262_WriteCommand(SX126X_CMD_SET_RX, buf, 3) != SX1262_OK)
+  st = st ? st : SX1262_WriteCommand(SX126X_CMD_SET_RX, buf, 3);
+
+  // Abortar si algún comando de la secuencia de armado de RX falló
+  if (st != SX1262_OK)
   {
-    return SX1262_ERROR;
+    return st;
   }
 
   // Bloquear hasta interrupción
@@ -1026,22 +998,19 @@ SX1262_Status_t SX1262_LoRa_Receive(uint8_t *data, uint8_t *length, uint32_t tim
   {
     if (timeout_ms != 0 && (HAL_GetTick() - start) > (timeout_ms + 100))
     {
-
+      // Timeout de software: volver a Standby (best-effort) y reportar timeout
       buf[0] = RADIOLIB_SX126X_STANDBY_RC;
-      if (SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1) != SX1262_OK)
-      {
-        return SX1262_ERROR;
-      }
+      SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
       return SX1262_TIMEOUT; // Timeout de soft-check
-
     }
   }
 
   // Leemos status de la interrupción
   uint8_t irqStatus[2];
-  if (SX1262_ReadCommand(0x12 /* GET_IRQ_STATUS */, irqStatus, 2) != SX1262_OK)
+  st = SX1262_ReadCommand(0x12 /* GET_IRQ_STATUS */, irqStatus, 2);
+  if (st != SX1262_OK)
   {
-    return SX1262_ERROR;
+    return st;
   }
 
   uint16_t irqReg = (irqStatus[0] << 8) | irqStatus[1];
@@ -1057,26 +1026,29 @@ SX1262_Status_t SX1262_LoRa_Receive(uint8_t *data, uint8_t *length, uint32_t tim
 
   // Obtener información del buffer (offset base de recepción y tamaño)
   uint8_t rxBufferStatus[2];
-  if (SX1262_ReadCommand(SX126X_CMD_GET_RX_BUFFER_STATUS, rxBufferStatus, 2) != SX1262_OK)
+  st = SX1262_ReadCommand(SX126X_CMD_GET_RX_BUFFER_STATUS, rxBufferStatus, 2);
+  if (st != SX1262_OK)
   {
-    return SX1262_ERROR;
+    return st;
   }
 
   *length = rxBufferStatus[0];        // Tamaño del paquete
   uint8_t offset = rxBufferStatus[1]; // Offset en memoria interna
 
   // Leer payload del buffer
-  if (SX1262_ReadBuffer(offset, data, *length) != SX1262_OK)
+  st = SX1262_ReadBuffer(offset, data, *length);
+  if (st != SX1262_OK)
   {
-    return SX1262_ERROR;
+    return st;
   }
 
   // Clear IRQ Status final
   buf[0] = 0x03;
   buf[1] = 0xFF;
-  if (SX1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2) != SX1262_OK)
+  st = SX1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2);
+  if (st != SX1262_OK)
   {
-    return SX1262_ERROR;
+    return st;
   }
 
   return SX1262_OK;
@@ -1110,21 +1082,16 @@ SX1262_Status_t SX1262_LoRa_StartReceiveIT(void)
   }
 
   uint8_t buf[8];
+  SX1262_Status_t st = SX1262_OK;
 
   // 1. Standby RC
   buf[0] = RADIOLIB_SX126X_STANDBY_RC;
-  if (SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1) != SX1262_OK)
-  {
-    return SX1262_ERROR;
-  }
+  st = st ? st : SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
 
   // 2. Limpiar IRQ pendientes
   buf[0] = 0x03;
   buf[1] = 0xFF;
-  if (SX1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2) != SX1262_OK)
-  {
-    return SX1262_ERROR;
-  }
+  st = st ? st : SX1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2);
 
   // 3. Habilitar IRQs en DIO1: RxDone | Timeout | CRC_ERR | HeaderErr
   //    HeaderErr (bit 4) se incluye para detectar paquetes con header inválido.
@@ -1138,22 +1105,16 @@ SX1262_Status_t SX1262_LoRa_StartReceiveIT(void)
   buf[5] = 0x00; // DIO2 (no usado)
   buf[6] = 0x00;
   buf[7] = 0x00; // DIO3 (no usado)
-  if (SX1262_WriteCommand(SX126X_CMD_SET_DIO_IRQ_PARAMS, buf, 8) != SX1262_OK)
-  {
-    return SX1262_ERROR;
-  }
+  st = st ? st : SX1262_WriteCommand(SX126X_CMD_SET_DIO_IRQ_PARAMS, buf, 8);
 
   // 4. Iniciar RX continuo (timeout = 0xFFFFFF => sin timeout de chip)
   buf[0] = 0xFF;
   buf[1] = 0xFF;
   buf[2] = 0xFF;
-  if (SX1262_WriteCommand(SX126X_CMD_SET_RX, buf, 3) != SX1262_OK)
-  {
-    return SX1262_ERROR;
-  }
+  st = st ? st : SX1262_WriteCommand(SX126X_CMD_SET_RX, buf, 3);
 
   // Retorno inmediato — sin polling en DIO1
-  return SX1262_OK;
+  return st;
 }
 
 /**
@@ -1181,9 +1142,10 @@ SX1262_Status_t SX1262_LoRa_GetReceivedPacket(uint8_t *data, uint8_t *length)
 
   // 1. Leer registro IRQ del chip
   uint8_t irqStatus[2];
-  if (SX1262_ReadCommand(SX126X_CMD_GET_IRQ_STATUS, irqStatus, 2) != SX1262_OK)
+  SX1262_Status_t st = SX1262_ReadCommand(SX126X_CMD_GET_IRQ_STATUS, irqStatus, 2);
+  if (st != SX1262_OK)
   {
-    return SX1262_ERROR;
+    return st;
   }
   uint16_t irqReg = ((uint16_t)irqStatus[0] << 8) | irqStatus[1];
 
@@ -1212,18 +1174,20 @@ SX1262_Status_t SX1262_LoRa_GetReceivedPacket(uint8_t *data, uint8_t *length)
 
   // 4. Obtener offset y tamaño del paquete en el buffer interno
   uint8_t rxBufferStatus[2];
-  if (SX1262_ReadCommand(SX126X_CMD_GET_RX_BUFFER_STATUS, rxBufferStatus, 2) != SX1262_OK)
+  st = SX1262_ReadCommand(SX126X_CMD_GET_RX_BUFFER_STATUS, rxBufferStatus, 2);
+  if (st != SX1262_OK)
   {
-    return SX1262_ERROR;
+    return st;
   }
 
   *length = rxBufferStatus[0];        // Número de bytes del payload
   uint8_t offset = rxBufferStatus[1]; // Offset base en el buffer del chip
 
   // 5. Leer payload desde el buffer interno del SX1262
-  if (SX1262_ReadBuffer(offset, data, *length) != SX1262_OK)
+  st = SX1262_ReadBuffer(offset, data, *length);
+  if (st != SX1262_OK)
   {
-    return SX1262_ERROR;
+    return st;
   }
 
   return SX1262_OK;
@@ -1248,9 +1212,10 @@ SX1262_Status_t SX1262_LoRa_AbortReceive(void)
 
   // Regresar a Standby RC para detener la escucha
   buf[0] = RADIOLIB_SX126X_STANDBY_RC;
-  if (SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1) != SX1262_OK)
+  SX1262_Status_t st = SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
+  if (st != SX1262_OK)
   {
-    return SX1262_ERROR;
+    return st;
   }
 
   // Limpiar IRQ residuales
@@ -1305,13 +1270,11 @@ SX1262_Status_t SX1262_LoRa_ApplyConfig(lora_config_t *config)
   }
 
   uint8_t buf[8];
+  SX1262_Status_t st = SX1262_OK;
 
   // Modo Standby RC necesario para configurar
   buf[0] = RADIOLIB_SX126X_STANDBY_RC;
-  if (SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1) != SX1262_OK)
-  {
-    return SX1262_ERROR;
-  }
+  st = st ? st : SX1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
 
   // --- 1. FRECUENCIA ---
   uint32_t frf = (uint32_t)(((uint64_t)config->frequency * 16384ULL) / 15625ULL);
@@ -1319,11 +1282,7 @@ SX1262_Status_t SX1262_LoRa_ApplyConfig(lora_config_t *config)
   buf[1] = (frf >> 16) & 0xFF;
   buf[2] = (frf >> 8) & 0xFF;
   buf[3] = (frf & 0xFF);
-
-  if (SX1262_WriteCommand(SX126X_CMD_SET_RF_FREQUENCY, buf, 4) != SX1262_OK)
-  {
-    return SX1262_ERROR;
-  }
+  st = st ? st : SX1262_WriteCommand(SX126X_CMD_SET_RF_FREQUENCY, buf, 4);
 
   // --- 2. POTENCIA TX ---
   // Configuración PA por defecto para transceptores SX1262 (+22dBm Max)
@@ -1331,19 +1290,11 @@ SX1262_Status_t SX1262_LoRa_ApplyConfig(lora_config_t *config)
   buf[1] = 0x07;
   buf[2] = 0x00;
   buf[3] = 0x01;
-
-  if (SX1262_WriteCommand(0x95 /* SET_PA_CONFIG */, buf, 4) != SX1262_OK)
-  {
-    return SX1262_ERROR;
-  }
+  st = st ? st : SX1262_WriteCommand(0x95 /* SET_PA_CONFIG */, buf, 4);
 
   buf[0] = config->tx_power; // power
   buf[1] = 0x02;             // rampTime 40us
-
-  if (SX1262_WriteCommand(SX126X_CMD_SET_TX_PARAMS, buf, 2) != SX1262_OK)
-  {
-    return SX1262_ERROR;
-  }
+  st = st ? st : SX1262_WriteCommand(SX126X_CMD_SET_TX_PARAMS, buf, 2);
 
   // --- 3. MODULACIÓN ---
   // Calcular LDRO dinámicamente: obligatorio cuando T_símbolo >= 16.38 ms
@@ -1355,10 +1306,7 @@ SX1262_Status_t SX1262_LoRa_ApplyConfig(lora_config_t *config)
   buf[1] = config->bandwidth;
   buf[2] = config->coding_rate;
   buf[3] = ldro; // LowDataRateOptimize: calculado automáticamente
-  if (SX1262_WriteCommand(SX126X_CMD_SET_MODULATION_PARAMS, buf, 4) != SX1262_OK)
-  {
-    return SX1262_ERROR;
-  }
+  st = st ? st : SX1262_WriteCommand(SX126X_CMD_SET_MODULATION_PARAMS, buf, 4);
 
   // --- 4. SYNC WORD ---
   // El campo lora_sync_word (distinto de 0) tiene prioridad absoluta sobre
@@ -1397,11 +1345,7 @@ SX1262_Status_t SX1262_LoRa_ApplyConfig(lora_config_t *config)
   buf[1] = 0x40; // Dirección de registro MSB
   buf[2] = sync_msb;
   buf[3] = sync_lsb;
-
-  if (SX1262_WriteCommand(SX126X_CMD_WRITE_REGISTER, buf, 4) != SX1262_OK)
-  {
-    return SX1262_ERROR;
-  }
+  st = st ? st : SX1262_WriteCommand(SX126X_CMD_WRITE_REGISTER, buf, 4);
 
   // --- 5. PARÁMETROS DEL PAQUETE ---
   buf[0] = (config->preamble_len >> 8) & 0xFF; // Preamble MSB
@@ -1410,9 +1354,12 @@ SX1262_Status_t SX1262_LoRa_ApplyConfig(lora_config_t *config)
   buf[3] = 0xFF;                               // PayloadLength (Dummy)
   buf[4] = 0x01;                               // CRC On
   buf[5] = config->iq_inverted ? 0x01 : 0x00;  // Invert IQ
-  if (SX1262_WriteCommand(SX126X_CMD_SET_PACKET_PARAMS, buf, 6) != SX1262_OK)
+  st = st ? st : SX1262_WriteCommand(SX126X_CMD_SET_PACKET_PARAMS, buf, 6);
+
+  // Solo persistir la configuración si toda la secuencia se aplicó con éxito
+  if (st != SX1262_OK)
   {
-    return SX1262_ERROR;
+    return st;
   }
 
   // Guardar estado actual
@@ -1453,9 +1400,10 @@ SX1262_Status_t SX1262_LoRa_GetRSSI(int16_t *rssi_dbm)
   //   [1] SnrPkt   → SNR  =  SnrPkt/4   (dB, con signo)
   //   [2] SignalRssiPkt (no utilizado aquí)
   uint8_t status[3];
-  if (SX1262_ReadCommand(SX126X_CMD_GET_PACKET_STATUS, status, 3) != SX1262_OK)
+  SX1262_Status_t st = SX1262_ReadCommand(SX126X_CMD_GET_PACKET_STATUS, status, 3);
+  if (st != SX1262_OK)
   {
-    return SX1262_ERROR;
+    return st;
   }
 
   // RssiPkt es un valor sin signo; el resultado en dBm es siempre <= 0
@@ -1492,9 +1440,10 @@ SX1262_Status_t SX1262_LoRa_GetSNR(int8_t *snr_db)
   }
 
   uint8_t status[3];
-  if (SX1262_ReadCommand(SX126X_CMD_GET_PACKET_STATUS, status, 3) != SX1262_OK)
+  SX1262_Status_t st = SX1262_ReadCommand(SX126X_CMD_GET_PACKET_STATUS, status, 3);
+  if (st != SX1262_OK)
   {
-    return SX1262_ERROR;
+    return st;
   }
 
   // SnrPkt está en el byte [1] como int8_t (complemento a dos).
@@ -1552,9 +1501,10 @@ SX1262_Status_t SX1262_SetSleep(uint8_t sleep_config)
 
   // El comando SetSleep toma un byte de configuración.
   // SX126X_CMD_SET_SLEEP (0x84) + sleep_config
-  if (SX1262_WriteCommand(SX126X_CMD_SET_SLEEP, &sleep_config, 1) != SX1262_OK)
+  SX1262_Status_t st = SX1262_WriteCommand(SX126X_CMD_SET_SLEEP, &sleep_config, 1);
+  if (st != SX1262_OK)
   {
-    return SX1262_ERROR;
+    return st;
   }
 
   // NOTA: Tras entrar en Sleep, el chip no responde a comandos SPI.
