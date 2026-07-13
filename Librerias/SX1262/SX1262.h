@@ -70,7 +70,7 @@
 #define MESHTASTIC_US_CH0_FREQ   906875000UL
 
 // Timeout
-#define SX1262_BUSY_TIMEOUT_MS 500     /**< milisegundos*/
+#define SX1262_MAX_BUSY_TIMEOUT 500     /**< milisegundos*/
 
 // ============================================================================
 // CONFIGURACIÓN LORA (ESTRUCTURAS)
@@ -133,6 +133,17 @@ typedef enum {
 } lora_coding_rate_t;
 
 /**
+ * @brief Enumeración para valores de shaping en modulación FSK. El valor BT determina la forma de la señal transmitida.
+ */
+typedef enum {
+    LORA_FSK_SHAPING_NONE   = 0x00,
+    LORA_FSK_SHAPING_BT_0_3 = 0x08,
+    LORA_FSK_SHAPING_BT_0_5 = 0x09,
+    LORA_FSK_SHAPING_BT_0_7 = 0x0A,
+    LORA_FSK_SHAPING_BT_1_0 = 0x0B
+} fsk_shaping_t;
+
+/**
  * @brief Estructura para almacenar la configuración de modulación y red LoRa.
  *        El campo `config_pending` se establece en true si se han realizado cambios
  *        en la configuración que aún no se han aplicado al chip. Esto permite a las
@@ -151,6 +162,30 @@ typedef struct {
     uint8_t lora_sync_word;             // Custom sync word (distinto de 0 tiene prioridad sobre network_mode)
     bool config_pending;                // true if changes not yet applied
 } lora_config_t;
+
+/**
+ * @brief Estructura para almacenar la configuración de modulación FSK/GFSK.
+ *        El campo `config_pending` se establece en true si se han realizado cambios
+ *        en la configuración que aún no se han aplicado al chip. Esto permite a las
+ *        funciones de transmisión/recepción verificar si es necesario aplicar la configuración
+ *        antes de operar.
+ */
+typedef struct {
+    uint32_t frequency;                 // Hz (default: 915000000)
+    uint32_t bitrate;                   // Bit rate in bps (default: 50000)
+    float freq_dev;                     // Frequency deviation in kHz (default: 5.0)
+    fsk_shaping_t shaping;              // Gaussian BT shaping (LORA_FSK_SHAPING_*)
+    uint32_t rx_bandwidth;              // Ancho de banda de RX en Hz (default: 156200)
+    int8_t tx_power;                    // -9 to 22 dBm (default: 20)
+    uint16_t preamble_len;              // Preamble length in bytes (default: 5)
+    uint8_t sync_word[8];               // Sync word bytes (default: 0x12, 0xAD)
+    uint8_t sync_word_len;              // Sync word length (default: 2)
+    bool fixed_length;                  // Fixed vs variable length packets
+    uint8_t payload_len;                // Payload length for fixed mode
+    bool crc_on;                        // Enable CRC (default: true)
+    bool whitening;                     // Enable whitening (default: true)
+    bool config_pending;                // true if changes not yet applied
+} fsk_config_t;
 
 // ============================================================================
 // ENUMERACIONES Y ESTRUCTURAS
