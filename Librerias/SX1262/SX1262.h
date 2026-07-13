@@ -178,7 +178,7 @@ typedef struct {
     uint32_t rx_bandwidth;              // Ancho de banda de RX en Hz (default: 156200)
     int8_t tx_power;                    // -9 to 22 dBm (default: 20)
     uint16_t preamble_len;              // Preamble length in bytes (default: 5)
-    uint8_t sync_word[8];               // Sync word bytes (default: 0x12, 0xAD)
+    uint8_t fsk_sync_word[8];           // Sync word bytes (default: 0x12, 0xAD)
     uint8_t sync_word_len;              // Sync word length (default: 2)
     bool fixed_length;                  // Fixed vs variable length packets
     uint8_t payload_len;                // Payload length for fixed mode

@@ -566,6 +566,25 @@ SX1262_Status_t SX1262_Init(SPI_HandleTypeDef *hspi,
         .config_pending = false
     };
 
+
+    fsk_config_t default_fsk_config =
+    {
+        .frequency = 915000000,
+        .bitrate = 50000,
+        .freq_dev = 25000,
+        .shaping = LORA_FSK_SHAPING_NONE,
+        .rx_bandwidth = 156200,
+        .tx_power = 22,
+        .preamble_len = 16,
+        .fsk_sync_word = { 0x12, 0xAD },
+        .sync_word_len = 2,
+        .fixed_length = false,
+        .payload_len = 0,
+        .crc_on = true,
+        .whitening = true,
+        .config_pending = false
+    };
+
     // Habilitar marca para permitir comandos internos
     SX1262_Initialized = 1;
     st = SX1262_LoRa_ApplyConfig(&default_lora_config);
@@ -1370,7 +1389,7 @@ SX1262_Status_t SX1262_LoRa_ApplyConfig(lora_config_t *config)
         // Sync word personalizado: aplicar fórmula de nibbles de Semtech
         sync_msb = (config->lora_sync_word & 0xF0) | 0x04;
         sync_lsb = (config->lora_sync_word << 4) | 0x04;
-    } 
+    }
     else
     {
         switch (config->network_mode)
