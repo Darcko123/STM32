@@ -1,8 +1,10 @@
 /**
  * @file SX1262.h
- * @brief Librería para la gestión de un módulo LoRa
+ * @brief Librería para la gestión de un módulo LoRa SX1262 (Semtech) en STM32.
  *
- * Esta librería permite inicializar y controlar
+ * @details Proporciona inicialización sobre SPI, transmisión y recepción LoRa en
+ *          modos bloqueante y no bloqueante (IRQ/EXTI en DIO1), configuración de
+ *          red y modulación, presets Meshtastic y telemetría (RSSI/SNR).
  *
  * @author Daniel Ruiz
  * @date Abril 27, 2026
@@ -30,6 +32,7 @@
 #define SX126X_CMD_SET_MODULATION_PARAMS      0x8B
 #define SX126X_CMD_SET_PACKET_PARAMS          0x8C
 #define SX126X_CMD_SET_TX_PARAMS              0x8E
+#define SX126X_CMD_SET_PA_CONFIG              0x95
 #define SX126X_CMD_SET_BUFFER_BASE_ADDRESS    0x8F
 #define SX126X_CMD_SET_DIO_IRQ_PARAMS         0x08
 #define SX126X_CMD_SET_TX                     0x83
@@ -46,8 +49,8 @@
 #define SX126X_CMD_SET_REGULATOR_MODE         0x96
 
 // Valores comunes
-#define RADIOLIB_SX126X_PACKET_TYPE_LORA      0x01
-#define RADIOLIB_SX126X_STANDBY_RC            0x00
+#define SX126X_PACKET_TYPE_LORA      0x01
+#define SX126X_STANDBY_RC            0x00
 
 // Modos de reposo (Sleep)
 #define SX126X_SLEEP_START_WARM               0x00  /**< Mantiene la configuración en retención */
@@ -67,7 +70,7 @@
 #define MESHTASTIC_US_CH0_FREQ   906875000UL
 
 // Timeout
-#define SX1262_MAX_BUSY_TIMEOUT 500     /**< milisegundos*/
+#define SX1262_BUSY_TIMEOUT_MS 500     /**< milisegundos*/
 
 // ============================================================================
 // CONFIGURACIÓN LORA (ESTRUCTURAS)
@@ -77,16 +80,16 @@
  * @brief Enumeración para valores de ancho de banda (BW) en modulación LoRa.
  */
 typedef enum {
-	BW_7_8_KHZ    = 0x00,
-	BW_10_4_KHZ   = 0x08,
-	BW_15_6_KHZ   = 0x01,
-	BW_20_8_KHZ   = 0x09,
-	BW_31_25_KHZ  = 0x02,
-	BW_41_7_KHZ   = 0x0A,
-	BW_62_5_KHZ   = 0x03,
-	BW_125_KHZ    = 0x04,
-	BW_250_KHZ    = 0x05,
-	BW_500_KHZ    = 0x06
+    BW_7_8_KHZ    = 0x00,
+    BW_10_4_KHZ   = 0x08,
+    BW_15_6_KHZ   = 0x01,
+    BW_20_8_KHZ   = 0x09,
+    BW_31_25_KHZ  = 0x02,
+    BW_41_7_KHZ   = 0x0A,
+    BW_62_5_KHZ   = 0x03,
+    BW_125_KHZ    = 0x04,
+    BW_250_KHZ    = 0x05,
+    BW_500_KHZ    = 0x06
 } lora_signal_bandwidth_t;
 
 // ============================================================================
@@ -123,11 +126,11 @@ typedef enum {
  * @brief Enumeración para valores de coding rate (CR) en modulación LoRa.
  */
 typedef enum {
-	CR_4_5 = 0x01,
-	CR_4_6 = 0x02,
-	CR_4_7 = 0x03,
-	CR_4_8 = 0x04
-}lora_coding_rate_t;
+    CR_4_5 = 0x01,
+    CR_4_6 = 0x02,
+    CR_4_7 = 0x03,
+    CR_4_8 = 0x04
+} lora_coding_rate_t;
 
 /**
  * @brief Estructura para almacenar la configuración de modulación y red LoRa.
@@ -137,16 +140,16 @@ typedef enum {
  *        antes de operar.
  */
 typedef struct {
-	uint32_t frequency;		            // Hz (default: 915000000)
-	uint8_t spreading_factor;	        // 5 to 12 (default: 7)
-	lora_signal_bandwidth_t bandwidth;  // BW_125_KHZ, BW_250_KHZ, BW_500_KHZ...
-	lora_coding_rate_t coding_rate;		// CR_4_5, CR_4_6, CR_4_7, CR_4_8 (default: CR_4_5)
-	int8_t tx_power;                    // -9 to 22 dBm (default: 20)
-	uint16_t preamble_len;	            // Default: 12
-	bool iq_inverted;	                // IQ inversion (default: false/normal)
-	lora_network_mode_t network_mode;   // Sync word: LORA_NETWORK_PRIVATE / PUBLIC / MESHTASTIC
-	uint8_t lora_sync_word;             // Custom sync word (distinto de 0 tiene prioridad sobre network_mode)
-	bool config_pending;	            // true if changes not yet applied
+    uint32_t frequency;                 // Hz (default: 915000000)
+    uint8_t spreading_factor;           // 5 to 12 (default: 7)
+    lora_signal_bandwidth_t bandwidth;  // BW_125_KHZ, BW_250_KHZ, BW_500_KHZ...
+    lora_coding_rate_t coding_rate;     // CR_4_5, CR_4_6, CR_4_7, CR_4_8 (default: CR_4_5)
+    int8_t tx_power;                    // -9 to 22 dBm (default: 20)
+    uint16_t preamble_len;              // Default: 12
+    bool iq_inverted;                   // IQ inversion (default: false/normal)
+    lora_network_mode_t network_mode;   // Sync word: LORA_NETWORK_PRIVATE / PUBLIC / MESHTASTIC
+    uint8_t lora_sync_word;             // Custom sync word (distinto de 0 tiene prioridad sobre network_mode)
+    bool config_pending;                // true if changes not yet applied
 } lora_config_t;
 
 // ============================================================================
@@ -156,14 +159,14 @@ typedef struct {
  * @brief Enumeración para estados de retorno del SX1262.
  */
 typedef enum {
-	SX1262_OK = 0,				/**< Operación exitosa */
-	SX1262_ERROR = 1,			/**< Error en la operación */
-	SX1262_TIMEOUT = 2,			/**< Timeout en la operación */
-	SX1262_NOT_INITIALIZED = 3,	/**< Módulo no inicializado */
-	SX1262_INVALID_PARAM = 4,	/**< Parámetro inválido */
-	SX1262_RX_BUSY = 5,			/**< El módulo está en modo RX, esperando paquete (modo IT) */
-	SX1262_TX_BUSY = 6			/**< El módulo está en modo TX, enviando paquete (modo IT) */
-}SX1262_Status_t;
+    SX1262_OK              = 0,     /**< Operación exitosa */
+    SX1262_ERROR           = 1,     /**< Error en la operación */
+    SX1262_TIMEOUT         = 2,     /**< Timeout en la operación */
+    SX1262_NOT_INITIALIZED = 3,     /**< Módulo no inicializado */
+    SX1262_INVALID_PARAM   = 4,     /**< Parámetro inválido */
+    SX1262_RX_BUSY         = 5,     /**< El módulo está en modo RX, esperando paquete (modo IT) */
+    SX1262_TX_BUSY         = 6      /**< El módulo está en modo TX, enviando paquete (modo IT) */
+} SX1262_Status_t;
 
 // ============================================================================
 // ESTRUCTURAS PREDEFINIDAS PARA MESHTASTIC
@@ -250,7 +253,7 @@ extern "C" {
  * @return SX1262_Status_t Estado de la inicialización (OK, ERROR, etc.)
  */
 SX1262_Status_t SX1262_Init(
-	SPI_HandleTypeDef* hspi,
+    SPI_HandleTypeDef* hspi,
     GPIO_TypeDef*      nss_port,
     uint16_t           nss_pin,
     GPIO_TypeDef*      busy_port,
