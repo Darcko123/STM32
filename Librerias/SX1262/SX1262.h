@@ -164,6 +164,45 @@ typedef struct {
 } lora_config_t;
 
 /**
+ * @brief Enumeración para valores de ancho de banda de recepción (RX BW) en modulación GFSK.
+ *        El chip solo admite este conjunto discreto de valores (ver datasheet SX1262 §13.4.9).
+ */
+typedef enum {
+    FSK_RXBW_4_8_KHZ   = 0x1F,
+    FSK_RXBW_5_8_KHZ   = 0x17,
+    FSK_RXBW_7_3_KHZ   = 0x0F,
+    FSK_RXBW_9_7_KHZ   = 0x1E,
+    FSK_RXBW_11_7_KHZ  = 0x16,
+    FSK_RXBW_14_6_KHZ  = 0x0E,
+    FSK_RXBW_19_5_KHZ  = 0x1D,
+    FSK_RXBW_23_4_KHZ  = 0x15,
+    FSK_RXBW_29_3_KHZ  = 0x0D,
+    FSK_RXBW_39_0_KHZ  = 0x1C,
+    FSK_RXBW_46_9_KHZ  = 0x14,
+    FSK_RXBW_58_6_KHZ  = 0x0C,
+    FSK_RXBW_78_2_KHZ  = 0x1B,
+    FSK_RXBW_93_8_KHZ  = 0x13,
+    FSK_RXBW_117_3_KHZ = 0x0B,
+    FSK_RXBW_156_2_KHZ = 0x1A,
+    FSK_RXBW_187_2_KHZ = 0x12,
+    FSK_RXBW_234_3_KHZ = 0x0A,
+    FSK_RXBW_312_0_KHZ = 0x19,
+    FSK_RXBW_373_6_KHZ = 0x11,
+    FSK_RXBW_467_0_KHZ = 0x09
+} fsk_rx_bandwidth_t;
+
+/**
+ * @brief Enumeración para el tipo de CRC en modulación GFSK.
+ */
+typedef enum {
+    FSK_CRC_OFF        = 0x01,
+    FSK_CRC_1_BYTE     = 0x00,
+    FSK_CRC_2_BYTE     = 0x02,
+    FSK_CRC_1_BYTE_INV = 0x04,
+    FSK_CRC_2_BYTE_INV = 0x06
+} fsk_crc_type_t;
+
+/**
  * @brief Estructura para almacenar la configuración de modulación FSK/GFSK.
  *        El campo `config_pending` se establece en true si se han realizado cambios
  *        en la configuración que aún no se han aplicado al chip. Esto permite a las
@@ -175,14 +214,14 @@ typedef struct {
     uint32_t bitrate;                   // Bit rate in bps (default: 50000)
     float freq_dev;                     // Frequency deviation in kHz (default: 5.0)
     fsk_shaping_t shaping;              // Gaussian BT shaping (LORA_FSK_SHAPING_*)
-    uint32_t rx_bandwidth;              // Ancho de banda de RX en Hz (default: 156200)
+    fsk_rx_bandwidth_t rx_bandwidth;    // FSK_RXBW_4_8_KHZ ... FSK_RXBW_467_0_KHZ (default: FSK_RXBW_156_2_KHZ)
     int8_t tx_power;                    // -9 to 22 dBm (default: 20)
     uint16_t preamble_len;              // Preamble length in bytes (default: 5)
     uint8_t fsk_sync_word[8];           // Sync word bytes (default: 0x12, 0xAD)
     uint8_t sync_word_len;              // Sync word length (default: 2)
     bool fixed_length;                  // Fixed vs variable length packets
     uint8_t payload_len;                // Payload length for fixed mode
-    bool crc_on;                        // Enable CRC (default: true)
+    fsk_crc_type_t crc_type;            // FSK_CRC_OFF / 1_BYTE / 2_BYTE / *_INV (default: FSK_CRC_2_BYTE)
     bool whitening;                     // Enable whitening (default: true)
     bool config_pending;                // true if changes not yet applied
 } fsk_config_t;
