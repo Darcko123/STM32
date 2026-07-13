@@ -312,7 +312,10 @@ void SX1262_IRQ_Handler(void);
  *
  * @param data Puntero al buffer de datos a transmitir
  * @param length Longitud de los datos a transmitir (máximo 255 bytes)
- * @return SX1262_Status_t
+ * @return SX1262_Status_t SX1262_OK si la transmisión fue exitosa,
+ *                         SX1262_INVALID_PARAM si data es NULL o length es 0,
+ *                         SX1262_NOT_INITIALIZED si no se inicializó,
+ *                         SX1262_TIMEOUT/SX1262_ERROR ante fallos de TX o SPI.
  */
 SX1262_Status_t SX1262_LoRa_Transmit(uint8_t* data, uint8_t length);
 
@@ -339,6 +342,7 @@ SX1262_Status_t SX1262_LoRa_Transmit(uint8_t* data, uint8_t length);
  * @param length Longitud de los datos (máximo 255 bytes).
  * @return SX1262_Status_t SX1262_OK      si el chip entró en modo TX,
  *                         SX1262_TX_BUSY si ya hay una TX en curso,
+ *                         SX1262_INVALID_PARAM si data es NULL o length es 0,
  *                         SX1262_ERROR   si falla SPI o configuración,
  *                         SX1262_NOT_INITIALIZED si no se inicializó.
  */
@@ -381,7 +385,10 @@ SX1262_Status_t SX1262_LoRa_AbortTransmit(void);
  * @param data Puntero al buffer donde se almacenarán los datos recibidos
  * @param length Puntero a una variable donde se almacenará la longitud de los datos recibidos
  * @param timeout_ms Tiempo máximo de espera para recibir datos (en milisegundos). Si es 0, espera indefinidamente.
- * @return SX1262_Status_t
+ * @return SX1262_Status_t SX1262_OK si se recibió un paquete válido,
+ *                         SX1262_INVALID_PARAM si data o length son NULL,
+ *                         SX1262_NOT_INITIALIZED si no se inicializó,
+ *                         SX1262_TIMEOUT/SX1262_ERROR ante timeout o fallos de RX/SPI.
  */
 SX1262_Status_t SX1262_LoRa_Receive(uint8_t* data, uint8_t* length, uint32_t timeout_ms);
 
@@ -417,6 +424,7 @@ SX1262_Status_t SX1262_LoRa_StartReceiveIT(void);
  * @param data   Puntero al buffer donde se almacenarán los datos recibidos.
  * @param length Puntero donde se escribirá la longitud del paquete (bytes).
  * @return SX1262_Status_t SX1262_OK si el paquete es válido,
+ *                         SX1262_INVALID_PARAM si data o length son NULL,
  *                         SX1262_TIMEOUT si el IRQ indica timeout interno del chip,
  *                         SX1262_ERROR si hay CRC, header inválido o fallo SPI.
  */
@@ -442,7 +450,10 @@ SX1262_Status_t SX1262_LoRa_AbortReceive(void);
  * @brief Aplica la configuración de red y modulación LoRa al chip
  *
  * @param config Puntero a la estructura de configuración (lora_config_t)
- * @return SX1262_Status_t
+ * @return SX1262_Status_t SX1262_OK si la configuración se aplicó,
+ *                         SX1262_INVALID_PARAM si config es NULL,
+ *                         SX1262_NOT_INITIALIZED si no se inicializó,
+ *                         SX1262_ERROR ante fallos de SPI.
  */
 SX1262_Status_t SX1262_LoRa_ApplyConfig(lora_config_t *config);
 
@@ -454,7 +465,10 @@ SX1262_Status_t SX1262_LoRa_ApplyConfig(lora_config_t *config);
  *        Debe llamarse justo después de una recepción exitosa.
  *
  * @param rssi_dbm  Puntero donde se almacenará el RSSI en dBm (valor negativo típico).
- * @return SX1262_Status_t
+ * @return SX1262_Status_t SX1262_OK si se obtuvo el RSSI,
+ *                         SX1262_INVALID_PARAM si rssi_dbm es NULL,
+ *                         SX1262_NOT_INITIALIZED si no se inicializó,
+ *                         SX1262_ERROR ante fallos de SPI.
  */
 SX1262_Status_t SX1262_LoRa_GetRSSI(int16_t *rssi_dbm);
 
@@ -467,7 +481,10 @@ SX1262_Status_t SX1262_LoRa_GetRSSI(int16_t *rssi_dbm);
  *        Debe llamarse justo después de una recepción exitosa.
  *
  * @param snr_db    Puntero donde se almacenará el SNR en dB (puede ser negativo).
- * @return SX1262_Status_t
+ * @return SX1262_Status_t SX1262_OK si se obtuvo el SNR,
+ *                         SX1262_INVALID_PARAM si snr_db es NULL,
+ *                         SX1262_NOT_INITIALIZED si no se inicializó,
+ *                         SX1262_ERROR ante fallos de SPI.
  */
 SX1262_Status_t SX1262_LoRa_GetSNR(int8_t *snr_db);
 
@@ -479,7 +496,9 @@ SX1262_Status_t SX1262_LoRa_GetSNR(int8_t *snr_db);
  *        de la copia siempre será false.
  *
  * @param config    Puntero a la estructura donde se copiará la configuración actual.
- * @return SX1262_Status_t
+ * @return SX1262_Status_t SX1262_OK si se copió la configuración,
+ *                         SX1262_INVALID_PARAM si config es NULL,
+ *                         SX1262_NOT_INITIALIZED si no se inicializó.
  */
 SX1262_Status_t SX1262_LoRa_GetConfig(lora_config_t *config);
 

@@ -589,6 +589,11 @@ SX1262_Status_t SX1262_LoRa_Transmit(uint8_t *data, uint8_t length)
     return SX1262_NOT_INITIALIZED;
   }
 
+  if (data == NULL || length == 0)
+  {
+    return SX1262_INVALID_PARAM;
+  }
+
   // Verificar si hay una configuración pendiente sin aplicar.
   // Transmitir con parámetros obsoletos puede causar fallos silenciosos.
   if (SX1262_LoRa_CurrentConfig.config_pending)
@@ -759,7 +764,7 @@ SX1262_Status_t SX1262_LoRa_StartTransmitIT(uint8_t *data, uint8_t length)
 
   if (data == NULL || length == 0)
   {
-    return SX1262_ERROR;
+    return SX1262_INVALID_PARAM;
   }
 
   uint8_t buf[8];
@@ -942,6 +947,11 @@ SX1262_Status_t SX1262_LoRa_Receive(uint8_t *data, uint8_t *length, uint32_t tim
   if (SX1262_Initialized != 1)
   {
     return SX1262_NOT_INITIALIZED;
+  }
+
+  if (data == NULL || length == NULL)
+  {
+    return SX1262_INVALID_PARAM;
   }
 
   // Verificar si hay una configuración pendiente sin aplicar.
@@ -1135,7 +1145,7 @@ SX1262_Status_t SX1262_LoRa_GetReceivedPacket(uint8_t *data, uint8_t *length)
   }
   if (data == NULL || length == NULL)
   {
-    return SX1262_ERROR;
+    return SX1262_INVALID_PARAM;
   }
 
   uint8_t buf[2];
@@ -1264,9 +1274,9 @@ SX1262_Status_t SX1262_LoRa_ApplyConfig(lora_config_t *config)
     return SX1262_NOT_INITIALIZED;
   }
 
-  if (!config)
+  if (config == NULL)
   {
-    return SX1262_ERROR;
+    return SX1262_INVALID_PARAM;
   }
 
   uint8_t buf[8];
@@ -1392,7 +1402,7 @@ SX1262_Status_t SX1262_LoRa_GetRSSI(int16_t *rssi_dbm)
   }
   if (rssi_dbm == NULL)
   {
-    return SX1262_ERROR;
+    return SX1262_INVALID_PARAM;
   }
 
   // GetPacketStatus devuelve 3 bytes en LoRa:
@@ -1436,7 +1446,7 @@ SX1262_Status_t SX1262_LoRa_GetSNR(int8_t *snr_db)
   }
   if (snr_db == NULL)
   {
-    return SX1262_ERROR;
+    return SX1262_INVALID_PARAM;
   }
 
   uint8_t status[3];
@@ -1477,7 +1487,7 @@ SX1262_Status_t SX1262_LoRa_GetConfig(lora_config_t *config)
   }
   if (config == NULL)
   {
-    return SX1262_ERROR;
+    return SX1262_INVALID_PARAM;
   }
 
   *config = SX1262_LoRa_CurrentConfig;
