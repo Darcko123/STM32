@@ -486,6 +486,49 @@ static uint32_t sx1262_ComputeToA_ms(uint8_t payload_len, const lora_config_t *c
     return (toa_ms < 1U) ? 1U : toa_ms;
 }
 
+/**
+ * @brief Calcula el Time on Air (ToA) aproximado de un paquete FSK/GFSK en
+ * milisegundos.
+ *
+ *  ToA = (preamble_bytes + sync_word_bytes + length_byte(si variable) +
+ *         payload_bytes + crc_bytes) * 8 / bitrate
+ *
+ * @param payload_len  Bytes del payload
+ * @param config       Configuración FSK activa
+ * @return uint32_t    ToA en milisegundos (mínimo 1 ms)
+ */
+static uint32_t sx1262_ComputeFskToA_ms(uint8_t payload_len, const fsk_config_t *config)
+{
+    if (config->bitrate == 0)
+    {
+        return 5000U; // Valor de seguridad si el bitrate es inválido
+    }
+
+    uint8_t crc_bytes;
+    switch (config->crc_type)
+    {
+        case FSK_CRC_1_BYTE:
+        case FSK_CRC_1_BYTE_INV:
+            crc_bytes = 1U;
+            break;
+        case FSK_CRC_2_BYTE:
+        case FSK_CRC_2_BYTE_INV:
+            crc_bytes = 2U;
+            break;
+        default: // FSK_CRC_OFF
+            crc_bytes = 0U;
+            break;
+    }
+
+    uint32_t total_bytes = (uint32_t)config->preamble_len + config->sync_word_len +
+                           (config->fixed_length ? 0U : 1U) + payload_len + crc_bytes;
+
+    uint64_t toa_us = ((uint64_t)total_bytes * 8ULL * 1000000ULL) / config->bitrate;
+    uint32_t toa_ms = (uint32_t)((toa_us + 999ULL) / 1000ULL);
+
+    return (toa_ms < 1U) ? 1U : toa_ms;
+}
+
 // ============================================================================
 // FUNCIONES PÚBLICAS
 // ============================================================================
@@ -1555,6 +1598,155 @@ SX1262_Status_t SX1262_LoRa_GetConfig(lora_config_t *config)
     }
 
     *config = SX1262_LoRa_CurrentConfig;
+
+    return SX1262_OK;
+}
+
+// ============================================================================
+// TRANSMISIÓN FSK — Bloqueante
+// ============================================================================
+
+/**
+ * @brief Transmite datos a través del módulo SX1262 en modo FSK (bloqueante).
+ *
+ *        Sigue la misma secuencia de comandos que SX1262_LoRa_Transmit(), pero
+ *        usa los parámetros de paquete GFSK (preámbulo, sync word, CRC y
+ *        whitening) de la configuración FSK actualmente aplicada. El campo
+ *        PayloadLength se actualiza en cada llamada con la longitud real de
+ *        `data`, tal como exige el chip para el modo GFSK.
+ *
+ * @param data Puntero a los datos a transmitir
+ * @param length Longitud de los datos a transmitir (máximo 255 bytes)
+ * @return SX1262_Status_t
+ */
+SX1262_Status_t SX1262_FSK_Transmit(uint8_t *data, uint8_t length)
+{
+    if (SX1262_Initialized != 1)
+    {
+        return SX1262_NOT_INITIALIZED;
+    }
+
+    if (data == NULL || length == 0)
+    {
+        return SX1262_INVALID_PARAM;
+    }
+
+    // Verificar si hay una configuración FSK pendiente sin aplicar.
+    if (SX1262_FSK_CurrentConfig.config_pending)
+    {
+        return SX1262_ERROR; // Llamar a SX1262_FSK_ApplyConfig() antes de transmitir
+    }
+
+    uint8_t buf[9];
+    SX1262_Status_t st = SX1262_OK;
+
+    // Set Standby
+    buf[0] = SX126X_STANDBY_RC;
+    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
+
+    // Buffer base address
+    buf[0] = 0x00; // TX Base
+    buf[1] = 0x00; // RX Base
+    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_BUFFER_BASE_ADDRESS, buf, 2);
+
+    // Escribir datos
+    st = st ? st : sx1262_WriteBuffer(0x00, data, length);
+
+    // Actualizar parámetros de paquete (requerido antes de Tx). PreambleLength
+    // y SyncWordLength se expresan en bits en el comando GFSK.
+    uint16_t preamble_bits = (uint16_t)SX1262_FSK_CurrentConfig.preamble_len * 8U;
+    buf[0] = (preamble_bits >> 8) & 0xFF;
+    buf[1] = preamble_bits & 0xFF;
+    buf[2] = 0x04; // PreambleDetectorLength: 8 bits
+    buf[3] = SX1262_FSK_CurrentConfig.sync_word_len * 8U; // SyncWordLength en bits
+    buf[4] = 0x00; // AddrComp: off
+    buf[5] = SX1262_FSK_CurrentConfig.fixed_length ? 0x00 : 0x01; // HeaderType: fijo/variable
+    buf[6] = length;
+    buf[7] = SX1262_FSK_CurrentConfig.crc_type;
+    buf[8] = SX1262_FSK_CurrentConfig.whitening ? 0x01 : 0x00;
+    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_PACKET_PARAMS, buf, 9);
+
+    // Limpiar alertas (Clear IRQ)
+    buf[0] = 0x03;
+    buf[1] = 0xFF; // Limpiar todo (0x03FF)
+    st = st ? st : sx1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2);
+
+    // Habilitar DIO1 para TxDone y TxTimeout
+    uint16_t irqMask = SX126X_IRQ_TX_DONE | SX126X_IRQ_TIMEOUT;
+    buf[0] = (irqMask >> 8) & 0xFF;
+    buf[1] = irqMask & 0xFF;
+    buf[2] = (irqMask >> 8) & 0xFF;
+    buf[3] = irqMask & 0xFF; // DIO1 mask
+    buf[4] = 0x00;
+    buf[5] = 0x00; // DIO2
+    buf[6] = 0x00;
+    buf[7] = 0x00; // DIO3
+    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_DIO_IRQ_PARAMS, buf, 8);
+
+    // Iniciar Transmisión (timeout de chip desactivado: el soft-timeout lo
+    // controla)
+    buf[0] = 0x00;
+    buf[1] = 0x00;
+    buf[2] = 0x00;
+    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_TX, buf, 3);
+
+    // Abortar si algún comando de la secuencia de armado de TX falló
+    if (st != SX1262_OK)
+    {
+        return st;
+    }
+
+    // Calcular timeout de software basado en el ToA real del paquete + 50 % de
+    // margen, igual que en SX1262_LoRa_Transmit().
+    uint32_t toa_ms = sx1262_ComputeFskToA_ms(length, &SX1262_FSK_CurrentConfig);
+    uint32_t tx_timeout = toa_ms + toa_ms / 2U + 100U; // ToA * 1.5 + 100 ms de margen
+
+    // Esperar IRQ (DIO1 en alto => TxDone o TxTimeout)
+    uint32_t start = HAL_GetTick();
+
+    while (HAL_GPIO_ReadPin(DIO_GPIO_Port, DIO_GPIO_Pin) == GPIO_PIN_RESET)
+    {
+        if ((HAL_GetTick() - start) > tx_timeout)
+        {
+            // Timeout de software: volver a Standby y limpiar IRQ (best-effort).
+            buf[0] = SX126X_STANDBY_RC;
+            sx1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
+
+            buf[0] = 0x03;
+            buf[1] = 0xFF;
+            sx1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2);
+
+            return SX1262_TIMEOUT;
+        }
+    }
+
+    // Leer y verificar los bits del registro IRQ
+    uint8_t irqStatus[2];
+    st = sx1262_ReadCommand(SX126X_CMD_GET_IRQ_STATUS, irqStatus, 2);
+    if (st != SX1262_OK)
+    {
+        return st;
+    }
+    uint16_t irqReg = ((uint16_t)irqStatus[0] << 8) | irqStatus[1];
+
+    // Limpiar IRQ siempre antes de retornar
+    buf[0] = 0x03;
+    buf[1] = 0xFF;
+    sx1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2);
+
+    // Evaluar resultado: TIMEOUT tiene prioridad sobre TX_DONE ausente
+    if (irqReg & SX126X_IRQ_TIMEOUT)
+    {
+        buf[0] = SX126X_STANDBY_RC;
+        sx1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
+        return SX1262_TIMEOUT;
+    }
+
+    if ((irqReg & SX126X_IRQ_TX_DONE) == 0)
+    {
+        // DIO1 se levantó pero TX_DONE no está activo: condición inesperada
+        return SX1262_ERROR;
+    }
 
     return SX1262_OK;
 }
