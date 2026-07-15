@@ -1281,15 +1281,15 @@ SX1262_Status_t SX1262_LoRa_ApplyConfig(const lora_config_t *config)
 }
 
 /**
- * @brief Obtiene el RSSI del último paquete LoRa recibido. Contrato en SX1262.h.
+ * @brief Obtiene RSSI y SNR del último paquete LoRa recibido. Contrato en SX1262.h.
  */
-SX1262_Status_t SX1262_LoRa_GetRSSI(int16_t *rssi_dbm)
+SX1262_Status_t SX1262_LoRa_GetPacketStatus(int16_t *rssi_dbm, int8_t *snr_db)
 {
     if (SX1262_Initialized != 1)
     {
         return SX1262_NOT_INITIALIZED;
     }
-    if (rssi_dbm == NULL)
+    if (rssi_dbm == NULL && snr_db == NULL)
     {
         return SX1262_INVALID_PARAM;
     }
@@ -1305,10 +1305,28 @@ SX1262_Status_t SX1262_LoRa_GetRSSI(int16_t *rssi_dbm)
         return st;
     }
 
-    // RssiPkt es un valor sin signo; el resultado en dBm es siempre <= 0
-    *rssi_dbm = -(int16_t)status[0] / 2;
+    if (rssi_dbm != NULL)
+    {
+        // RssiPkt es un valor sin signo; el resultado en dBm es siempre <= 0
+        *rssi_dbm = -(int16_t)status[0] / 2;
+    }
+    if (snr_db != NULL)
+    {
+        // SnrPkt está en el byte [1] como int8_t (complemento a dos).
+        // SNR [dB] = (int8_t)SnrPkt / 4  →  resolución de 0.25 dB
+        // Se devuelve redondeado a dB enteros para mayor simplicidad de uso.
+        *snr_db = (int8_t)status[1] / 4;
+    }
 
     return SX1262_OK;
+}
+
+/**
+ * @brief Obtiene el RSSI del último paquete LoRa recibido. Contrato en SX1262.h.
+ */
+SX1262_Status_t SX1262_LoRa_GetRSSI(int16_t *rssi_dbm)
+{
+    return SX1262_LoRa_GetPacketStatus(rssi_dbm, NULL);
 }
 
 /**
@@ -1316,28 +1334,7 @@ SX1262_Status_t SX1262_LoRa_GetRSSI(int16_t *rssi_dbm)
  */
 SX1262_Status_t SX1262_LoRa_GetSNR(int8_t *snr_db)
 {
-    if (SX1262_Initialized != 1)
-    {
-        return SX1262_NOT_INITIALIZED;
-    }
-    if (snr_db == NULL)
-    {
-        return SX1262_INVALID_PARAM;
-    }
-
-    uint8_t status[3];
-    SX1262_Status_t st = sx1262_ReadCommand(SX126X_CMD_GET_PACKET_STATUS, status, 3);
-    if (st != SX1262_OK)
-    {
-        return st;
-    }
-
-    // SnrPkt está en el byte [1] como int8_t (complemento a dos).
-    // SNR [dB] = (int8_t)SnrPkt / 4  →  resolución de 0.25 dB
-    // Se devuelve redondeado a dB enteros para mayor simplicidad de uso.
-    *snr_db = (int8_t)status[1] / 4;
-
-    return SX1262_OK;
+    return SX1262_LoRa_GetPacketStatus(NULL, snr_db);
 }
 
 /**

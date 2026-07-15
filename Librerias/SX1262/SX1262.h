@@ -543,11 +543,32 @@ SX1262_Status_t SX1262_LoRa_AbortReceive(void);
 SX1262_Status_t SX1262_LoRa_ApplyConfig(const lora_config_t *config);
 
 /**
+ * @brief Obtiene el RSSI y el SNR del último paquete LoRa recibido en una sola lectura.
+ *
+ *        Usa el comando GetPacketStatus (0x14), que devuelve ambas métricas en la
+ *        misma respuesta SPI: RSSI [dBm] = -RssiPkt / 2 y SNR [dB] = SnrPkt / 4,
+ *        según el datasheet SX1262 §13.5.3. Debe llamarse justo después de una
+ *        recepción exitosa.
+ *
+ *        Cualquiera de los dos punteros puede ser NULL si esa métrica no interesa,
+ *        pero no ambos a la vez.
+ *
+ * @param rssi_dbm  Puntero donde se almacenará el RSSI en dBm (valor negativo típico),
+ *                  o NULL para omitirlo.
+ * @param snr_db    Puntero donde se almacenará el SNR en dB (puede ser negativo),
+ *                  o NULL para omitirlo.
+ * @return SX1262_Status_t SX1262_OK si se obtuvieron las métricas solicitadas,
+ *                         SX1262_INVALID_PARAM si ambos punteros son NULL,
+ *                         SX1262_NOT_INITIALIZED si no se inicializó,
+ *                         SX1262_ERROR ante fallos de SPI.
+ */
+SX1262_Status_t SX1262_LoRa_GetPacketStatus(int16_t *rssi_dbm, int8_t *snr_db);
+
+/**
  * @brief Obtiene el RSSI del último paquete LoRa recibido.
  *
- *        Usa el comando GetPacketStatus (0x14). El resultado se calcula como
- *        RSSI [dBm] = -RssiPkt / 2, según el datasheet SX1262 §13.5.3.
- *        Debe llamarse justo después de una recepción exitosa.
+ *        Envoltorio sobre SX1262_LoRa_GetPacketStatus(). Si también necesitas el SNR,
+ *        llama directamente a esa función para ahorrar una transacción SPI.
  *
  * @param rssi_dbm  Puntero donde se almacenará el RSSI en dBm (valor negativo típico).
  * @return SX1262_Status_t SX1262_OK si se obtuvo el RSSI,
@@ -560,10 +581,8 @@ SX1262_Status_t SX1262_LoRa_GetRSSI(int16_t *rssi_dbm);
 /**
  * @brief Obtiene el SNR del último paquete LoRa recibido.
  *
- *        Usa el comando GetPacketStatus (0x14). El resultado se calcula como
- *        SNR [dB] = SnrPkt / 4, donde SnrPkt es un int8_t en complemento a dos.
- *        El valor puede ser negativo si la señal está por debajo del nivel de ruido.
- *        Debe llamarse justo después de una recepción exitosa.
+ *        Envoltorio sobre SX1262_LoRa_GetPacketStatus(). Si también necesitas el RSSI,
+ *        llama directamente a esa función para ahorrar una transacción SPI.
  *
  * @param snr_db    Puntero donde se almacenará el SNR en dB (puede ser negativo).
  * @return SX1262_Status_t SX1262_OK si se obtuvo el SNR,
