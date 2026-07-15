@@ -396,6 +396,8 @@ void SX1262_IRQ_Handler(void);
  * @return SX1262_Status_t SX1262_OK si la transmisión fue exitosa,
  *                         SX1262_INVALID_PARAM si data es NULL o length es 0,
  *                         SX1262_NOT_INITIALIZED si no se inicializó,
+ *                         SX1262_TX_BUSY si hay una TX no bloqueante en curso
+ *                         iniciada con SX1262_LoRa_StartTransmitIT(),
  *                         SX1262_TIMEOUT/SX1262_ERROR ante fallos de TX o SPI.
  */
 SX1262_Status_t SX1262_LoRa_Transmit(uint8_t* data, uint8_t length);

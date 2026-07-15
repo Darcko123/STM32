@@ -531,8 +531,8 @@ static uint32_t sx1262_ComputeFskToA_ms(uint8_t payload_len, const fsk_config_t 
 
 /**
  * @brief Ejecuta una transmisión bloqueante completa: arma el chip, espera DIO1
- *        y evalúa el registro IRQ. Común a LoRa y FSK; lo único que cambia entre
- *        ambos modos son los parámetros de paquete y el timeout de software.
+ *        y evalúa el registro IRQ. Solo lo usa la ruta FSK; LoRa se apoya en
+ *        StartTransmitIT/GetTransmitStatus, que no tienen equivalente en FSK.
  *
  * @param data       Puntero al buffer de datos a transmitir
  * @param length     Longitud de los datos (máximo 255 bytes)
@@ -765,38 +765,39 @@ SX1262_Status_t SX1262_Init(SPI_HandleTypeDef *hspi,
  */
 SX1262_Status_t SX1262_LoRa_Transmit(uint8_t *data, uint8_t length)
 {
-    if (SX1262_Initialized != 1)
+    // La versión bloqueante es la versión IT con una espera activa de DIO1
+    // intercalada: StartTransmitIT valida los parámetros y arma la TX,
+    // GetTransmitStatus evalúa el registro IRQ y libera el semáforo.
+    SX1262_Status_t st = SX1262_LoRa_StartTransmitIT(data, length);
+    if (st != SX1262_OK)
     {
-        return SX1262_NOT_INITIALIZED;
+        return st;
     }
-
-    if (data == NULL || length == 0)
-    {
-        return SX1262_INVALID_PARAM;
-    }
-
-    // Verificar si hay una configuración pendiente sin aplicar.
-    // Transmitir con parámetros obsoletos puede causar fallos silenciosos.
-    if (SX1262_LoRa_CurrentConfig.config_pending)
-    {
-        return SX1262_ERROR; // Llamar a SX1262_LoRa_ApplyConfig() antes de transmitir
-    }
-
-    // Parámetros de paquete LoRa con la longitud real del payload
-    uint8_t pkt[6];
-    pkt[0] = (SX1262_LoRa_CurrentConfig.preamble_len >> 8) & 0xFF;
-    pkt[1] = (SX1262_LoRa_CurrentConfig.preamble_len) & 0xFF;
-    pkt[2] = 0x00; // Explicit Header
-    pkt[3] = length;
-    pkt[4] = 0x01; // CRC On
-    pkt[5] = SX1262_LoRa_CurrentConfig.iq_inverted ? 0x01 : 0x00;
 
     // Timeout de software basado en el ToA real del paquete + 50 % de margen.
     // Esto evita el hardcode de 5 segundos y adapta el timeout a los parámetros
     // LoRa.
     uint32_t toa_ms = sx1262_ComputeToA_ms(length, &SX1262_LoRa_CurrentConfig);
+    uint32_t timeout_ms = toa_ms + toa_ms / 2U + 100U;
 
-    return sx1262_TransmitBlocking(data, length, pkt, 6, toa_ms + toa_ms / 2U + 100U);
+    // Esperar IRQ (DIO1 en alto => TxDone o TxTimeout)
+    uint32_t start = HAL_GetTick();
+
+    while (HAL_GPIO_ReadPin(DIO_GPIO_Port, DIO_GPIO_Pin) == GPIO_PIN_RESET)
+    {
+        if ((HAL_GetTick() - start) > timeout_ms)
+        {
+            // Timeout de software: DIO1 nunca subió, así que GetTransmitStatus
+            // no llegará a consumir el evento ni a liberar el semáforo. Abort
+            // devuelve el chip a Standby, limpia los IRQ y libera SX1262_TxActive
+            // (best-effort: el evento real es un timeout y se reporta como tal
+            // aunque la limpieza falle).
+            SX1262_LoRa_AbortTransmit();
+            return SX1262_TIMEOUT;
+        }
+    }
+
+    return SX1262_LoRa_GetTransmitStatus();
 }
 
 // ============================================================================
