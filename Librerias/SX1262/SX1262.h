@@ -255,12 +255,12 @@ typedef enum {
  *        SF y BW según documentación oficial de Meshtastic.
  *        Definidas en SX1262.c para evitar la advertencia -Wunused-variable.
  */
-extern lora_config_t LongSlow;
-extern lora_config_t LongFast;
-extern lora_config_t MediumSlow;
-extern lora_config_t MediumFast;
-extern lora_config_t ShortSlow;
-extern lora_config_t ShortFast;
+extern const lora_config_t LongSlow;
+extern const lora_config_t LongFast;
+extern const lora_config_t MediumSlow;
+extern const lora_config_t MediumFast;
+extern const lora_config_t ShortSlow;
+extern const lora_config_t ShortFast;
 
 // ============================================================================
 // BANDERAS DE EVENTO LoRa (modo no bloqueante — productor: ISR, consumidor: main loop)
@@ -540,7 +540,7 @@ SX1262_Status_t SX1262_LoRa_AbortReceive(void);
  *                         SX1262_NOT_INITIALIZED si no se inicializó,
  *                         SX1262_ERROR ante fallos de SPI.
  */
-SX1262_Status_t SX1262_LoRa_ApplyConfig(lora_config_t *config);
+SX1262_Status_t SX1262_LoRa_ApplyConfig(const lora_config_t *config);
 
 /**
  * @brief Obtiene el RSSI del último paquete LoRa recibido.

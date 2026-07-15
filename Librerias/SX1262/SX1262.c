@@ -54,83 +54,30 @@ volatile uint8_t SX1262_LoRa_TxDoneFlag = 0;
 // PRESETS MESHTASTIC (US, 915 MHz)
 // ============================================================================
 
-lora_config_t LongSlow = {
-    .frequency = MESHTASTIC_US_CH0_FREQ,
-    .spreading_factor = 12,
-    .bandwidth = BW_125_KHZ,
-    .coding_rate = CR_4_8,
-    .tx_power = 20,
-    .preamble_len = 16,
-    .iq_inverted = false,
-    .network_mode = LORA_NETWORK_MESHTASTIC,
-    .lora_sync_word = 0,
-    .config_pending = true
-};
+/**
+ * @brief Inicializador de preset Meshtastic. Los presets solo difieren en SF, BW
+ *        y CR; el resto de campos son comunes a la región US (915 MHz).
+ */
+#define MESHTASTIC_PRESET(sf, bw, cr)            \
+{                                                \
+    .frequency        = MESHTASTIC_US_CH0_FREQ,  \
+    .spreading_factor = (sf),                    \
+    .bandwidth        = (bw),                    \
+    .coding_rate      = (cr),                    \
+    .tx_power         = 20,                      \
+    .preamble_len     = 16,                      \
+    .iq_inverted      = false,                   \
+    .network_mode     = LORA_NETWORK_MESHTASTIC, \
+    .lora_sync_word   = 0,                       \
+    .config_pending   = true                     \
+}
 
-lora_config_t LongFast = {
-    .frequency = MESHTASTIC_US_CH0_FREQ,
-    .spreading_factor = 11,
-    .bandwidth = BW_250_KHZ,
-    .coding_rate = CR_4_5,
-    .tx_power = 20,
-    .preamble_len = 16,
-    .iq_inverted = false,
-    .network_mode = LORA_NETWORK_MESHTASTIC,
-    .lora_sync_word = 0,
-    .config_pending = true
-};
-
-lora_config_t MediumSlow = {
-    .frequency = MESHTASTIC_US_CH0_FREQ,
-    .spreading_factor = 10,
-    .bandwidth = BW_250_KHZ,
-    .coding_rate = CR_4_5,
-    .tx_power = 20,
-    .preamble_len = 16,
-    .iq_inverted = false,
-    .network_mode = LORA_NETWORK_MESHTASTIC,
-    .lora_sync_word = 0,
-    .config_pending = true
-};
-
-lora_config_t MediumFast = {
-    .frequency = MESHTASTIC_US_CH0_FREQ,
-    .spreading_factor = 9,
-    .bandwidth = BW_250_KHZ,
-    .coding_rate = CR_4_5,
-    .tx_power = 20,
-    .preamble_len = 16,
-    .iq_inverted = false,
-    .network_mode = LORA_NETWORK_MESHTASTIC,
-    .lora_sync_word = 0,
-    .config_pending = true
-};
-
-lora_config_t ShortSlow = {
-    .frequency = MESHTASTIC_US_CH0_FREQ,
-    .spreading_factor = 8,
-    .bandwidth = BW_250_KHZ,
-    .coding_rate = CR_4_5,
-    .tx_power = 20,
-    .preamble_len = 16,
-    .iq_inverted = false,
-    .network_mode = LORA_NETWORK_MESHTASTIC,
-    .lora_sync_word = 0,
-    .config_pending = true
-};
-
-lora_config_t ShortFast = {
-    .frequency = MESHTASTIC_US_CH0_FREQ,
-    .spreading_factor = 7,
-    .bandwidth = BW_250_KHZ,
-    .coding_rate = CR_4_5,
-    .tx_power = 20,
-    .preamble_len = 16,
-    .iq_inverted = false,
-    .network_mode = LORA_NETWORK_MESHTASTIC,
-    .lora_sync_word = 0,
-    .config_pending = true
-};
+const lora_config_t LongSlow   = MESHTASTIC_PRESET(12, BW_125_KHZ, CR_4_8);
+const lora_config_t LongFast   = MESHTASTIC_PRESET(11, BW_250_KHZ, CR_4_5);
+const lora_config_t MediumSlow = MESHTASTIC_PRESET(10, BW_250_KHZ, CR_4_5);
+const lora_config_t MediumFast = MESHTASTIC_PRESET(9,  BW_250_KHZ, CR_4_5);
+const lora_config_t ShortSlow  = MESHTASTIC_PRESET(8,  BW_250_KHZ, CR_4_5);
+const lora_config_t ShortFast  = MESHTASTIC_PRESET(7,  BW_250_KHZ, CR_4_5);
 
 /**
  * @brief Semáforo binario privado: 1 si hay una transmisión IT en curso.
@@ -1245,7 +1192,7 @@ void SX1262_IRQ_Handler(void)
 /**
  * @brief Aplica la configuración de red y modulación LoRa al chip. Contrato en SX1262.h.
  */
-SX1262_Status_t SX1262_LoRa_ApplyConfig(lora_config_t *config)
+SX1262_Status_t SX1262_LoRa_ApplyConfig(const lora_config_t *config)
 {
     if (SX1262_Initialized != 1)
     {
