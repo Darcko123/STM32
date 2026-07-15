@@ -981,6 +981,55 @@ SX1262_Status_t SX1262_LoRa_AbortTransmit(void)
 }
 
 /**
+ * @brief Arma el chip en modo RX: Standby RC, limpia IRQ pendientes, habilita las
+ *        fuentes de IRQ en DIO1 y lanza SetRx con el timeout de chip indicado.
+ *        Compartido por la ruta bloqueante (SX1262_LoRa_Receive) y la ruta por
+ *        interrupción (SX1262_LoRa_StartReceiveIT); la única diferencia entre
+ *        ambas es el timeout y el manejo del semáforo SX1262_RxActive, que queda
+ *        en manos del llamante.
+ *
+ * @param chipTimeout Timeout interno del chip en ticks de 15.625 us (24 bits).
+ *                    0xFFFFFF => RX continuo, sin timeout de chip.
+ * @return SX1262_Status_t SX1262_OK si toda la secuencia de armado tuvo éxito.
+ */
+static SX1262_Status_t sx1262_ArmRx(uint32_t chipTimeout)
+{
+    uint8_t buf[8];
+    SX1262_Status_t st = SX1262_OK;
+
+    // Set Standby
+    buf[0] = SX126X_STANDBY_RC;
+    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
+
+    // Limpiar IRQ pendientes
+    buf[0] = 0x03;
+    buf[1] = 0xFF;
+    st = st ? st : sx1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2);
+
+    // Habilitar IRQs en DIO1: RxDone | Timeout | CRC_ERR | HeaderErr
+    // HeaderErr (bit 4) se incluye para detectar paquetes con header inválido.
+    uint16_t irqMask = SX126X_IRQ_RX_DONE | SX126X_IRQ_TIMEOUT |
+                       SX126X_IRQ_CRC_ERR | SX126X_IRQ_HEADER_ERR;
+    buf[0] = (irqMask >> 8) & 0xFF;
+    buf[1] = irqMask & 0xFF; // IRQ global mask
+    buf[2] = (irqMask >> 8) & 0xFF;
+    buf[3] = irqMask & 0xFF; // DIO1 mask
+    buf[4] = 0x00;
+    buf[5] = 0x00; // DIO2 (no usado)
+    buf[6] = 0x00;
+    buf[7] = 0x00; // DIO3 (no usado)
+    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_DIO_IRQ_PARAMS, buf, 8);
+
+    // Iniciar recepción
+    buf[0] = (chipTimeout >> 16) & 0xFF;
+    buf[1] = (chipTimeout >> 8) & 0xFF;
+    buf[2] = chipTimeout & 0xFF;
+    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_RX, buf, 3);
+
+    return st;
+}
+
+/**
  * @brief Recibe datos en modo LoRa (bloqueante). Contrato en SX1262.h.
  */
 SX1262_Status_t SX1262_LoRa_Receive(uint8_t *data, uint8_t *length, uint32_t timeout_ms)
@@ -1003,41 +1052,13 @@ SX1262_Status_t SX1262_LoRa_Receive(uint8_t *data, uint8_t *length, uint32_t tim
         return SX1262_ERROR; // Llamar a SX1262_LoRa_ApplyConfig() antes de recibir
     }
 
-    uint8_t buf[8];
-    SX1262_Status_t st = SX1262_OK;
-
-    // Set Standby
-    buf[0] = SX126X_STANDBY_RC;
-    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
-
-    // Clear IRQ
-    buf[0] = 0x03;
-    buf[1] = 0xFF;
-    st = st ? st : sx1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2);
-
-    // Habilitar DIO1 para RxDone y RxTimeout (y CRC Err)
-    uint16_t irqMask = SX126X_IRQ_RX_DONE | SX126X_IRQ_TIMEOUT | SX126X_IRQ_CRC_ERR;
-    buf[0] = (irqMask >> 8) & 0xFF;
-    buf[1] = irqMask & 0xFF;
-    buf[2] = (irqMask >> 8) & 0xFF;
-    buf[3] = irqMask & 0xFF; // DIO1 mask
-    buf[4] = 0x00;
-    buf[5] = 0x00;
-    buf[6] = 0x00;
-    buf[7] = 0x00;
-    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_DIO_IRQ_PARAMS, buf, 8);
-
-    // Iniciar Recepción
-    // Pasamos de MS a Ticks (Timeout interno de chip). 1 tick = 15.625 us
+    // Pasamos de ms a ticks (timeout interno del chip). 1 tick = 15.625 us,
     // 1 ms = 64 ticks (1000 / 15.625 = 64). Evitamos cálculo en punto flotante
-    // usando * 64.
-    uint32_t timeoutBytes = (timeout_ms == 0) ? 0xFFFFFF : (timeout_ms * 64);
-    buf[0] = (timeoutBytes >> 16) & 0xFF;
-    buf[1] = (timeoutBytes >> 8) & 0xFF;
-    buf[2] = (timeoutBytes & 0xFF);
-    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_RX, buf, 3);
+    // usando * 64. timeout_ms == 0 => 0xFFFFFF: sin timeout de chip.
+    uint32_t chipTimeout = (timeout_ms == 0) ? 0xFFFFFF : (timeout_ms * 64);
 
     // Abortar si algún comando de la secuencia de armado de RX falló
+    SX1262_Status_t st = sx1262_ArmRx(chipTimeout);
     if (st != SX1262_OK)
     {
         return st;
@@ -1050,59 +1071,15 @@ SX1262_Status_t SX1262_LoRa_Receive(uint8_t *data, uint8_t *length, uint32_t tim
         if (timeout_ms != 0 && (HAL_GetTick() - start) > (timeout_ms + 100))
         {
             // Timeout de software: volver a Standby (best-effort) y reportar timeout
-            buf[0] = SX126X_STANDBY_RC;
+            uint8_t buf[1] = { SX126X_STANDBY_RC };
             sx1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
             return SX1262_TIMEOUT; // Timeout de soft-check
         }
     }
 
-    // Leemos status de la interrupción
-    uint8_t irqStatus[2];
-    st = sx1262_ReadCommand(SX126X_CMD_GET_IRQ_STATUS, irqStatus, 2);
-    if (st != SX1262_OK)
-    {
-        return st;
-    }
-
-    uint16_t irqReg = (irqStatus[0] << 8) | irqStatus[1];
-
-    if ((irqReg & SX126X_IRQ_RX_DONE) == 0 || (irqReg & SX126X_IRQ_TIMEOUT) ||
-            (irqReg & SX126X_IRQ_CRC_ERR))
-    {
-        buf[0] = 0x03;
-        buf[1] = 0xFF;
-        sx1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2);
-        return SX1262_ERROR;
-    }
-
-    // Obtener información del buffer (offset base de recepción y tamaño)
-    uint8_t rxBufferStatus[2];
-    st = sx1262_ReadCommand(SX126X_CMD_GET_RX_BUFFER_STATUS, rxBufferStatus, 2);
-    if (st != SX1262_OK)
-    {
-        return st;
-    }
-
-    *length = rxBufferStatus[0];        // Tamaño del paquete
-    uint8_t offset = rxBufferStatus[1]; // Offset en memoria interna
-
-    // Leer payload del buffer
-    st = sx1262_ReadBuffer(offset, data, *length);
-    if (st != SX1262_OK)
-    {
-        return st;
-    }
-
-    // Clear IRQ Status final
-    buf[0] = 0x03;
-    buf[1] = 0xFF;
-    st = sx1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2);
-    if (st != SX1262_OK)
-    {
-        return st;
-    }
-
-    return SX1262_OK;
+    // DIO1 en alto: evaluar el registro IRQ, leer el payload y limpiar. Es
+    // exactamente el trabajo de la ruta IT, sin estado propio de la RX continua.
+    return SX1262_LoRa_GetReceivedPacket(data, length);
 }
 
 /**
@@ -1132,37 +1109,8 @@ SX1262_Status_t SX1262_LoRa_StartReceiveIT(void)
         return SX1262_RX_BUSY; // Ya hay una recepción IT (RX continuo) en curso
     }
 
-    uint8_t buf[8];
-    SX1262_Status_t st = SX1262_OK;
-
-    // 1. Standby RC
-    buf[0] = SX126X_STANDBY_RC;
-    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
-
-    // 2. Limpiar IRQ pendientes
-    buf[0] = 0x03;
-    buf[1] = 0xFF;
-    st = st ? st : sx1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2);
-
-    // 3. Habilitar IRQs en DIO1: RxDone | Timeout | CRC_ERR | HeaderErr
-    //    HeaderErr (bit 4) se incluye para detectar paquetes con header inválido.
-    uint16_t irqMask = SX126X_IRQ_RX_DONE | SX126X_IRQ_TIMEOUT |
-                       SX126X_IRQ_CRC_ERR | SX126X_IRQ_HEADER_ERR;
-    buf[0] = (irqMask >> 8) & 0xFF;
-    buf[1] = irqMask & 0xFF; // IRQ global mask
-    buf[2] = (irqMask >> 8) & 0xFF;
-    buf[3] = irqMask & 0xFF; // DIO1 mask
-    buf[4] = 0x00;
-    buf[5] = 0x00; // DIO2 (no usado)
-    buf[6] = 0x00;
-    buf[7] = 0x00; // DIO3 (no usado)
-    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_DIO_IRQ_PARAMS, buf, 8);
-
-    // 4. Iniciar RX continuo (timeout = 0xFFFFFF => sin timeout de chip)
-    buf[0] = 0xFF;
-    buf[1] = 0xFF;
-    buf[2] = 0xFF;
-    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_RX, buf, 3);
+    // RX continuo: timeout de chip 0xFFFFFF => el chip nunca abandona la escucha
+    SX1262_Status_t st = sx1262_ArmRx(0xFFFFFF);
 
     // Marcar RX activa solo si toda la secuencia de configuración tuvo éxito.
     // RX es continuo (timeout 0xFFFFFF): la bandera se mantiene tras cada RxDone
