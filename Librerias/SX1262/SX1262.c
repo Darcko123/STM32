@@ -298,6 +298,28 @@ static void sx1262_Reset(void)
 }
 
 /**
+ * @brief Limpia todas las alertas pendientes del chip (IRQ mask 0x03FF).
+ *
+ * @return SX1262_Status_t Resultado de la escritura del comando.
+ */
+static SX1262_Status_t sx1262_ClearIrq(void)
+{
+    uint8_t buf[2] = { 0x03, 0xFF }; // Limpiar todo (0x03FF)
+    return sx1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2);
+}
+
+/**
+ * @brief Coloca el chip en modo Standby RC.
+ *
+ * @return SX1262_Status_t Resultado de la escritura del comando.
+ */
+static SX1262_Status_t sx1262_Standby(void)
+{
+    uint8_t buf[1] = { SX126X_STANDBY_RC };
+    return sx1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
+}
+
+/**
  * @brief Convierte el valor de ancho de banda (BW) del enum a su equivalente en
  * Hz, necesario para cálculos internos como LDRO.
  *
@@ -306,41 +328,32 @@ static void sx1262_Reset(void)
  */
 static uint32_t sx1262_BandwidthToHz(lora_signal_bandwidth_t bw)
 {
-    switch (bw)
+    static const struct
     {
-        case BW_7_8_KHZ:
-            return 7800UL;
+        lora_signal_bandwidth_t bw;
+        uint32_t hz;
+    } bw_table[] = {
+        { BW_7_8_KHZ,    7800UL   },
+        { BW_10_4_KHZ,   10400UL  },
+        { BW_15_6_KHZ,   15600UL  },
+        { BW_20_8_KHZ,   20800UL  },
+        { BW_31_25_KHZ,  31250UL  },
+        { BW_41_7_KHZ,   41700UL  },
+        { BW_62_5_KHZ,   62500UL  },
+        { BW_125_KHZ,    125000UL },
+        { BW_250_KHZ,    250000UL },
+        { BW_500_KHZ,    500000UL },
+    };
 
-        case BW_10_4_KHZ:
-            return 10400UL;
-
-        case BW_15_6_KHZ:
-            return 15600UL;
-
-        case BW_20_8_KHZ:
-            return 20800UL;
-
-        case BW_31_25_KHZ:
-            return 31250UL;
-
-        case BW_41_7_KHZ:
-            return 41700UL;
-
-        case BW_62_5_KHZ:
-            return 62500UL;
-
-        case BW_125_KHZ:
-            return 125000UL;
-
-        case BW_250_KHZ:
-            return 250000UL;
-
-        case BW_500_KHZ:
-            return 500000UL;
-
-        default:
-            return 0UL;
+    for (uint8_t i = 0; i < sizeof(bw_table) / sizeof(bw_table[0]); i++)
+    {
+        if (bw_table[i].bw == bw)
+        {
+            return bw_table[i].hz;
+        }
     }
+
+    return 0UL; // BW desconocido
 }
 
 /**
@@ -498,8 +511,7 @@ static SX1262_Status_t sx1262_TransmitBlocking(uint8_t *data, uint8_t length,
     SX1262_Status_t st = SX1262_OK;
 
     // Set Standby
-    buf[0] = SX126X_STANDBY_RC;
-    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
+    st = st ? st : sx1262_Standby();
 
     // Buffer base address
     buf[0] = 0x00; // TX Base
@@ -513,9 +525,7 @@ static SX1262_Status_t sx1262_TransmitBlocking(uint8_t *data, uint8_t length,
     st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_PACKET_PARAMS, pkt_params, pp_len);
 
     // Limpiar alertas (Clear IRQ)
-    buf[0] = 0x03;
-    buf[1] = 0xFF; // Limpiar todo (0x03FF)
-    st = st ? st : sx1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2);
+    st = st ? st : sx1262_ClearIrq();
 
     // Habilitar DIO1 para TxDone y TxTimeout
     uint16_t irqMask = SX126X_IRQ_TX_DONE | SX126X_IRQ_TIMEOUT;
@@ -552,12 +562,9 @@ static SX1262_Status_t sx1262_TransmitBlocking(uint8_t *data, uint8_t length,
             // Timeout de software: volver a Standby y limpiar IRQ (best-effort).
             // El evento real es un timeout, así que se reporta como tal aunque la
             // limpieza falle.
-            buf[0] = SX126X_STANDBY_RC;
-            sx1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
+            sx1262_Standby();
 
-            buf[0] = 0x03;
-            buf[1] = 0xFF;
-            sx1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2);
+            sx1262_ClearIrq();
 
             return SX1262_TIMEOUT;
         }
@@ -573,15 +580,12 @@ static SX1262_Status_t sx1262_TransmitBlocking(uint8_t *data, uint8_t length,
     uint16_t irqReg = ((uint16_t)irqStatus[0] << 8) | irqStatus[1];
 
     // Limpiar IRQ siempre antes de retornar
-    buf[0] = 0x03;
-    buf[1] = 0xFF;
-    sx1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2);
+    sx1262_ClearIrq();
 
     // Evaluar resultado: TIMEOUT tiene prioridad sobre TX_DONE ausente
     if (irqReg & SX126X_IRQ_TIMEOUT)
     {
-        buf[0] = SX126X_STANDBY_RC;
-        sx1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
+        sx1262_Standby();
         return SX1262_TIMEOUT;
     }
 
@@ -635,8 +639,7 @@ SX1262_Status_t SX1262_Init(SPI_HandleTypeDef *hspi,
     SX1262_Wakeup();
 
     // 1. Standby RC mode
-    buf[0] = SX126X_STANDBY_RC;
-    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
+    st = st ? st : sx1262_Standby();
 
     // 2. Set Packet Type (LORA)
     buf[0] = SX126X_PACKET_TYPE_LORA;
@@ -780,8 +783,7 @@ SX1262_Status_t SX1262_LoRa_StartTransmitIT(uint8_t *data, uint8_t length)
     SX1262_Status_t st = SX1262_OK;
 
     // 1. Standby RC (chip debe estar en Standby antes de configurar TX)
-    buf[0] = SX126X_STANDBY_RC;
-    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
+    st = st ? st : sx1262_Standby();
 
     // 2. Fijar base addresses del buffer interno
     buf[0] = 0x00; // TX base en offset 0
@@ -801,9 +803,7 @@ SX1262_Status_t SX1262_LoRa_StartTransmitIT(uint8_t *data, uint8_t length)
     st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_PACKET_PARAMS, buf, 6);
 
     // 5. Limpiar IRQ pendientes
-    buf[0] = 0x03;
-    buf[1] = 0xFF; // Limpiar todos los bits (0x03FF)
-    st = st ? st : sx1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2);
+    st = st ? st : sx1262_ClearIrq();
 
     // 6. Enrutar TX_DONE y TIMEOUT a DIO1
     uint16_t irqMask = SX126X_IRQ_TX_DONE | SX126X_IRQ_TIMEOUT;
@@ -856,8 +856,6 @@ SX1262_Status_t SX1262_LoRa_GetTransmitStatus(void)
         return SX1262_NOT_INITIALIZED;
     }
 
-    uint8_t buf[2];
-
     // 1. Leer registro IRQ del chip
     uint8_t irqStatus[2];
 
@@ -871,9 +869,7 @@ SX1262_Status_t SX1262_LoRa_GetTransmitStatus(void)
     uint16_t irqReg = ((uint16_t)irqStatus[0] << 8) | irqStatus[1];
 
     // 2. Limpiar IRQ siempre (independientemente del resultado)
-    buf[0] = 0x03;
-    buf[1] = 0xFF;
-    sx1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2);
+    sx1262_ClearIrq();
 
     // 3. Liberar semáforo — TX ya terminó (con éxito o error)
     SX1262_TxActive = 0;
@@ -881,8 +877,7 @@ SX1262_Status_t SX1262_LoRa_GetTransmitStatus(void)
     // 4. Evaluar resultado: TIMEOUT tiene prioridad sobre TX_DONE ausente
     if (irqReg & SX126X_IRQ_TIMEOUT)
     {
-        buf[0] = SX126X_STANDBY_RC;
-        sx1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
+        sx1262_Standby();
         return SX1262_TIMEOUT;
     }
 
@@ -905,11 +900,8 @@ SX1262_Status_t SX1262_LoRa_AbortTransmit(void)
         return SX1262_NOT_INITIALIZED;
     }
 
-    uint8_t buf[2];
-
     // Regresar a Standby RC para detener la transmisión
-    buf[0] = SX126X_STANDBY_RC;
-    SX1262_Status_t st = sx1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
+    SX1262_Status_t st = sx1262_Standby();
     if (st != SX1262_OK)
     {
         SX1262_TxActive = 0; // Liberar semáforo aunque falle el comando
@@ -917,9 +909,7 @@ SX1262_Status_t SX1262_LoRa_AbortTransmit(void)
     }
 
     // Limpiar IRQ residuales
-    buf[0] = 0x03;
-    buf[1] = 0xFF;
-    sx1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2);
+    sx1262_ClearIrq();
 
     // Liberar semáforo
     SX1262_TxActive = 0;
@@ -945,13 +935,10 @@ static SX1262_Status_t sx1262_ArmRx(uint32_t chipTimeout)
     SX1262_Status_t st = SX1262_OK;
 
     // Set Standby
-    buf[0] = SX126X_STANDBY_RC;
-    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
+    st = st ? st : sx1262_Standby();
 
     // Limpiar IRQ pendientes
-    buf[0] = 0x03;
-    buf[1] = 0xFF;
-    st = st ? st : sx1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2);
+    st = st ? st : sx1262_ClearIrq();
 
     // Habilitar IRQs en DIO1: RxDone | Timeout | CRC_ERR | HeaderErr
     // HeaderErr (bit 4) se incluye para detectar paquetes con header inválido.
@@ -1018,8 +1005,7 @@ SX1262_Status_t SX1262_LoRa_Receive(uint8_t *data, uint8_t *length, uint32_t tim
         if (timeout_ms != 0 && (HAL_GetTick() - start) > (timeout_ms + 100))
         {
             // Timeout de software: volver a Standby (best-effort) y reportar timeout
-            uint8_t buf[1] = { SX126X_STANDBY_RC };
-            sx1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
+            sx1262_Standby();
             return SX1262_TIMEOUT; // Timeout de soft-check
         }
     }
@@ -1085,8 +1071,6 @@ SX1262_Status_t SX1262_LoRa_GetReceivedPacket(uint8_t *data, uint8_t *length)
         return SX1262_INVALID_PARAM;
     }
 
-    uint8_t buf[2];
-
     // 1. Leer registro IRQ del chip
     uint8_t irqStatus[2];
     SX1262_Status_t st = sx1262_ReadCommand(SX126X_CMD_GET_IRQ_STATUS, irqStatus, 2);
@@ -1097,9 +1081,7 @@ SX1262_Status_t SX1262_LoRa_GetReceivedPacket(uint8_t *data, uint8_t *length)
     uint16_t irqReg = ((uint16_t)irqStatus[0] << 8) | irqStatus[1];
 
     // 2. Limpiar IRQ siempre (independientemente del resultado)
-    buf[0] = 0x03;
-    buf[1] = 0xFF;
-    sx1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2);
+    sx1262_ClearIrq();
 
     // 3. Evaluar bits de error con prioridad:
     //    TIMEOUT > CRC_ERR > HEADER_ERR > ausencia de RX_DONE
@@ -1150,24 +1132,19 @@ SX1262_Status_t SX1262_LoRa_AbortReceive(void)
         return SX1262_NOT_INITIALIZED;
     }
 
-    uint8_t buf[2];
-
     // Liberar el semáforo de RX aunque el comando falle: la intención es
     // abandonar el modo RX, y dejarlo en 1 impediría rearmar RX más tarde.
     SX1262_RxActive = 0;
 
     // Regresar a Standby RC para detener la escucha
-    buf[0] = SX126X_STANDBY_RC;
-    SX1262_Status_t st = sx1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
+    SX1262_Status_t st = sx1262_Standby();
     if (st != SX1262_OK)
     {
         return st;
     }
 
     // Limpiar IRQ residuales
-    buf[0] = 0x03;
-    buf[1] = 0xFF;
-    sx1262_WriteCommand(SX126X_CMD_CLEAR_IRQ_STATUS, buf, 2);
+    sx1262_ClearIrq();
 
     return SX1262_OK;
 }
@@ -1208,8 +1185,7 @@ SX1262_Status_t SX1262_LoRa_ApplyConfig(const lora_config_t *config)
     SX1262_Status_t st = SX1262_OK;
 
     // Modo Standby RC necesario para configurar
-    buf[0] = SX126X_STANDBY_RC;
-    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
+    st = st ? st : sx1262_Standby();
 
     // --- 1. FRECUENCIA ---
     uint32_t frf = (uint32_t)(((uint64_t)config->frequency * 16384ULL) / 15625ULL);
@@ -1455,8 +1431,7 @@ SX1262_Status_t SX1262_FSK_ApplyConfig(fsk_config_t *config)
     SX1262_Status_t st = SX1262_OK;
 
     // Modo Standby RC necesario para configurar
-    buf[0] = SX126X_STANDBY_RC;
-    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
+    st = st ? st : sx1262_Standby();
 
     // --- 1. TIPO DE PAQUETE: GFSK ---
     buf[0] = SX126X_PACKET_TYPE_GFSK;
