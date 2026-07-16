@@ -286,11 +286,15 @@ extern const lora_config_t ShortFast;
 extern volatile uint8_t SX1262_LoRa_RxDoneFlag;
 
 /**
- * @brief Bandera de transmisión LoRa activada por el ISR cuando DIO1 sube (TX_DONE).
+ * @brief Bandera de transmisión activada por el ISR cuando DIO1 sube (TX_DONE).
  *
  *        El ISR (vía SX1262_IRQ_Handler) la pone en 1 cuando el chip
  *        está en modo TX activo (SX1262_TxActive == 1).
  *        El main loop debe ponerla en 0 antes de consumirla.
+ *        Compartida por ambos modos: una TX iniciada con
+ *        SX1262_FSK_StartTransmitIT() también señaliza aquí, y se consume con
+ *        SX1262_FSK_GetTransmitStatus(). El nombre conserva el prefijo LoRa_
+ *        por compatibilidad con la API existente.
  *        Declarada volatile para forzar lectura directa desde RAM y evitar
  *        optimizaciones del compilador que omitan la actualización del ISR.
  *
@@ -622,9 +626,82 @@ SX1262_Status_t SX1262_LoRa_GetConfig(lora_config_t *config);
  * @return SX1262_Status_t SX1262_OK si la transmisión fue exitosa,
  *                         SX1262_INVALID_PARAM si data es NULL o length es 0,
  *                         SX1262_NOT_INITIALIZED si no se inicializó,
+ *                         SX1262_TX_BUSY si hay una TX no bloqueante en curso
+ *                         iniciada con SX1262_FSK_StartTransmitIT(),
  *                         SX1262_TIMEOUT/SX1262_ERROR ante fallos de TX o SPI.
  */
 SX1262_Status_t SX1262_FSK_Transmit(uint8_t* data, uint8_t length);
+
+// ----------------------------------------------------------------------------
+// Transmisión FSK — No Bloqueante (basada en interrupciones EXTI en DIO1)
+// ----------------------------------------------------------------------------
+
+/**
+ * @brief Inicia la transmisión de un paquete FSK y retorna inmediatamente.
+ *
+ *        Configura el chip en modo TX y habilita la interrupción TX_DONE
+ *        en DIO1. El evento de transmisión completada se señaliza mediante
+ *        SX1262_LoRa_TxDoneFlag, activada desde el ISR a través de
+ *        SX1262_IRQ_Handler(). La bandera es común a ambos modos: conserva el
+ *        prefijo LoRa_ por compatibilidad con la API existente.
+ *
+ *        Requiere que DIO1 esté configurado como EXTI flanco de subida
+ *        en STM32CubeMX, que HAL_GPIO_EXTI_Callback llame a
+ *        SX1262_IRQ_Handler(), y que el chip esté en modo GFSK: llamar antes a
+ *        SX1262_FSK_ApplyConfig().
+ *
+ *        No puede llamarse si ya hay una transmisión en curso; en ese
+ *        caso retorna SX1262_TX_BUSY.
+ *
+ * @param data   Puntero al buffer de datos a transmitir.
+ * @param length Longitud de los datos (máximo 255 bytes).
+ * @return SX1262_Status_t SX1262_OK      si el chip entró en modo TX,
+ *                         SX1262_TX_BUSY si ya hay una TX en curso,
+ *                         SX1262_INVALID_PARAM si data es NULL o length es 0,
+ *                         SX1262_ERROR   si falla SPI o si no se ha llamado a
+ *                                        SX1262_FSK_ApplyConfig(),
+ *                         SX1262_NOT_INITIALIZED si no se inicializó.
+ *
+ * Patrón de uso:
+ * @code
+ *   SX1262_FSK_StartTransmitIT(buf, len);
+ *   // ... el CPU queda libre ...
+ *   if (SX1262_LoRa_TxDoneFlag) {
+ *       SX1262_LoRa_TxDoneFlag = 0;
+ *       SX1262_Status_t result = SX1262_FSK_GetTransmitStatus();
+ *   }
+ * @endcode
+ */
+SX1262_Status_t SX1262_FSK_StartTransmitIT(uint8_t* data, uint8_t length);
+
+/**
+ * @brief Verifica el resultado de la transmisión FSK tras SX1262_LoRa_TxDoneFlag == 1.
+ *
+ *        Debe llamarse SOLO desde el main loop cuando SX1262_LoRa_TxDoneFlag == 1.
+ *        NO llamar desde el ISR.
+ *
+ *        Lee el registro IRQ del chip, verifica TX_DONE vs TIMEOUT,
+ *        limpia el registro IRQ y libera el semáforo TxActive.
+ *
+ * @return SX1262_Status_t SX1262_OK      si TX_DONE confirmado,
+ *                         SX1262_TIMEOUT si el chip reporta timeout interno,
+ *                         SX1262_ERROR   si DIO1 subió sin TX_DONE válido,
+ *                         SX1262_NOT_INITIALIZED si no se inicializó.
+ */
+SX1262_Status_t SX1262_FSK_GetTransmitStatus(void);
+
+/**
+ * @brief Cancela la transmisión FSK en curso y regresa el chip al modo Standby RC.
+ *
+ *        Útil para implementar timeouts de software sin bloquear el CPU:
+ *        el main loop puede llamar esta función si SX1262_LoRa_TxDoneFlag no se
+ *        activa en el tiempo esperado.
+ *
+ * @return SX1262_Status_t SX1262_OK    si el chip volvió a Standby,
+ *                         SX1262_ERROR si falla la escritura SPI,
+ *                         SX1262_NOT_INITIALIZED si no se inicializó.
+ */
+SX1262_Status_t SX1262_FSK_AbortTransmit(void);
 
 /**
  * @brief Aplica la configuración de modulación FSK/GFSK al chip.
