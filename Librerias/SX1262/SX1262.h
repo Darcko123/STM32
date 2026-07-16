@@ -547,6 +547,20 @@ SX1262_Status_t SX1262_LoRa_AbortReceive(void);
 SX1262_Status_t SX1262_LoRa_ApplyConfig(const lora_config_t *config);
 
 /**
+ * @brief Retorna una copia de la configuración LoRa actualmente aplicada al chip.
+ *
+ *        No realiza ninguna comunicación SPI. Refleja el estado enviado en la
+ *        última llamada exitosa a SX1262_LoRa_ApplyConfig(). El campo config_pending
+ *        de la copia siempre será false.
+ *
+ * @param config    Puntero a la estructura donde se copiará la configuración actual.
+ * @return SX1262_Status_t SX1262_OK si se copió la configuración,
+ *                         SX1262_INVALID_PARAM si config es NULL,
+ *                         SX1262_NOT_INITIALIZED si no se inicializó.
+ */
+SX1262_Status_t SX1262_LoRa_GetConfig(lora_config_t *config);
+
+/**
  * @brief Obtiene el RSSI y el SNR del último paquete LoRa recibido en una sola lectura.
  *
  *        Usa el comando GetPacketStatus (0x14), que devuelve ambas métricas en la
@@ -595,20 +609,6 @@ SX1262_Status_t SX1262_LoRa_GetRSSI(int16_t *rssi_dbm);
  *                         SX1262_ERROR ante fallos de SPI.
  */
 SX1262_Status_t SX1262_LoRa_GetSNR(int8_t *snr_db);
-
-/**
- * @brief Retorna una copia de la configuración LoRa actualmente aplicada al chip.
- *
- *        No realiza ninguna comunicación SPI. Refleja el estado enviado en la
- *        última llamada exitosa a SX1262_LoRa_ApplyConfig(). El campo config_pending
- *        de la copia siempre será false.
- *
- * @param config    Puntero a la estructura donde se copiará la configuración actual.
- * @return SX1262_Status_t SX1262_OK si se copió la configuración,
- *                         SX1262_INVALID_PARAM si config es NULL,
- *                         SX1262_NOT_INITIALIZED si no se inicializó.
- */
-SX1262_Status_t SX1262_LoRa_GetConfig(lora_config_t *config);
 
 // ----------------------------------------------------------------------------
 // Configuración FSK/GFSK
@@ -702,6 +702,30 @@ SX1262_Status_t SX1262_FSK_GetTransmitStatus(void);
  *                         SX1262_NOT_INITIALIZED si no se inicializó.
  */
 SX1262_Status_t SX1262_FSK_AbortTransmit(void);
+
+// ----------------------------------------------------------------------------
+// Recepción FSK — Bloqueante
+// ----------------------------------------------------------------------------
+
+/**
+ * @brief Recibe datos a través del módulo SX1262 en modo FSK (bloqueante).
+ *
+ *        Arma el chip en modo RX y bloquea hasta que DIO1 sube (RX_DONE,
+ *        timeout de chip o error) o hasta agotar el timeout de software.
+ *        Requiere que el chip esté en modo GFSK: llamar antes a
+ *        SX1262_FSK_ApplyConfig().
+ *
+ * @param data Puntero al buffer donde se almacenarán los datos recibidos.
+ * @param length Puntero a una variable donde se almacenará la longitud de los datos recibidos.
+ * @param timeout_ms Tiempo máximo de espera para recibir datos (en milisegundos). Si es 0, espera indefinidamente.
+ * @return SX1262_Status_t SX1262_OK si se recibió un paquete válido,
+ *                         SX1262_INVALID_PARAM si data o length son NULL,
+ *                         SX1262_NOT_INITIALIZED si no se inicializó,
+ *                         SX1262_ERROR si no se ha llamado a SX1262_FSK_ApplyConfig()
+ *                         o ante CRC/fallos de RX/SPI,
+ *                         SX1262_TIMEOUT ante timeout de chip o de software.
+ */
+SX1262_Status_t SX1262_FSK_Receive(uint8_t* data, uint8_t* length, uint32_t timeout_ms);
 
 /**
  * @brief Aplica la configuración de modulación FSK/GFSK al chip.
