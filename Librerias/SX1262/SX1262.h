@@ -790,23 +790,18 @@ SX1262_Status_t SX1262_FSK_StartReceiveIT(void);
 SX1262_Status_t SX1262_FSK_GetReceivedPacket(uint8_t* data, uint8_t* length);
 
 /**
- * @brief Lee el payload del paquete FSK recibido.
+ * @brief Cancela la recepción FSK en curso y regresa el chip al modo Standby RC.
  *
- *        Debe llamarse SOLO desde el main loop cuando SX1262_FSK_RxDoneFlag == 1.
- *        NO llamar desde el ISR.
+ *        Útil para implementar timeouts de software sin bloquear el CPU:
+ *        el main loop puede llamar esta función si SX1262_LoRa_RxDoneFlag no se
+ *        activa en el tiempo esperado. Envoltorio sobre el mismo aborto interno
+ *        que SX1262_LoRa_AbortReceive(), que es agnóstico al modo de modulación.
  *
- *        Lee el registro IRQ del chip, verifica RX_DONE vs TIMEOUT/CRC_ERR,
- *        obtiene el offset y tamaño del paquete con GetRxBufferStatus,
- *        lee el payload con ReadBuffer y limpia el registro IRQ.
- *
- * @param data   Puntero al buffer donde se almacenarán los datos recibidos.
- * @param length Puntero donde se escribirá la longitud del paquete (bytes).
- * @return SX1262_Status_t SX1262_OK si el paquete es válido,
- *                         SX1262_INVALID_PARAM si data o length son NULL,
- *                         SX1262_TIMEOUT si el IRQ indica timeout interno del chip,
- *                         SX1262_ERROR si hay CRC, header inválido o fallo SPI.
+ * @return SX1262_Status_t SX1262_OK si el chip volvió a Standby,
+ *                         SX1262_ERROR si falla la escritura SPI,
+ *                         SX1262_NOT_INITIALIZED si no se inicializó.
  */
-SX1262_Status_t SX1262_FSK_GetReceivedPacket(uint8_t* data, uint8_t* length);
+SX1262_Status_t SX1262_FSK_AbortReceive(void);
 
 /**
  * @brief Aplica la configuración de modulación FSK/GFSK al chip.

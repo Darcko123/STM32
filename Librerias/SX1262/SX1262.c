@@ -773,6 +773,31 @@ static SX1262_Status_t sx1262_AbortTransmit(void)
     return SX1262_OK;
 }
 
+/**
+ * @brief Cancela la RX en curso: libera el semáforo SX1262_RxActive, fuerza
+ *        Standby RC y limpia los IRQ residuales. Común a LoRa y FSK.
+ *
+ * @return SX1262_Status_t SX1262_OK si el chip volvió a Standby.
+ */
+static SX1262_Status_t sx1262_AbortReceive(void)
+{
+    // Liberar el semáforo de RX aunque el comando falle: la intención es
+    // abandonar el modo RX, y dejarlo en 1 impediría rearmar RX más tarde.
+    SX1262_RxActive = 0;
+
+    // Regresar a Standby RC para detener la escucha
+    SX1262_Status_t st = sx1262_Standby();
+    if (st != SX1262_OK)
+    {
+        return st;
+    }
+
+    // Limpiar IRQ residuales
+    sx1262_ClearIrq();
+
+    return SX1262_OK;
+}
+
 // ============================================================================
 // FUNCIONES PÚBLICAS
 // ============================================================================
@@ -1109,21 +1134,7 @@ SX1262_Status_t SX1262_LoRa_AbortReceive(void)
         return SX1262_NOT_INITIALIZED;
     }
 
-    // Liberar el semáforo de RX aunque el comando falle: la intención es
-    // abandonar el modo RX, y dejarlo en 1 impediría rearmar RX más tarde.
-    SX1262_RxActive = 0;
-
-    // Regresar a Standby RC para detener la escucha
-    SX1262_Status_t st = sx1262_Standby();
-    if (st != SX1262_OK)
-    {
-        return st;
-    }
-
-    // Limpiar IRQ residuales
-    sx1262_ClearIrq();
-
-    return SX1262_OK;
+    return sx1262_AbortReceive();
 }
 
 /**
@@ -1565,6 +1576,19 @@ SX1262_Status_t SX1262_FSK_GetReceivedPacket(uint8_t *data, uint8_t *length)
     }
 
     return sx1262_GetReceivedPacket(data, length);
+}
+
+/**
+ * @brief Cancela la recepción FSK en curso y vuelve a Standby RC. Contrato en SX1262.h.
+ */
+SX1262_Status_t SX1262_FSK_AbortReceive(void)
+{
+    if (SX1262_Initialized != 1)
+    {
+        return SX1262_NOT_INITIALIZED;
+    }
+
+    return sx1262_AbortReceive();
 }
 
 // ============================================================================
