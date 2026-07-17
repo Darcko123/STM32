@@ -1550,6 +1550,23 @@ SX1262_Status_t SX1262_FSK_StartReceiveIT(void)
     return st;
 }
 
+/**
+ * @brief Lee el payload del paquete FSK recibido. Contrato en SX1262.h.
+ */
+SX1262_Status_t SX1262_FSK_GetReceivedPacket(uint8_t *data, uint8_t *length)
+{
+    if (SX1262_Initialized != 1)
+    {
+        return SX1262_NOT_INITIALIZED;
+    }
+    if (data == NULL || length == NULL)
+    {
+        return SX1262_INVALID_PARAM;
+    }
+
+    return sx1262_GetReceivedPacket(data, length);
+}
+
 // ============================================================================
 // CONFIGURACIÓN FSK/GFSK
 // ============================================================================

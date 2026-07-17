@@ -274,7 +274,7 @@ extern const lora_config_t ShortFast;
  *        El main loop debe ponerla en 0 antes de consumirla.
  *        Compartida por ambos modos: una RX iniciada con
  *        SX1262_FSK_StartReceiveIT() también señaliza aquí, y se consume con
- *        SX1262_LoRa_GetReceivedPacket(). El nombre conserva el prefijo LoRa_
+ *        SX1262_FSK_GetReceivedPacket(). El nombre conserva el prefijo LoRa_
  *        por compatibilidad con la API existente.
  *        Declarada volatile para forzar lectura directa desde RAM y evitar
  *        optimizaciones del compilador que omitan la actualización del ISR.
@@ -741,9 +741,8 @@ SX1262_Status_t SX1262_FSK_Receive(uint8_t* data, uint8_t* length, uint32_t time
  *        El evento de recepción se señaliza mediante SX1262_LoRa_RxDoneFlag
  *        (bandera compartida por ambos modos, ver su documentación), que es
  *        activada desde el ISR a través de SX1262_IRQ_Handler(). El payload
- *        se consume con SX1262_LoRa_GetReceivedPacket(), que es agnóstica al
- *        modo de modulación. Requiere que el chip esté en modo GFSK: llamar
- *        antes a SX1262_FSK_ApplyConfig().
+ *        se consume con SX1262_FSK_GetReceivedPacket(). Requiere que el chip
+ *        esté en modo GFSK: llamar antes a SX1262_FSK_ApplyConfig().
  *
  *        Requiere que DIO1 esté configurado como EXTI flanco de subida
  *        en STM32CubeMX y que HAL_GPIO_EXTI_Callback llame a SX1262_IRQ_Handler().
@@ -754,7 +753,7 @@ SX1262_Status_t SX1262_FSK_Receive(uint8_t* data, uint8_t* length, uint32_t time
  *   // ... en el main loop:
  *   if (SX1262_LoRa_RxDoneFlag) {
  *       SX1262_LoRa_RxDoneFlag = 0;
- *       SX1262_LoRa_GetReceivedPacket(buf, &len);
+ *       SX1262_FSK_GetReceivedPacket(buf, &len);
  *   }
  * @endcode
  *
@@ -766,6 +765,48 @@ SX1262_Status_t SX1262_FSK_Receive(uint8_t* data, uint8_t* length, uint32_t time
  *                         SX1262_NOT_INITIALIZED si no se inicializó.
  */
 SX1262_Status_t SX1262_FSK_StartReceiveIT(void);
+
+/**
+ * @brief Lee el payload del paquete FSK recibido.
+ *
+ *        Debe llamarse SOLO desde el main loop cuando SX1262_LoRa_RxDoneFlag == 1
+ *        (bandera compartida por ambos modos, ver su documentación).
+ *        NO llamar desde el ISR.
+ *
+ *        Lee el registro IRQ del chip, verifica RX_DONE vs TIMEOUT/CRC_ERR,
+ *        obtiene el offset y tamaño del paquete con GetRxBufferStatus,
+ *        lee el payload con ReadBuffer y limpia el registro IRQ. Envoltorio
+ *        sobre el mismo lector interno que SX1262_LoRa_GetReceivedPacket(),
+ *        que es agnóstico al modo de modulación.
+ *
+ * @param data   Puntero al buffer donde se almacenarán los datos recibidos.
+ * @param length Puntero donde se escribirá la longitud del paquete (bytes).
+ * @return SX1262_Status_t SX1262_OK si el paquete es válido,
+ *                         SX1262_INVALID_PARAM si data o length son NULL,
+ *                         SX1262_NOT_INITIALIZED si no se inicializó,
+ *                         SX1262_TIMEOUT si el IRQ indica timeout interno del chip,
+ *                         SX1262_ERROR si hay CRC, header inválido o fallo SPI.
+ */
+SX1262_Status_t SX1262_FSK_GetReceivedPacket(uint8_t* data, uint8_t* length);
+
+/**
+ * @brief Lee el payload del paquete FSK recibido.
+ *
+ *        Debe llamarse SOLO desde el main loop cuando SX1262_FSK_RxDoneFlag == 1.
+ *        NO llamar desde el ISR.
+ *
+ *        Lee el registro IRQ del chip, verifica RX_DONE vs TIMEOUT/CRC_ERR,
+ *        obtiene el offset y tamaño del paquete con GetRxBufferStatus,
+ *        lee el payload con ReadBuffer y limpia el registro IRQ.
+ *
+ * @param data   Puntero al buffer donde se almacenarán los datos recibidos.
+ * @param length Puntero donde se escribirá la longitud del paquete (bytes).
+ * @return SX1262_Status_t SX1262_OK si el paquete es válido,
+ *                         SX1262_INVALID_PARAM si data o length son NULL,
+ *                         SX1262_TIMEOUT si el IRQ indica timeout interno del chip,
+ *                         SX1262_ERROR si hay CRC, header inválido o fallo SPI.
+ */
+SX1262_Status_t SX1262_FSK_GetReceivedPacket(uint8_t* data, uint8_t* length);
 
 /**
  * @brief Aplica la configuración de modulación FSK/GFSK al chip.
