@@ -1501,6 +1501,55 @@ SX1262_Status_t SX1262_FSK_Receive(uint8_t *data, uint8_t *length, uint32_t time
     return sx1262_GetReceivedPacket(data, length);
 }
 
+// ----------------------------------------------------------------------------
+// Recepción FSK — No Bloqueante (basada en interrupciones EXTI en DIO1)
+// ----------------------------------------------------------------------------
+
+/**
+ * @brief Arma el modo RX FSK continuo y retorna inmediatamente. Contrato en SX1262.h.
+ */
+SX1262_Status_t SX1262_FSK_StartReceiveIT(void)
+{
+    if (SX1262_Initialized != 1)
+    {
+        return SX1262_NOT_INITIALIZED;
+    }
+
+    if (SX1262_FSK_CurrentConfig.config_pending)
+    {
+        return SX1262_ERROR; // Llamar a SX1262_FSK_ApplyConfig() antes de recibir
+    }
+
+    if (SX1262_TxActive)
+    {
+        // Hay una TX IT en vuelo. Armar RX ahora forzaría Standby sobre la TX y
+        // el dispatcher del ISR (SX1262_IRQ_Handler) despacharía mal el flanco DIO1.
+        return SX1262_TX_BUSY;
+    }
+
+    if (SX1262_RxActive)
+    {
+        return SX1262_RX_BUSY; // Ya hay una recepción IT (RX continuo) en curso
+    }
+
+    // RX continuo: timeout de chip 0xFFFFFF => el chip nunca abandona la escucha.
+    // sx1262_ArmRx es agnóstico al modo de modulación: la secuencia Standby/
+    // ClearIrq/SetDioIrq/SetRx es idéntica en LoRa y GFSK (el chip ya está en
+    // GFSK tras ApplyConfig).
+    SX1262_Status_t st = sx1262_ArmRx(0xFFFFFF);
+
+    // Marcar RX activa solo si toda la secuencia de configuración tuvo éxito.
+    // RX es continuo (timeout 0xFFFFFF): la bandera se mantiene tras cada RxDone
+    // y solo se libera en AbortReceive o al iniciar una TX (StartTransmitIT).
+    if (st == SX1262_OK)
+    {
+        SX1262_RxActive = 1;
+    }
+
+    // Retorno inmediato — sin polling en DIO1
+    return st;
+}
+
 // ============================================================================
 // CONFIGURACIÓN FSK/GFSK
 // ============================================================================

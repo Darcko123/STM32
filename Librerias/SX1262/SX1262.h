@@ -272,6 +272,10 @@ extern const lora_config_t ShortFast;
  *        El ISR (vía SX1262_IRQ_Handler) la pone en 1 cuando el chip
  *        no está transmitiendo activamente (SX1262_TxActive == 0).
  *        El main loop debe ponerla en 0 antes de consumirla.
+ *        Compartida por ambos modos: una RX iniciada con
+ *        SX1262_FSK_StartReceiveIT() también señaliza aquí, y se consume con
+ *        SX1262_LoRa_GetReceivedPacket(). El nombre conserva el prefijo LoRa_
+ *        por compatibilidad con la API existente.
  *        Declarada volatile para forzar lectura directa desde RAM y evitar
  *        optimizaciones del compilador que omitan la actualización del ISR.
  *
@@ -726,6 +730,42 @@ SX1262_Status_t SX1262_FSK_AbortTransmit(void);
  *                         SX1262_TIMEOUT ante timeout de chip o de software.
  */
 SX1262_Status_t SX1262_FSK_Receive(uint8_t* data, uint8_t* length, uint32_t timeout_ms);
+
+// ----------------------------------------------------------------------------
+// Recepción FSK — No Bloqueante (basada en interrupciones EXTI en DIO1)
+// ----------------------------------------------------------------------------
+
+/**
+ * @brief Configura el chip en modo RX FSK continuo y retorna inmediatamente.
+ *
+ *        El evento de recepción se señaliza mediante SX1262_LoRa_RxDoneFlag
+ *        (bandera compartida por ambos modos, ver su documentación), que es
+ *        activada desde el ISR a través de SX1262_IRQ_Handler(). El payload
+ *        se consume con SX1262_LoRa_GetReceivedPacket(), que es agnóstica al
+ *        modo de modulación. Requiere que el chip esté en modo GFSK: llamar
+ *        antes a SX1262_FSK_ApplyConfig().
+ *
+ *        Requiere que DIO1 esté configurado como EXTI flanco de subida
+ *        en STM32CubeMX y que HAL_GPIO_EXTI_Callback llame a SX1262_IRQ_Handler().
+ *
+ * Patrón de uso:
+ * @code
+ *   SX1262_FSK_StartReceiveIT();
+ *   // ... en el main loop:
+ *   if (SX1262_LoRa_RxDoneFlag) {
+ *       SX1262_LoRa_RxDoneFlag = 0;
+ *       SX1262_LoRa_GetReceivedPacket(buf, &len);
+ *   }
+ * @endcode
+ *
+ * @return SX1262_Status_t SX1262_OK si el chip entró en modo RX,
+ *                         SX1262_TX_BUSY si hay una TX IT en vuelo,
+ *                         SX1262_RX_BUSY si ya hay una RX IT (RX continuo) en curso,
+ *                         SX1262_ERROR si falla SPI o si no se ha llamado a
+ *                         SX1262_FSK_ApplyConfig(),
+ *                         SX1262_NOT_INITIALIZED si no se inicializó.
+ */
+SX1262_Status_t SX1262_FSK_StartReceiveIT(void);
 
 /**
  * @brief Aplica la configuración de modulación FSK/GFSK al chip.
