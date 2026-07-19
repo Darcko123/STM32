@@ -243,7 +243,10 @@ typedef enum {
     SX1262_NOT_INITIALIZED = 3,     /**< Módulo no inicializado */
     SX1262_INVALID_PARAM   = 4,     /**< Parámetro inválido */
     SX1262_RX_BUSY         = 5,     /**< El módulo está en modo RX, esperando paquete (modo IT) */
-    SX1262_TX_BUSY         = 6      /**< El módulo está en modo TX, enviando paquete (modo IT) */
+    SX1262_TX_BUSY         = 6,     /**< El módulo está en modo TX, enviando paquete (modo IT) */
+    SX1262_RX_NO_PACKET    = 7      /**< DIO1 subió sin paquete completo: flanco espurio o
+                                         falso sync detectado en el ruido. Evento benigno:
+                                         el chip sigue en RX continuo, no hay que rearmar. */
 } SX1262_Status_t;
 
 // ============================================================================
@@ -836,6 +839,23 @@ SX1262_Status_t SX1262_FSK_ApplyConfig(fsk_config_t *config);
  *                         SX1262_NOT_INITIALIZED si no se inicializó.
  */
 SX1262_Status_t SX1262_FSK_GetConfig(fsk_config_t *config);
+
+// ----------------------------------------------------------------------------
+// Diagnóstico
+// ----------------------------------------------------------------------------
+
+/**
+ * @brief Retorna el último registro IRQ leído al consumir un evento RX.
+ *
+ *        No realiza comunicación SPI: devuelve el valor cacheado durante la
+ *        última llamada a SX1262_LoRa_GetReceivedPacket() /
+ *        SX1262_FSK_GetReceivedPacket(). Pensado para diagnosticar por qué una
+ *        recepción no devolvió SX1262_OK: los bits se interpretan con las
+ *        macros SX126X_IRQ_* (RX_DONE, CRC_ERR, TIMEOUT, etc.).
+ *
+ * @return uint16_t Registro IRQ (bits SX126X_IRQ_*), 0 si aún no hubo ninguna RX.
+ */
+uint16_t SX1262_GetLastIrqStatus(void);
 
 #ifdef __cplusplus
 }

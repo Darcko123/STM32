@@ -37,6 +37,14 @@ static lora_config_t  SX1262_LoRa_CurrentConfig;   /**< Configuración actual ap
 static fsk_config_t   SX1262_FSK_CurrentConfig;    /**< Configuración FSK actual (aplicada o cacheada por defecto) */
 
 /**
+ * @brief Último registro IRQ leído durante el consumo de un evento RX.
+ *        Solo para diagnóstico: permite al llamante saber qué bits levantó el
+ *        chip cuando GetReceivedPacket no devuelve SX1262_OK. Se expone con
+ *        SX1262_GetLastIrqStatus().
+ */
+static uint16_t SX1262_LastIrqStatus = 0;
+
+/**
  * @brief Bandera de recepción no bloqueante (productor: ISR, consumidor: main
  * loop). SX1262_IRQ_Handler() la activa a 1 cuando DIO1 sube y TxActive == 0.
  *        El main loop la lee, la pone a 0 y llama SX1262_LoRa_GetReceivedPacket().
@@ -537,6 +545,7 @@ static SX1262_Status_t sx1262_GetReceivedPacket(uint8_t *data, uint8_t *length)
         return st;
     }
     uint16_t irqReg = ((uint16_t)irqStatus[0] << 8) | irqStatus[1];
+    SX1262_LastIrqStatus = irqReg; // Cachear para diagnóstico (SX1262_GetLastIrqStatus)
 
     // 2. Limpiar IRQ siempre (independientemente del resultado)
     sx1262_ClearIrq();
@@ -555,8 +564,11 @@ static SX1262_Status_t sx1262_GetReceivedPacket(uint8_t *data, uint8_t *length)
 
     if ((irqReg & SX126X_IRQ_RX_DONE) == 0)
     {
-        // DIO1 subió pero RX_DONE no está activo: condición inesperada
-        return SX1262_ERROR;
+        // DIO1 subió sin RX_DONE ni bits de error. No es un fallo del enlace:
+        // suele ser un flanco espurio o un falso sync detectado en el ruido
+        // (probable con sync words cortos). El chip sigue en RX continuo, así
+        // que el llamante solo debe ignorar el evento y seguir escuchando.
+        return SX1262_RX_NO_PACKET;
     }
 
     // 4. Obtener offset y tamaño del paquete en el buffer interno
@@ -1725,6 +1737,14 @@ SX1262_Status_t SX1262_FSK_GetConfig(fsk_config_t *config)
     *config = SX1262_FSK_CurrentConfig;
 
     return SX1262_OK;
+}
+
+/**
+ * @brief Retorna el último registro IRQ leído en una RX. Contrato en SX1262.h.
+ */
+uint16_t SX1262_GetLastIrqStatus(void)
+{
+    return SX1262_LastIrqStatus;
 }
 
 /**
