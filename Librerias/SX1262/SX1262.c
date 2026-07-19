@@ -529,13 +529,17 @@ static SX1262_Status_t sx1262_WaitTxDone(uint32_t timeout_ms)
  *        (el bit HEADER_ERR nunca se activa en GFSK, por lo que su chequeo es
  *        inofensivo). Los llamantes públicos aportan la validación de estado.
  *
- * @param data   Buffer destino del payload recibido.
- * @param length Puntero donde se escribe la longitud del payload (bytes).
+ * @param data       Buffer destino del payload recibido.
+ * @param max_length Capacidad de `data` en bytes. El chip puede reportar hasta 255
+ *                   bytes y el tamaño lo decide el emisor, así que este límite es la
+ *                   única protección contra desbordar el buffer del llamante.
+ * @param length     Puntero donde se escribe la longitud del payload (bytes).
  * @return SX1262_Status_t SX1262_OK si el paquete es válido, SX1262_TIMEOUT si el
- *                         IRQ indica timeout de chip, SX1262_ERROR ante CRC/header
+ *                         IRQ indica timeout de chip, SX1262_RX_BUFFER_TOO_SMALL si
+ *                         el payload no cabe en `data`, SX1262_ERROR ante CRC/header
  *                         inválido, ausencia de RX_DONE o fallo SPI.
  */
-static SX1262_Status_t sx1262_GetReceivedPacket(uint8_t *data, uint8_t *length)
+static SX1262_Status_t sx1262_GetReceivedPacket(uint8_t *data, uint8_t max_length, uint8_t *length)
 {
     // 1. Leer registro IRQ del chip
     uint8_t irqStatus[2];
@@ -582,7 +586,18 @@ static SX1262_Status_t sx1262_GetReceivedPacket(uint8_t *data, uint8_t *length)
     *length = rxBufferStatus[0];        // Número de bytes del payload
     uint8_t offset = rxBufferStatus[1]; // Offset base en el buffer del chip
 
-    // 5. Leer payload desde el buffer interno del SX1262
+    // 5. El tamaño del payload lo decide el emisor (hasta 255 bytes), no la
+    //    configuración local: sin este chequeo un paquete grande desbordaría el
+    //    buffer del llamante. Se rechaza el paquete entero en lugar de truncarlo
+    //    —un payload parcial es indistinguible de uno íntegro para el llamante—
+    //    y *length ya trae el tamaño real para que pueda redimensionar su buffer.
+    //    El IRQ ya se limpió en el paso 2: el chip sigue en RX continuo.
+    if (*length > max_length)
+    {
+        return SX1262_RX_BUFFER_TOO_SMALL;
+    }
+
+    // 6. Leer payload desde el buffer interno del SX1262
     return sx1262_ReadBuffer(offset, data, *length);
 }
 
@@ -1028,14 +1043,14 @@ SX1262_Status_t SX1262_LoRa_AbortTransmit(void)
 /**
  * @brief Recibe datos en modo LoRa (bloqueante). Contrato en SX1262.h.
  */
-SX1262_Status_t SX1262_LoRa_Receive(uint8_t *data, uint8_t *length, uint32_t timeout_ms)
+SX1262_Status_t SX1262_LoRa_Receive(uint8_t *data, uint8_t max_length, uint8_t *length, uint32_t timeout_ms)
 {
     if (SX1262_Initialized != 1)
     {
         return SX1262_NOT_INITIALIZED;
     }
 
-    if (data == NULL || length == NULL)
+    if (data == NULL || length == NULL || max_length == 0)
     {
         return SX1262_INVALID_PARAM;
     }
@@ -1074,7 +1089,7 @@ SX1262_Status_t SX1262_LoRa_Receive(uint8_t *data, uint8_t *length, uint32_t tim
 
     // DIO1 en alto: evaluar el registro IRQ, leer el payload y limpiar. Es
     // exactamente el trabajo de la ruta IT, sin estado propio de la RX continua.
-    return SX1262_LoRa_GetReceivedPacket(data, length);
+    return SX1262_LoRa_GetReceivedPacket(data, max_length, length);
 }
 
 /**
@@ -1122,18 +1137,18 @@ SX1262_Status_t SX1262_LoRa_StartReceiveIT(void)
 /**
  * @brief Lee el payload del paquete LoRa recibido. Contrato en SX1262.h.
  */
-SX1262_Status_t SX1262_LoRa_GetReceivedPacket(uint8_t *data, uint8_t *length)
+SX1262_Status_t SX1262_LoRa_GetReceivedPacket(uint8_t *data, uint8_t max_length, uint8_t *length)
 {
     if (SX1262_Initialized != 1)
     {
         return SX1262_NOT_INITIALIZED;
     }
-    if (data == NULL || length == NULL)
+    if (data == NULL || length == NULL || max_length == 0)
     {
         return SX1262_INVALID_PARAM;
     }
 
-    return sx1262_GetReceivedPacket(data, length);
+    return sx1262_GetReceivedPacket(data, max_length, length);
 }
 
 /**
@@ -1474,14 +1489,14 @@ SX1262_Status_t SX1262_FSK_AbortTransmit(void)
 /**
  * @brief Recibe datos en modo FSK (bloqueante). Contrato en SX1262.h.
  */
-SX1262_Status_t SX1262_FSK_Receive(uint8_t *data, uint8_t *length, uint32_t timeout_ms)
+SX1262_Status_t SX1262_FSK_Receive(uint8_t *data, uint8_t max_length, uint8_t *length, uint32_t timeout_ms)
 {
     if (SX1262_Initialized != 1)
     {
         return SX1262_NOT_INITIALIZED;
     }
 
-    if (data == NULL || length == NULL)
+    if (data == NULL || length == NULL || max_length == 0)
     {
         return SX1262_INVALID_PARAM;
     }
@@ -1521,7 +1536,7 @@ SX1262_Status_t SX1262_FSK_Receive(uint8_t *data, uint8_t *length, uint32_t time
     }
 
     // DIO1 en alto: evaluar el registro IRQ, leer el payload y limpiar.
-    return sx1262_GetReceivedPacket(data, length);
+    return sx1262_GetReceivedPacket(data, max_length, length);
 }
 
 // ----------------------------------------------------------------------------
@@ -1576,18 +1591,18 @@ SX1262_Status_t SX1262_FSK_StartReceiveIT(void)
 /**
  * @brief Lee el payload del paquete FSK recibido. Contrato en SX1262.h.
  */
-SX1262_Status_t SX1262_FSK_GetReceivedPacket(uint8_t *data, uint8_t *length)
+SX1262_Status_t SX1262_FSK_GetReceivedPacket(uint8_t *data, uint8_t max_length, uint8_t *length)
 {
     if (SX1262_Initialized != 1)
     {
         return SX1262_NOT_INITIALIZED;
     }
-    if (data == NULL || length == NULL)
+    if (data == NULL || length == NULL || max_length == 0)
     {
         return SX1262_INVALID_PARAM;
     }
 
-    return sx1262_GetReceivedPacket(data, length);
+    return sx1262_GetReceivedPacket(data, max_length, length);
 }
 
 /**
