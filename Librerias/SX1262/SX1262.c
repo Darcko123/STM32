@@ -1685,7 +1685,12 @@ SX1262_Status_t SX1262_FSK_ApplyConfig(fsk_config_t *config)
     buf[3] = config->sync_word_len * 8U; // SyncWordLength en bits
     buf[4] = 0x00; // AddrComp: off
     buf[5] = config->fixed_length ? 0x00 : 0x01; // HeaderType: fijo/variable
-    buf[6] = config->payload_len;
+    // PayloadLength tiene doble significado (datasheet SX1262 §13.4.6): tamaño
+    // exacto del paquete en longitud fija, y tamaño MÁXIMO que el receptor
+    // acepta en longitud variable. Enviar 0 en modo variable haría que el chip
+    // descartara todo paquete entrante. La ruta de TX sobrescribe este campo con
+    // la longitud real del payload (ver SX1262_FSK_StartTransmitIT).
+    buf[6] = config->fixed_length ? config->payload_len : 255U;
     buf[7] = config->crc_type;
     buf[8] = config->whitening ? 0x01 : 0x00;
     st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_PACKET_PARAMS, buf, 9);

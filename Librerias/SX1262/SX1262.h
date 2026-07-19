@@ -24,7 +24,7 @@
 
 // ============================================================================
 // MACROS Y CONSTANTES DE COMANDOS SX1262
-// ============================================================================ 
+// ============================================================================
 #define SX126X_CMD_SET_SLEEP                  0x84
 #define SX126X_CMD_SET_STANDBY                0x80
 #define SX126X_CMD_SET_PACKET_TYPE            0x8A
@@ -61,7 +61,7 @@
 #define SX126X_SLEEP_START_COLD               0x01  /**< Pierde la configuración al despertar */
 #define SX126X_SLEEP_RTC_WAKEUP               0x04  /**< Permite despertar mediante el temporizador RTC */
 
-// IRQ Flags 
+// IRQ Flags
 #define SX126X_IRQ_TX_DONE                    (1 << 0)
 #define SX126X_IRQ_RX_DONE                    (1 << 1)
 #define SX126X_IRQ_PREAMBLE_DETECTED          (1 << 2)
@@ -224,7 +224,7 @@ typedef struct {
     uint8_t fsk_sync_word[8];           // Sync word bytes (default: 0x12, 0xAD)
     uint8_t sync_word_len;              // Sync word length (default: 2)
     bool fixed_length;                  // Fixed vs variable length packets
-    uint8_t payload_len;                // Payload length for fixed mode
+    uint8_t payload_len;                // Payload length for fixed mode (ignorado en longitud variable: la RX acepta hasta 255 bytes)
     fsk_crc_type_t crc_type;            // FSK_CRC_OFF / 1_BYTE / 2_BYTE / *_INV (default: FSK_CRC_2_BYTE)
     bool whitening;                     // Enable whitening (default: true)
     bool config_pending;                // true if changes not yet applied
