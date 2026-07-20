@@ -393,6 +393,32 @@ static uint8_t sx1262_ComputeLDRO(uint8_t sf, lora_signal_bandwidth_t bw)
 }
 
 /**
+ * @brief Devuelve el cadDetPeak recomendado para el Spreading Factor activo,
+ *        asumiendo un CAD de 2 símbolos.
+ *
+ *        cadDetPeak fija el umbral de correlación con el preámbulo LoRa: un valor
+ *        bajo dispara falsas detecciones sobre el ruido y uno alto hace que el
+ *        chip pase por alto señales débiles. El datasheet (§13.4.7) delega la
+ *        elección en la nota de aplicación de Semtech AN1200.48, de donde sale
+ *        esta tabla. Si en un entorno concreto abundan las falsas detecciones,
+ *        subir el valor una o dos unidades.
+ *
+ * @param sf Spreading Factor (5–12)
+ * @return uint8_t Valor de cadDetPeak
+ */
+static uint8_t sx1262_CadDetPeak(uint8_t sf)
+{
+    static const uint8_t det_peak[] = { 21, 21, 22, 22, 23, 24, 25, 28 }; // SF5..SF12
+
+    if (sf < 5 || sf > 12)
+    {
+        return 22; // SF fuera de rango: valor intermedio de la tabla
+    }
+
+    return det_peak[sf - 5];
+}
+
+/**
  * @brief Calcula el Time on Air (ToA) aproximado de un paquete LoRa en
  * milisegundos.
  *
@@ -498,15 +524,16 @@ static uint32_t sx1262_ComputeFskToA_ms(uint8_t payload_len, const fsk_config_t 
 }
 
 /**
- * @brief Espera activa a que DIO1 suba (TxDone o TxTimeout). Usado por las rutas
- *        bloqueantes de TX, que son la ruta IT con esta espera intercalada entre
- *        StartTransmitIT y GetTransmitStatus.
+ * @brief Espera activa a que DIO1 suba. Usado por las rutas bloqueantes de TX
+ *        (que son la ruta IT con esta espera intercalada entre StartTransmitIT y
+ *        GetTransmitStatus) y por el CAD. Es agnóstico al evento: quién decide
+ *        qué significa el flanco es el llamante, al leer el registro IRQ.
  *
  * @param timeout_ms Timeout de software para el bucle de espera en DIO1
  * @return SX1262_Status_t SX1262_OK si DIO1 subió, SX1262_TIMEOUT si expiró el
  *                         plazo sin evento.
  */
-static SX1262_Status_t sx1262_WaitTxDone(uint32_t timeout_ms)
+static SX1262_Status_t sx1262_WaitDio1(uint32_t timeout_ms)
 {
     uint32_t start = HAL_GetTick();
 
@@ -958,7 +985,7 @@ SX1262_Status_t SX1262_LoRa_Transmit(uint8_t *data, uint8_t length)
     uint32_t timeout_ms = toa_ms + toa_ms / 2U + 100U;
 
     // Esperar IRQ (DIO1 en alto => TxDone o TxTimeout)
-    if (sx1262_WaitTxDone(timeout_ms) != SX1262_OK)
+    if (sx1262_WaitDio1(timeout_ms) != SX1262_OK)
     {
         // Timeout de software: DIO1 nunca subió, así que GetTransmitStatus
         // no llegará a consumir el evento ni a liberar el semáforo. Abort
@@ -1162,6 +1189,128 @@ SX1262_Status_t SX1262_LoRa_AbortReceive(void)
     }
 
     return sx1262_AbortReceive();
+}
+
+/**
+ * @brief Ejecuta una detección de actividad en el canal (CAD). Contrato en SX1262.h.
+ */
+SX1262_Status_t SX1262_LoRa_ChannelActivityDetection(bool *activity_detected)
+{
+    if (SX1262_Initialized != 1)
+    {
+        return SX1262_NOT_INITIALIZED;
+    }
+
+    if (activity_detected == NULL)
+    {
+        return SX1262_INVALID_PARAM;
+    }
+
+    // El CAD depende del SF y el BW activos para su sensibilidad y su duración:
+    // con configuración sin aplicar, el resultado no describiría el canal real.
+    if (SX1262_LoRa_CurrentConfig.config_pending)
+    {
+        return SX1262_ERROR; // Llamar a SX1262_LoRa_ApplyConfig() antes del CAD
+    }
+
+    if (SX1262_TxActive)
+    {
+        // Hay una TX IT en vuelo. Lanzar un CAD ahora forzaría Standby sobre la TX
+        // y el dispatcher del ISR despacharía mal el flanco DIO1.
+        return SX1262_TX_BUSY;
+    }
+
+    *activity_detected = false;
+
+    uint8_t buf[8];
+    SX1262_Status_t st = SX1262_OK;
+
+    // 1. Standby RC (el chip debe estar en Standby antes de configurar el CAD).
+    //    Igual que en la ruta TX, el Standby cancela cualquier RX continuo previo:
+    //    liberar el semáforo para no dejar estado obsoleto.
+    st = st ? st : sx1262_Standby();
+    SX1262_RxActive = 0;
+
+    // 2. Limpiar IRQ pendientes
+    st = st ? st : sx1262_ClearIrq();
+
+    // 3. Parámetros del CAD (datasheet §13.4.7)
+    buf[0] = 0x01;                                                            // cadSymbolNum = CAD_ON_2_SYMB
+    buf[1] = sx1262_CadDetPeak(SX1262_LoRa_CurrentConfig.spreading_factor);   // cadDetPeak
+    buf[2] = 10;                                                              // cadDetMin (valor de AN1200.48, común a todos los SF)
+    buf[3] = 0x00;                                                            // cadExitMode = CAD_ONLY: al terminar vuelve a Standby RC
+    buf[4] = 0x00;                                                            // cadTimeout(23:0): solo se usa con CAD_RX
+    buf[5] = 0x00;
+    buf[6] = 0x00;
+    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_CAD_PARAMS, buf, 7);
+
+    // 4. Enrutar CAD_DONE y CAD_DETECTED a DIO1
+    uint16_t irqMask = SX126X_IRQ_CAD_DONE | SX126X_IRQ_CAD_DETECTED;
+    buf[0] = (irqMask >> 8) & 0xFF;
+    buf[1] = irqMask & 0xFF; // IRQ global mask
+    buf[2] = (irqMask >> 8) & 0xFF;
+    buf[3] = irqMask & 0xFF; // DIO1 mask
+    buf[4] = 0x00;
+    buf[5] = 0x00; // DIO2 (no usado)
+    buf[6] = 0x00;
+    buf[7] = 0x00; // DIO3 (no usado)
+    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_DIO_IRQ_PARAMS, buf, 8);
+
+    // 5. Lanzar el CAD (comando sin argumentos)
+    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_CAD, NULL, 0);
+
+    if (st != SX1262_OK)
+    {
+        return st;
+    }
+
+    // 6. Timeout de software derivado de la modulación activa: el CAD dura poco
+    //    más de los 2 símbolos analizados, así que 8 símbolos más un margen fijo
+    //    cubren cualquier combinación SF/BW sin colgar el bucle si DIO1 no sube.
+    uint32_t bw_hz = sx1262_BandwidthToHz(SX1262_LoRa_CurrentConfig.bandwidth);
+    uint32_t timeout_ms = 100U; // Valor de seguridad si el BW es inválido
+    if (bw_hz != 0)
+    {
+        // T_sym_us = (1 << SF) * 1_000_000 / BW_Hz  (64 bits: SF12/BW7.8k desborda 32)
+        uint64_t t_sym_us = ((uint64_t)1 << SX1262_LoRa_CurrentConfig.spreading_factor) * 1000000ULL / (uint64_t)bw_hz;
+        timeout_ms = (uint32_t)((t_sym_us * 8ULL) / 1000ULL) + 10U;
+    }
+
+    if (sx1262_WaitDio1(timeout_ms) != SX1262_OK)
+    {
+        // Sacar el chip del modo CAD antes de reportar (best-effort)
+        sx1262_Standby();
+        sx1262_ClearIrq();
+        return SX1262_TIMEOUT;
+    }
+
+    // 7. Leer el registro IRQ y limpiarlo
+    uint8_t irqStatus[2];
+    st = sx1262_ReadCommand(SX126X_CMD_GET_IRQ_STATUS, irqStatus, 2);
+    if (st != SX1262_OK)
+    {
+        return st;
+    }
+
+    uint16_t irqReg = ((uint16_t)irqStatus[0] << 8) | irqStatus[1];
+    SX1262_LastIrqStatus = irqReg; // Cachear para diagnóstico (SX1262_GetLastIrqStatus)
+
+    sx1262_ClearIrq();
+
+    // El flanco de DIO1 también despertó al ISR, que al no haber TX en curso marcó
+    // SX1262_LoRa_RxDoneFlag. El evento ya se consumió aquí: limpiarla para que el
+    // main loop no procese una recepción que nunca ocurrió.
+    SX1262_LoRa_RxDoneFlag = 0;
+
+    if ((irqReg & SX126X_IRQ_CAD_DONE) == 0)
+    {
+        return SX1262_ERROR; // DIO1 subió sin CAD_DONE: condición inesperada
+    }
+
+    // Tras CAD_ONLY el chip ya está de vuelta en Standby RC por sí mismo
+    *activity_detected = (irqReg & SX126X_IRQ_CAD_DETECTED) != 0;
+
+    return SX1262_OK;
 }
 
 /**
@@ -1394,7 +1543,7 @@ SX1262_Status_t SX1262_FSK_Transmit(uint8_t *data, uint8_t length)
     uint32_t timeout_ms = toa_ms + toa_ms / 2U + 100U;
 
     // Esperar IRQ (DIO1 en alto => TxDone o TxTimeout)
-    if (sx1262_WaitTxDone(timeout_ms) != SX1262_OK)
+    if (sx1262_WaitDio1(timeout_ms) != SX1262_OK)
     {
         // Timeout de software: DIO1 nunca subió, así que GetTransmitStatus no
         // llegará a consumir el evento ni a liberar el semáforo. Abort devuelve

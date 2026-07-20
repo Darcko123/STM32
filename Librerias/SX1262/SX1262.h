@@ -47,6 +47,8 @@
 #define SX126X_CMD_GET_RX_BUFFER_STATUS       0x13
 #define SX126X_CMD_SET_DIO2_AS_RF_SWITCH_CTRL 0x9D
 #define SX126X_CMD_SET_REGULATOR_MODE         0x96
+#define SX126X_CMD_SET_CAD_PARAMS             0x88
+#define SX126X_CMD_SET_CAD                    0xC5
 
 // Valores comunes
 #define SX126X_PACKET_TYPE_GFSK      0x00
@@ -69,6 +71,8 @@
 #define SX126X_IRQ_HEADER_VALID               (1 << 4)
 #define SX126X_IRQ_HEADER_ERR                 (1 << 5)
 #define SX126X_IRQ_CRC_ERR                    (1 << 6)
+#define SX126X_IRQ_CAD_DONE                   (1 << 7)
+#define SX126X_IRQ_CAD_DETECTED               (1 << 8)
 #define SX126X_IRQ_TIMEOUT                    (1 << 9)
 
 #define MESHTASTIC_US_CH0_FREQ   906875000UL
@@ -552,6 +556,52 @@ SX1262_Status_t SX1262_LoRa_GetReceivedPacket(uint8_t* data, uint8_t max_length,
  *                         SX1262_ERROR si falla la escritura SPI.
  */
 SX1262_Status_t SX1262_LoRa_AbortReceive(void);
+
+// ----------------------------------------------------------------------------
+// Detección de actividad en el canal (CAD) — LoRa
+// ----------------------------------------------------------------------------
+
+/**
+ * @brief Ejecuta una detección de actividad en el canal (CAD) y reporta si hay
+ *        una señal LoRa presente. Operación bloqueante.
+ *
+ *        El chip busca la correlación con un preámbulo LoRa durante 2 símbolos y
+ *        vuelve solo a Standby RC (cadExitMode = CAD_ONLY). Es mucho más rápido y
+ *        barato en energía que armar una RX completa, por lo que es la primitiva
+ *        habitual para "listen before talk": comprobar que el canal está libre
+ *        antes de llamar a SX1262_LoRa_Transmit().
+ *
+ *        El tiempo de espera se calcula internamente a partir del SF y el BW
+ *        activos, así que la llamada nunca se cuelga aunque DIO1 no suba.
+ *
+ *        IMPORTANTE: el CAD fuerza Standby RC, lo que cancela cualquier RX
+ *        continuo armado con SX1262_LoRa_StartReceiveIT(). Tras el CAD hay que
+ *        rearmar la recepción si se quiere seguir escuchando. Requiere que el
+ *        chip esté en modo LoRa: el CAD no existe en GFSK.
+ *
+ *        La sensibilidad (cadDetPeak / cadDetMin) se deriva del SF configurado
+ *        según la nota de aplicación de Semtech AN1200.48.
+ *
+ * @param activity_detected Puntero donde se escribe true si se detectó actividad
+ *                          en el canal, false si el canal está libre. Solo es
+ *                          válido cuando la función retorna SX1262_OK.
+ * @return SX1262_Status_t SX1262_OK si el CAD se completó,
+ *                         SX1262_INVALID_PARAM si activity_detected es NULL,
+ *                         SX1262_NOT_INITIALIZED si no se inicializó,
+ *                         SX1262_TX_BUSY si hay una TX IT en vuelo,
+ *                         SX1262_TIMEOUT si DIO1 no subió en el plazo calculado,
+ *                         SX1262_ERROR si no se ha llamado a
+ *                         SX1262_LoRa_ApplyConfig() o ante fallos de SPI.
+ *
+ * Patrón de uso (listen before talk):
+ * @code
+ *   bool busy;
+ *   if (SX1262_LoRa_ChannelActivityDetection(&busy) == SX1262_OK && !busy) {
+ *       SX1262_LoRa_Transmit(buf, len);
+ *   }
+ * @endcode
+ */
+SX1262_Status_t SX1262_LoRa_ChannelActivityDetection(bool *activity_detected);
 
 // ----------------------------------------------------------------------------
 // Configuración y telemetría LoRa
