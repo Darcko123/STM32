@@ -40,6 +40,7 @@
 #define SX126X_CMD_CLEAR_IRQ_STATUS           0x02
 #define SX126X_CMD_GET_IRQ_STATUS             0x12
 #define SX126X_CMD_GET_PACKET_STATUS          0x14
+#define SX126X_CMD_GET_RSSI_INST              0x15
 #define SX126X_CMD_WRITE_REGISTER             0x0D
 #define SX126X_CMD_READ_REGISTER              0x1D
 #define SX126X_CMD_WRITE_BUFFER               0x0E
@@ -681,6 +682,29 @@ SX1262_Status_t SX1262_LoRa_GetRSSI(int16_t *rssi_dbm);
  *                         SX1262_ERROR ante fallos de SPI.
  */
 SX1262_Status_t SX1262_LoRa_GetSNR(int8_t *snr_db);
+
+/**
+ * @brief Obtiene el RSSI instantáneo del canal, medido en el momento de la llamada.
+ *
+ *        Usa el comando GetRssiInst (0x15), que devuelve un único byte RssiInst:
+ *        RSSI [dBm] = -RssiInst / 2, según el datasheet SX1262 §13.5.2. A diferencia
+ *        de SX1262_LoRa_GetRSSI(), no depende de una recepción previa: mide la
+ *        potencia presente en el canal en ese instante, por lo que es la función
+ *        adecuada para un escáner de espectro o para detectar canal ocupado.
+ *
+ *        El comando solo es válido con el chip en modo RX. Debe llamarse tras iniciar
+ *        una recepción (SX1262_LoRa_StartReceiveIT() o SX1262_FSK_StartReceiveIT());
+ *        en STDBY o SLEEP la lectura no es significativa.
+ *
+ *        Es independiente del tipo de paquete: funciona igual en LoRa y en FSK.
+ *
+ * @param rssi_dbm  Puntero donde se almacenará el RSSI en dBm (valor negativo típico).
+ * @return SX1262_Status_t SX1262_OK si se obtuvo el RSSI,
+ *                         SX1262_INVALID_PARAM si rssi_dbm es NULL,
+ *                         SX1262_NOT_INITIALIZED si no se inicializó,
+ *                         SX1262_ERROR ante fallos de SPI.
+ */
+SX1262_Status_t SX1262_GetRSSIInst(int16_t *rssi_dbm);
 
 // ----------------------------------------------------------------------------
 // Configuración FSK/GFSK

@@ -1502,6 +1502,36 @@ SX1262_Status_t SX1262_LoRa_GetSNR(int8_t *snr_db)
 }
 
 /**
+ * @brief Obtiene el RSSI instantáneo del canal. Contrato en SX1262.h.
+ */
+SX1262_Status_t SX1262_GetRSSIInst(int16_t *rssi_dbm)
+{
+    if (SX1262_Initialized != 1)
+    {
+        return SX1262_NOT_INITIALIZED;
+    }
+    if (rssi_dbm == NULL)
+    {
+        return SX1262_INVALID_PARAM;
+    }
+
+    // GetRssiInst devuelve 1 byte:
+    //   [0] RssiInst → RSSI = -RssiInst/2  (dBm)
+    // Solo es válido en modo RX; en STDBY/SLEEP el valor no es significativo.
+    uint8_t rssi_inst;
+    SX1262_Status_t st = sx1262_ReadCommand(SX126X_CMD_GET_RSSI_INST, &rssi_inst, 1);
+    if (st != SX1262_OK)
+    {
+        return st;
+    }
+
+    // RssiInst es un valor sin signo; el resultado en dBm es siempre <= 0
+    *rssi_dbm = -(int16_t)rssi_inst / 2;
+
+    return SX1262_OK;
+}
+
+/**
  * @brief Retorna una copia de la configuración LoRa aplicada. Contrato en SX1262.h.
  */
 SX1262_Status_t SX1262_LoRa_GetConfig(lora_config_t *config)
