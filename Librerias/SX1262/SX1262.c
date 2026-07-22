@@ -7,8 +7,8 @@
  *          aplicación de configuración de red/modulación y la telemetría RSSI/SNR.
  *
  * @author Daniel Ruiz
- * @date Abril 27, 2026
- * @version 1.6.0
+ * @date July 22, 2026
+ * @version 2.0.0
  */
 
 #include "SX1262.h"

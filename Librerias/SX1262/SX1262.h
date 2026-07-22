@@ -7,8 +7,8 @@
  *          red y modulación, presets Meshtastic y telemetría (RSSI/SNR).
  *
  * @author Daniel Ruiz
- * @date Abril 27, 2026
- * @version 1.6.0
+ * @date July 22, 2026
+ * @version 2.0.0
  */
 
 #ifndef SX1262_H
