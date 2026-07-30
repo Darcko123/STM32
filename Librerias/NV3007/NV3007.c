@@ -47,80 +47,141 @@ static NV3007_Status_t NV3007_SPI_Send(uint8_t* data, uint16_t size)
 }
 
 /**
- * @brief Envía un byte de comando al NV3007 (DC bajo).
+ * @brief Inicia una transacción SPI con el NV3007 (CS bajo).
+ *
+ * @details Equivalente a BEGIN_WRITE de Arduino_GFX: el panel espera que CS
+ *          permanezca bajo mientras dura un comando con sus datos asociados.
+ */
+static void NV3007_Select(void)
+{
+    HAL_GPIO_WritePin(NV3007_CS_GPIO_Port, NV3007_CS_Pin, GPIO_PIN_RESET);
+}
+
+/**
+ * @brief Finaliza la transacción SPI con el NV3007 (CS alto). Equivalente a END_WRITE.
+ */
+static void NV3007_Unselect(void)
+{
+    HAL_GPIO_WritePin(NV3007_CS_GPIO_Port, NV3007_CS_Pin, GPIO_PIN_SET);
+}
+
+/**
+ * @brief Envía un byte de comando (DC bajo) asumiendo CS ya bajo (transacción abierta).
+ */
+static NV3007_Status_t NV3007_WriteCommandRaw(uint8_t cmd)
+{
+    HAL_GPIO_WritePin(NV3007_DC_GPIO_Port, NV3007_DC_Pin, GPIO_PIN_RESET);
+    return NV3007_SPI_Send(&cmd, 1U);
+}
+
+/**
+ * @brief Envía un byte de dato (DC alto) asumiendo CS ya bajo (transacción abierta).
+ */
+static NV3007_Status_t NV3007_WriteDataRaw(uint8_t data)
+{
+    HAL_GPIO_WritePin(NV3007_DC_GPIO_Port, NV3007_DC_Pin, GPIO_PIN_SET);
+    return NV3007_SPI_Send(&data, 1U);
+}
+
+/**
+ * @brief Envía un comando seguido de un byte de dato, con CS bajo, dentro de una
+ *        transacción ya abierta (uso en la secuencia de inicialización).
+ */
+static NV3007_Status_t NV3007_BatchCmdData8(uint8_t cmd, uint8_t data)
+{
+    NV3007_Status_t status = NV3007_WriteCommandRaw(cmd);
+    return (status == NV3007_OK) ? NV3007_WriteDataRaw(data) : status;
+}
+
+/**
+ * @brief Envía un comando seguido de un dato de 16 bits (MSB primero) dentro de una
+ *        transacción ya abierta (uso en la secuencia de inicialización).
+ */
+static NV3007_Status_t NV3007_BatchCmdData16(uint8_t cmd, uint16_t data)
+{
+    NV3007_Status_t status = NV3007_WriteCommandRaw(cmd);
+    status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(data >> 8)) : status;
+    return (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(data & 0xFFU)) : status;
+}
+
+/**
+ * @brief Envía un byte de comando al NV3007 en su propia transacción (CS bajo→alto).
  */
 static NV3007_Status_t NV3007_SendCommand(uint8_t cmd)
 {
     NV3007_Status_t status;
-    HAL_GPIO_WritePin(NV3007_DC_GPIO_Port, NV3007_DC_Pin, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(NV3007_CS_GPIO_Port, NV3007_CS_Pin, GPIO_PIN_RESET);
-    status = NV3007_SPI_Send(&cmd, 1U);
-    HAL_GPIO_WritePin(NV3007_CS_GPIO_Port, NV3007_CS_Pin, GPIO_PIN_SET);
+    NV3007_Select();
+    status = NV3007_WriteCommandRaw(cmd);
+    NV3007_Unselect();
     return status;
 }
 
 /**
- * @brief Envía un byte de dato al NV3007 (DC alto).
- */
-static NV3007_Status_t NV3007_SendData(uint8_t data)
-{
-    NV3007_Status_t status;
-    HAL_GPIO_WritePin(NV3007_DC_GPIO_Port, NV3007_DC_Pin, GPIO_PIN_SET);
-    HAL_GPIO_WritePin(NV3007_CS_GPIO_Port, NV3007_CS_Pin, GPIO_PIN_RESET);
-    status = NV3007_SPI_Send(&data, 1U);
-    HAL_GPIO_WritePin(NV3007_CS_GPIO_Port, NV3007_CS_Pin, GPIO_PIN_SET);
-    return status;
-}
-
-/**
- * @brief Envía un comando seguido de un byte de dato.
+ * @brief Envía un comando seguido de un byte de dato manteniendo CS bajo entre ambos.
  */
 static NV3007_Status_t NV3007_WriteCmdData8(uint8_t cmd, uint8_t data)
 {
-    NV3007_Status_t status = NV3007_SendCommand(cmd);
-    return (status == NV3007_OK) ? NV3007_SendData(data) : status;
-}
-
-/**
- * @brief Envía un comando seguido de un dato de 16 bits (MSB primero).
- */
-static NV3007_Status_t NV3007_WriteCmdData16(uint8_t cmd, uint16_t data)
-{
-    NV3007_Status_t status = NV3007_SendCommand(cmd);
-    status = (status == NV3007_OK) ? NV3007_SendData((uint8_t)(data >> 8)) : status;
-    return (status == NV3007_OK) ? NV3007_SendData((uint8_t)(data & 0xFFU)) : status;
+    NV3007_Status_t status;
+    NV3007_Select();
+    status = NV3007_BatchCmdData8(cmd, data);
+    NV3007_Unselect();
+    return status;
 }
 
 /**
  * @brief Envía un único píxel de color (RGB565, MSB primero) tras NV3007_WriteAddrWindow().
+ *
+ * @note Asume que CS ya está bajo (transacción abierta por NV3007_WriteAddrWindow,
+ *       que deja RAMWR activo). Es esta función quien libera CS al terminar.
  */
 static NV3007_Status_t NV3007_SendColor(uint16_t color)
 {
     uint8_t data[2] = { (uint8_t)(color >> 8), (uint8_t)(color & 0xFFU) };
-    return NV3007_SendData(data[0]) == NV3007_OK ? NV3007_SendData(data[1]) : NV3007_ERROR;
+    NV3007_Status_t status;
+
+    HAL_GPIO_WritePin(NV3007_DC_GPIO_Port, NV3007_DC_Pin, GPIO_PIN_SET);
+    status = NV3007_SPI_Send(data, 2U);
+    NV3007_Unselect();
+    return status;
 }
 
+/** Número de píxeles por ráfaga SPI en NV3007_FillColor() (2 bytes/píxel -> buffer de NV3007_FILL_CHUNK*2 bytes). */
+#define NV3007_FILL_CHUNK   64U
+
 /**
- * @brief Repite un color RGB565 @p count veces dentro de una única ráfaga SPI (CS permanece bajo).
+ * @brief Repite un color RGB565 @p count veces dentro de una única transacción SPI (CS permanece bajo).
  *
  * @details Equivalente a writeFillRectPreclipped() de Arduino_GFX, pero evitando el costo de
  *          togglear CS por cada píxel: se asume que NV3007_WriteAddrWindow() ya dejó al panel
- *          en RAMWR y se mantiene la transacción abierta durante todo el volcado.
+ *          en RAMWR con CS bajo, y se mantiene la transacción abierta durante todo el volcado.
+ *          Es esta función quien libera CS al terminar.
+ *
+ *          Para reducir el overhead por llamada de HAL_SPI_Transmit, el color se replica en un
+ *          buffer de NV3007_FILL_CHUNK píxeles y se envía en ráfagas, en lugar de 2 bytes por vez.
  */
 static NV3007_Status_t NV3007_FillColor(uint16_t color, uint32_t count)
 {
-    uint8_t buf[2] = { (uint8_t)(color >> 8), (uint8_t)(color & 0xFFU) };
+    uint8_t buf[NV3007_FILL_CHUNK * 2U];
+    uint8_t hi = (uint8_t)(color >> 8);
+    uint8_t lo = (uint8_t)(color & 0xFFU);
     NV3007_Status_t status = NV3007_OK;
-    uint32_t i;
+    uint16_t i;
+
+    /* Precargar el buffer con el color repetido */
+    for (i = 0U; i < sizeof(buf); i += 2U)
+    {
+        buf[i]      = hi;
+        buf[i + 1U] = lo;
+    }
 
     HAL_GPIO_WritePin(NV3007_DC_GPIO_Port, NV3007_DC_Pin, GPIO_PIN_SET);
-    HAL_GPIO_WritePin(NV3007_CS_GPIO_Port, NV3007_CS_Pin, GPIO_PIN_RESET);
-    for (i = 0U; i < count; i++)
+    while ((count > 0U) && (status == NV3007_OK))
     {
-        status = NV3007_SPI_Send(buf, 2U);
-        if (status != NV3007_OK) { break; }
+        uint32_t chunk = (count > NV3007_FILL_CHUNK) ? NV3007_FILL_CHUNK : count;
+        status = NV3007_SPI_Send(buf, (uint16_t)(chunk * 2U));
+        count -= chunk;
     }
-    HAL_GPIO_WritePin(NV3007_CS_GPIO_Port, NV3007_CS_Pin, GPIO_PIN_SET);
+    NV3007_Unselect();
 
     return status;
 }
@@ -134,141 +195,146 @@ static NV3007_Status_t NV3007_RunInitSequence(void)
 {
     NV3007_Status_t st;
 
-    st  = NV3007_WriteCmdData8(0xFF, 0xA5);
-    st  = (st == NV3007_OK) ? NV3007_SendCommand(NV3007_CMD_SLPOUT) : st;
-    if (st != NV3007_OK) { return st; }
-    HAL_Delay(120U);
+    /* BEGIN_WRITE: CS permanece bajo durante todo el bloque, igual que la referencia */
+    NV3007_Select();
 
-    st  = NV3007_WriteCmdData8(0xFF, 0xA5);
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x9A, 0x08) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x9B, 0x08) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x9C, 0xB0) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x9D, 0x17) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x9E, 0xC2) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData16(0x8F, 0x2204) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x84, 0x90) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x83, 0x7B) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x85, 0x4F) : st;
+    st  = NV3007_BatchCmdData8(0xFF, 0xA5);
+    st  = (st == NV3007_OK) ? NV3007_WriteCommandRaw(NV3007_CMD_SLPOUT) : st;
+    if (st == NV3007_OK) { HAL_Delay(120U); }
+
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xFF, 0xA5) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x9A, 0x08) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x9B, 0x08) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x9C, 0xB0) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x9D, 0x17) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x9E, 0xC2) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData16(0x8F, 0x2204) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x84, 0x90) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x83, 0x7B) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x85, 0x4F) : st;
 
     /* GAMMA */
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x6E, 0x0F) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x7E, 0x0F) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x60, 0x00) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x70, 0x00) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x6D, 0x39) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x7D, 0x31) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x61, 0x0A) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x71, 0x0A) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x6C, 0x35) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x7C, 0x29) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x62, 0x0F) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x72, 0x0F) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x68, 0x4F) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x78, 0x45) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x66, 0x33) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x76, 0x33) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x6B, 0x14) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x7B, 0x14) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x63, 0x09) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x73, 0x09) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x6A, 0x13) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x7A, 0x16) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x64, 0x08) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x74, 0x08) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x69, 0x07) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x79, 0x0D) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x65, 0x05) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x75, 0x05) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x67, 0x33) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x77, 0x33) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x6F, 0x00) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x7F, 0x00) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x50, 0x00) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x52, 0xD6) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x53, 0x04) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x54, 0x04) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x55, 0x1B) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x56, 0x1B) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x6E, 0x0F) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x7E, 0x0F) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x60, 0x00) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x70, 0x00) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x6D, 0x39) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x7D, 0x31) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x61, 0x0A) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x71, 0x0A) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x6C, 0x35) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x7C, 0x29) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x62, 0x0F) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x72, 0x0F) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x68, 0x4F) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x78, 0x45) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x66, 0x33) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x76, 0x33) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x6B, 0x14) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x7B, 0x14) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x63, 0x09) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x73, 0x09) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x6A, 0x13) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x7A, 0x16) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x64, 0x08) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x74, 0x08) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x69, 0x07) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x79, 0x0D) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x65, 0x05) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x75, 0x05) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x67, 0x33) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x77, 0x33) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x6F, 0x00) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x7F, 0x00) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x50, 0x00) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x52, 0xD6) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x53, 0x04) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x54, 0x04) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x55, 0x1B) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x56, 0x1B) : st;
 
-    st  = (st == NV3007_OK) ? NV3007_SendCommand(0xA0) : st;
-    st  = (st == NV3007_OK) ? NV3007_SendData(0x2A) : st;
-    st  = (st == NV3007_OK) ? NV3007_SendData(0x24) : st;
-    st  = (st == NV3007_OK) ? NV3007_SendData(0x00) : st;
+    st  = (st == NV3007_OK) ? NV3007_WriteCommandRaw(0xA0) : st;
+    st  = (st == NV3007_OK) ? NV3007_WriteDataRaw(0x2A) : st;
+    st  = (st == NV3007_OK) ? NV3007_WriteDataRaw(0x24) : st;
+    st  = (st == NV3007_OK) ? NV3007_WriteDataRaw(0x00) : st;
 
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xA1, 0x84) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xA2, 0x85) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xA8, 0x34) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xA9, 0x80) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xAA, 0x73) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData16(0xAB, 0x0361) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData16(0xAC, 0x0365) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData16(0xAD, 0x0360) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData16(0xAE, 0x0364) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xB9, 0x82) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xBA, 0x83) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xBB, 0x80) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xBC, 0x81) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xBD, 0x02) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xBE, 0x01) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xBF, 0x04) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xC0, 0x03) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xC4, 0x33) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xC5, 0x80) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xC6, 0x73) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xC7, 0x00) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData16(0xC8, 0x3333) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xC9, 0x5B) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xCA, 0x5A) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xCB, 0x5D) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xCC, 0x5C) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData16(0xCD, 0x3333) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xCE, 0x5F) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xCF, 0x5E) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xD0, 0x61) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xD1, 0x60) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xA1, 0x84) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xA2, 0x85) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xA8, 0x34) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xA9, 0x80) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xAA, 0x73) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData16(0xAB, 0x0361) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData16(0xAC, 0x0365) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData16(0xAD, 0x0360) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData16(0xAE, 0x0364) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xB9, 0x82) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xBA, 0x83) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xBB, 0x80) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xBC, 0x81) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xBD, 0x02) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xBE, 0x01) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xBF, 0x04) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xC0, 0x03) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xC4, 0x33) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xC5, 0x80) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xC6, 0x73) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xC7, 0x00) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData16(0xC8, 0x3333) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xC9, 0x5B) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xCA, 0x5A) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xCB, 0x5D) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xCC, 0x5C) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData16(0xCD, 0x3333) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xCE, 0x5F) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xCF, 0x5E) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xD0, 0x61) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xD1, 0x60) : st;
 
-    st  = (st == NV3007_OK) ? NV3007_SendCommand(0xB0) : st;
-    st  = (st == NV3007_OK) ? NV3007_SendData(0x3A) : st;
-    st  = (st == NV3007_OK) ? NV3007_SendData(0x3A) : st;
-    st  = (st == NV3007_OK) ? NV3007_SendData(0x00) : st;
-    st  = (st == NV3007_OK) ? NV3007_SendData(0x00) : st;
+    st  = (st == NV3007_OK) ? NV3007_WriteCommandRaw(0xB0) : st;
+    st  = (st == NV3007_OK) ? NV3007_WriteDataRaw(0x3A) : st;
+    st  = (st == NV3007_OK) ? NV3007_WriteDataRaw(0x3A) : st;
+    st  = (st == NV3007_OK) ? NV3007_WriteDataRaw(0x00) : st;
+    st  = (st == NV3007_OK) ? NV3007_WriteDataRaw(0x00) : st;
 
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xB6, 0x32) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xB7, 0x80) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xB8, 0x73) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xE0, 0x00) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData16(0xE1, 0x030F) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xE2, 0x04) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xE3, 0x01) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xE4, 0x0E) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xE5, 0x01) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xE6, 0x19) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xE7, 0x10) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xE8, 0x10) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xE9, 0x21) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xEA, 0x12) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xEB, 0xD0) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xEC, 0x04) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xED, 0x07) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xEE, 0x07) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xEF, 0x09) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xF0, 0xD0) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xF1, 0x0E) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xF9, 0x56) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xB6, 0x32) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xB7, 0x80) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xB8, 0x73) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xE0, 0x00) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData16(0xE1, 0x030F) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xE2, 0x04) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xE3, 0x01) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xE4, 0x0E) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xE5, 0x01) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xE6, 0x19) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xE7, 0x10) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xE8, 0x10) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xE9, 0x21) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xEA, 0x12) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xEB, 0xD0) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xEC, 0x04) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xED, 0x07) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xEE, 0x07) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xEF, 0x09) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xF0, 0xD0) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xF1, 0x0E) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xF9, 0x56) : st;
 
-    st  = (st == NV3007_OK) ? NV3007_SendCommand(0xF2) : st;
-    st  = (st == NV3007_OK) ? NV3007_SendData(0x26) : st;
-    st  = (st == NV3007_OK) ? NV3007_SendData(0x1B) : st;
-    st  = (st == NV3007_OK) ? NV3007_SendData(0x0B) : st;
-    st  = (st == NV3007_OK) ? NV3007_SendData(0x20) : st;
+    st  = (st == NV3007_OK) ? NV3007_WriteCommandRaw(0xF2) : st;
+    st  = (st == NV3007_OK) ? NV3007_WriteDataRaw(0x26) : st;
+    st  = (st == NV3007_OK) ? NV3007_WriteDataRaw(0x1B) : st;
+    st  = (st == NV3007_OK) ? NV3007_WriteDataRaw(0x0B) : st;
+    st  = (st == NV3007_OK) ? NV3007_WriteDataRaw(0x20) : st;
 
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xEC, 0x04) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x35, 0x00) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData16(0x44, 0x0010) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x46, 0x10) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0xFF, 0x00) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteCmdData8(0x3A, 0x05) : st;
-    st  = (st == NV3007_OK) ? NV3007_SendCommand(NV3007_CMD_SLPOUT) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xEC, 0x04) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x35, 0x00) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData16(0x44, 0x0010) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x46, 0x10) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xFF, 0x00) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x3A, 0x05) : st;
+    st  = (st == NV3007_OK) ? NV3007_WriteCommandRaw(NV3007_CMD_SLPOUT) : st;
+
+    /* END_WRITE */
+    NV3007_Unselect();
     if (st != NV3007_OK) { return st; }
 
     HAL_Delay(200U);
@@ -557,21 +623,27 @@ NV3007_Status_t NV3007_WriteAddrWindow(uint16_t x, uint16_t y, uint16_t w, uint1
         return NV3007_NOT_INITIALIZED;
     }
 
+    NV3007_Select();
+
     if ((x != NV3007_CurrentX) || (w != NV3007_CurrentW) || (y != NV3007_CurrentY) || (h != NV3007_CurrentH))
     {
-        status = NV3007_SendCommand(NV3007_CMD_CASET);
-        status = (status == NV3007_OK) ? NV3007_SendData((uint8_t)(x >> 8)) : status;
-        status = (status == NV3007_OK) ? NV3007_SendData((uint8_t)(x & 0xFFU)) : status;
-        status = (status == NV3007_OK) ? NV3007_SendData((uint8_t)((x + w - 1U) >> 8)) : status;
-        status = (status == NV3007_OK) ? NV3007_SendData((uint8_t)((x + w - 1U) & 0xFFU)) : status;
+        status = NV3007_WriteCommandRaw(NV3007_CMD_CASET);
+        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(x >> 8)) : status;
+        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(x & 0xFFU)) : status;
+        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)((x + w - 1U) >> 8)) : status;
+        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)((x + w - 1U) & 0xFFU)) : status;
 
-        status = (status == NV3007_OK) ? NV3007_SendCommand(NV3007_CMD_RASET) : status;
-        status = (status == NV3007_OK) ? NV3007_SendData((uint8_t)(y >> 8)) : status;
-        status = (status == NV3007_OK) ? NV3007_SendData((uint8_t)(y & 0xFFU)) : status;
-        status = (status == NV3007_OK) ? NV3007_SendData((uint8_t)((y + h - 1U) >> 8)) : status;
-        status = (status == NV3007_OK) ? NV3007_SendData((uint8_t)((y + h - 1U) & 0xFFU)) : status;
+        status = (status == NV3007_OK) ? NV3007_WriteCommandRaw(NV3007_CMD_RASET) : status;
+        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(y >> 8)) : status;
+        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(y & 0xFFU)) : status;
+        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)((y + h - 1U) >> 8)) : status;
+        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)((y + h - 1U) & 0xFFU)) : status;
 
-        if (status != NV3007_OK) { return status; }
+        if (status != NV3007_OK)
+        {
+            NV3007_Unselect();
+            return status;
+        }
 
         NV3007_CurrentX = x;
         NV3007_CurrentY = y;
@@ -579,7 +651,20 @@ NV3007_Status_t NV3007_WriteAddrWindow(uint16_t x, uint16_t y, uint16_t w, uint1
         NV3007_CurrentH = h;
     }
 
-    return NV3007_SendCommand(NV3007_CMD_RAMWR);
+    /* IMPORTANTE: NO se libera CS aquí en el camino exitoso. RAMWR (0x2C) y los
+     * datos de píxel que siguen deben viajar en una única transacción SPI con CS
+     * bajo; si CS sube entre medias, el NV3007 cierra el ciclo de escritura en RAM
+     * y descarta los píxeles. Es NV3007_SendColor() / NV3007_FillColor() quien
+     * libera CS tras enviar los datos.
+     *
+     * Si el propio RAMWR falla, el llamante no continuará con SendColor/FillColor,
+     * así que hay que liberar CS aquí para no dejar el bus ocupado indefinidamente. */
+    status = NV3007_WriteCommandRaw(NV3007_CMD_RAMWR);
+    if (status != NV3007_OK)
+    {
+        NV3007_Unselect();
+    }
+    return status;
 }
 
 /**
