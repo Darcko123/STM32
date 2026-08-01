@@ -24,9 +24,28 @@
 // MACROS Y CONSTANTES NV3007
 // ============================================================================
 
-/* -- Dimensiones de la pantalla -- */
-#define NV3007_WIDTH        168U  /**< Ancho de la pantalla en píxeles */
-#define NV3007_HEIGHT       428U  /**< Alto de la pantalla en píxeles  */
+/* -- Dimensiones visibles del panel -- */
+#define NV3007_WIDTH        142U  /**< Ancho visible del panel en píxeles (columnas) */
+#define NV3007_HEIGHT       428U  /**< Alto visible del panel en píxeles (filas)     */
+
+/* -- Origen del área visible dentro de la GRAM del controlador --
+ *
+ * El NV3007 direcciona una GRAM más ancha que el área visible de este panel
+ * (142 columnas), por lo que CASET/RASET necesitan un desplazamiento. El valor
+ * depende de cómo el fabricante alineó el panel dentro de la GRAM y cambia con
+ * la orientación, porque los bits MX/MY/MV de MADCTL remapean el direccionamiento.
+ *
+ * Los valores por defecto son una HIPÓTESIS (panel centrado horizontalmente en una
+ * GRAM de 172 columnas, alineado arriba). Calibrar con NV3007_SetOffset() y el
+ * procedimiento descrito en PLAN-FIX-NV3007-142x428.md §10 antes de darlos por buenos. */
+#define NV3007_OFFSET_P1_X  15U   /**< Portrait_1  (0°)   - offset X */
+#define NV3007_OFFSET_P1_Y   0U   /**< Portrait_1  (0°)   - offset Y */
+#define NV3007_OFFSET_P2_X  15U   /**< Portrait_2  (180°) - offset X */
+#define NV3007_OFFSET_P2_Y   0U   /**< Portrait_2  (180°) - offset Y */
+#define NV3007_OFFSET_L1_X   0U   /**< Landscape_1 (90°)  - offset X */
+#define NV3007_OFFSET_L1_Y  15U   /**< Landscape_1 (90°)  - offset Y */
+#define NV3007_OFFSET_L2_X   0U   /**< Landscape_2 (270°) - offset X */
+#define NV3007_OFFSET_L2_Y  15U   /**< Landscape_2 (270°) - offset Y */
 
 /* -- Retardos de la secuencia de inicialización (ms) -- */
 #define NV3007_RST_DELAY    120U  /**< Espera tras el reset por hardware */
@@ -288,6 +307,20 @@ NV3007_Status_t NV3007_WriteAddrWindow(uint16_t x, uint16_t y, uint16_t w, uint1
  * @return NV3007_Status_t Estado de la operación.
  */
 NV3007_Status_t NV3007_Rotate(NV3007_Orientation_t orientation);
+
+/**
+ * @brief Sobrescribe en tiempo de ejecución el offset de GRAM aplicado a CASET/RASET.
+ *
+ * @details Pensado para calibrar el panel sin recompilar: se ajustan los valores hasta
+ *          que la imagen encaja con el borde físico y luego se trasladan a las constantes
+ *          NV3007_OFFSET_*.
+ *
+ * @param x_offset Desplazamiento de columna aplicado a CASET.
+ * @param y_offset Desplazamiento de fila aplicado a RASET.
+ *
+ * @return NV3007_Status_t Estado de la operación.
+ */
+NV3007_Status_t NV3007_SetOffset(uint16_t x_offset, uint16_t y_offset);
 
 /**
  * @brief Activa o desactiva la inversión de color de la pantalla.

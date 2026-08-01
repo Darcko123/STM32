@@ -33,6 +33,9 @@ static uint16_t             NV3007_CurrentY         = 0xFFFFU; /**< Fila de inic
 static uint16_t             NV3007_Width            = NV3007_WIDTH;  /**< Ancho lógico de la pantalla, según la rotación activa */
 static uint16_t             NV3007_Height           = NV3007_HEIGHT; /**< Alto lógico de la pantalla, según la rotación activa  */
 
+static uint16_t             NV3007_XOffset          = NV3007_OFFSET_P1_X; /**< Offset de columna activo, sumado en CASET */
+static uint16_t             NV3007_YOffset          = NV3007_OFFSET_P1_Y; /**< Offset de fila activo, sumado en RASET    */
+
 // ============================================================================
 // FUNCIONES PRIVADAS
 // ============================================================================
@@ -567,6 +570,8 @@ NV3007_Status_t NV3007_Init(SPI_HandleTypeDef* hspi,
     NV3007_CurrentH = 0U;
     NV3007_Width    = NV3007_WIDTH;
     NV3007_Height   = NV3007_HEIGHT;
+    NV3007_XOffset  = NV3007_OFFSET_P1_X;
+    NV3007_YOffset  = NV3007_OFFSET_P1_Y;
 
     status = NV3007_InvertDisplay(false);
     if (status != NV3007_OK) { return status; }
@@ -627,17 +632,24 @@ NV3007_Status_t NV3007_WriteAddrWindow(uint16_t x, uint16_t y, uint16_t w, uint1
 
     if ((x != NV3007_CurrentX) || (w != NV3007_CurrentW) || (y != NV3007_CurrentY) || (h != NV3007_CurrentH))
     {
+        /* El área visible no arranca en la posición 0 de la GRAM: se suma el offset solo al
+         * emitir CASET/RASET, de forma que la caché siga guardando coordenadas lógicas. */
+        uint16_t xs = x + NV3007_XOffset;
+        uint16_t xe = x + w - 1U + NV3007_XOffset;
+        uint16_t ys = y + NV3007_YOffset;
+        uint16_t ye = y + h - 1U + NV3007_YOffset;
+
         status = NV3007_WriteCommandRaw(NV3007_CMD_CASET);
-        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(x >> 8)) : status;
-        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(x & 0xFFU)) : status;
-        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)((x + w - 1U) >> 8)) : status;
-        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)((x + w - 1U) & 0xFFU)) : status;
+        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(xs >> 8)) : status;
+        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(xs & 0xFFU)) : status;
+        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(xe >> 8)) : status;
+        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(xe & 0xFFU)) : status;
 
         status = (status == NV3007_OK) ? NV3007_WriteCommandRaw(NV3007_CMD_RASET) : status;
-        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(y >> 8)) : status;
-        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(y & 0xFFU)) : status;
-        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)((y + h - 1U) >> 8)) : status;
-        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)((y + h - 1U) & 0xFFU)) : status;
+        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(ys >> 8)) : status;
+        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(ys & 0xFFU)) : status;
+        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(ye >> 8)) : status;
+        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(ye & 0xFFU)) : status;
 
         if (status != NV3007_OK)
         {
@@ -665,6 +677,34 @@ NV3007_Status_t NV3007_WriteAddrWindow(uint16_t x, uint16_t y, uint16_t w, uint1
         NV3007_Unselect();
     }
     return status;
+}
+
+/**
+ * @brief Sobrescribe en tiempo de ejecución el offset de GRAM aplicado a CASET/RASET.
+ *
+ * @param x_offset Desplazamiento de columna aplicado a CASET.
+ * @param y_offset Desplazamiento de fila aplicado a RASET.
+ *
+ * @return NV3007_Status_t Estado de la operación.
+ */
+NV3007_Status_t NV3007_SetOffset(uint16_t x_offset, uint16_t y_offset)
+{
+    if (!NV3007_Initialized)
+    {
+        return NV3007_NOT_INITIALIZED;
+    }
+
+    NV3007_XOffset = x_offset;
+    NV3007_YOffset = y_offset;
+
+    /* La caché guarda coordenadas lógicas, así que no detectaría el cambio de offset:
+     * hay que invalidarla para forzar el reenvío de CASET/RASET. */
+    NV3007_CurrentX = 0xFFFFU;
+    NV3007_CurrentY = 0xFFFFU;
+    NV3007_CurrentW = 0U;
+    NV3007_CurrentH = 0U;
+
+    return NV3007_OK;
 }
 
 /**
