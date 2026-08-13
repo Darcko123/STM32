@@ -28,29 +28,56 @@
 #define NV3007_WIDTH        142U  /**< Ancho visible del panel en píxeles (columnas) */
 #define NV3007_HEIGHT       428U  /**< Alto visible del panel en píxeles (filas)     */
 
-/* -- Origen del área visible dentro de la GRAM del controlador --
+/* -- Geometría de la GRAM del controlador --
  *
- * El NV3007 direcciona una GRAM más ancha que el área visible de este panel
- * (142 columnas), por lo que CASET/RASET necesitan un desplazamiento. El valor
- * depende de cómo el fabricante alineó el panel dentro de la GRAM y cambia con
- * la orientación, porque los bits MX/MY/MV de MADCTL remapean el direccionamiento.
- *
- * Los valores por defecto son una HIPÓTESIS (panel centrado horizontalmente en una
- * GRAM de 172 columnas, alineado arriba). Calibrar con NV3007_SetOffset() y el
- * procedimiento descrito en PLAN-FIX-NV3007-142x428.md §10 antes de darlos por buenos. */
-#define NV3007_OFFSET_P1_X  15U   /**< Portrait_1  (0°)   - offset X */
-#define NV3007_OFFSET_P1_Y   0U   /**< Portrait_1  (0°)   - offset Y */
-#define NV3007_OFFSET_P2_X  15U   /**< Portrait_2  (180°) - offset X */
-#define NV3007_OFFSET_P2_Y   0U   /**< Portrait_2  (180°) - offset Y */
-#define NV3007_OFFSET_L1_X   0U   /**< Landscape_1 (90°)  - offset X */
-#define NV3007_OFFSET_L1_Y  15U   /**< Landscape_1 (90°)  - offset Y */
-#define NV3007_OFFSET_L2_X   0U   /**< Landscape_2 (270°) - offset X */
-#define NV3007_OFFSET_L2_Y  15U   /**< Landscape_2 (270°) - offset Y */
+ * El NV3007 direcciona una GRAM de 168x428 (máximo del controlador), mientras que
+ * este panel solo expone 142 columnas. El área visible NO empieza en la columna 0,
+ * así que CASET necesita un desplazamiento o la imagen sale corrida y recortada. */
+#define NV3007_GRAM_WIDTH   168U  /**< Columnas direccionables de la GRAM del NV3007 */
+#define NV3007_GRAM_HEIGHT  428U  /**< Filas direccionables de la GRAM del NV3007    */
 
-/* -- Retardos de la secuencia de inicialización (ms) -- */
-#define NV3007_RST_DELAY    120U  /**< Espera tras el reset por hardware */
-#define NV3007_SLPIN_DELAY  120U  /**< Espera tras entrar en modo Sleep  */
-#define NV3007_SLPOUT_DELAY 120U  /**< Espera tras salir del modo Sleep  */
+/* -- Origen del área visible dentro de la GRAM --
+ *
+ * El offset cambia con la orientación, porque los bits MX/MY/MV de MADCTL remapean
+ * el direccionamiento sobre la GRAM completa.
+ *
+ * El valor X=12 de Portrait_1 está confirmado por dos implementaciones independientes
+ * validadas en hardware sobre este mismo panel 142x428:
+ *   - TFT_eSPI, issue #3851 ("test ok"): TFT_COLUMN_OFFSET 12
+ *   - ESP-IDF-TFT-NV3007-LVGL, lcd_init.h: LCD_X_OFFSET 0x0C, LCD_Y_OFFSET 0x00
+ *
+ * Los offsets de las otras tres orientaciones se derivan de la geometría
+ * (168 - 142 - 12 = 14 columnas al otro lado) y NO están verificados en hardware:
+ * calibrarlos con NV3007_SetOffset() antes de darlos por buenos. */
+#define NV3007_OFFSET_P1_X  12U   /**< Portrait_1  (0°)   - offset X (confirmado) */
+#define NV3007_OFFSET_P1_Y   0U   /**< Portrait_1  (0°)   - offset Y (confirmado) */
+#define NV3007_OFFSET_P2_X  14U   /**< Portrait_2  (180°) - offset X (derivado)   */
+#define NV3007_OFFSET_P2_Y   0U   /**< Portrait_2  (180°) - offset Y (derivado)   */
+#define NV3007_OFFSET_L1_X   0U   /**< Landscape_1 (90°)  - offset X (derivado)   */
+#define NV3007_OFFSET_L1_Y  14U   /**< Landscape_1 (90°)  - offset Y (derivado)   */
+#define NV3007_OFFSET_L2_X   0U   /**< Landscape_2 (270°) - offset X (derivado)   */
+#define NV3007_OFFSET_L2_Y  12U   /**< Landscape_2 (270°) - offset Y (derivado)   */
+
+/* -- Tipo de panel --
+ *
+ * Este módulo monta un panel IPS, cuya polaridad de inversión va al revés que la de
+ * un TN. La configuración validada en TFT_eSPI para el 2.79" 142x428 usa
+ * TFT_INVERSION_ON; con la inversión al revés todos los colores salen en negativo
+ * (un fondo negro se ve blanco). Poner a 0 si el panel resulta ser TN. */
+#ifndef NV3007_IPS
+#define NV3007_IPS          1
+#endif
+
+/* -- Retardos de la secuencia de inicialización (ms) --
+ *
+ * SLPOUT/DISPON siguen los tiempos del fichero de inicialización del fabricante
+ * (NV3006A1N/NV3007 + IVO 2.66): Delay(220) tras 0x11 y Delay(200) tras 0x29.
+ * Son notablemente más largos que los 120/150 de Arduino_GFX; el charge-pump
+ * necesita ese tiempo para estabilizarse antes de habilitar la salida del panel. */
+#define NV3007_RST_DELAY    120U  /**< Espera tras el reset por hardware   */
+#define NV3007_SLPIN_DELAY  120U  /**< Espera tras entrar en modo Sleep    */
+#define NV3007_SLPOUT_DELAY 220U  /**< Espera tras salir del modo Sleep    */
+#define NV3007_DISPON_DELAY 200U  /**< Espera tras habilitar la salida     */
 
 /* -- Comandos NV3007 -- */
 #define NV3007_CMD_SLPIN     0x10U  /**< Entra en modo Sleep                           */
@@ -244,6 +271,9 @@ typedef enum {
 
 /**
  * @brief Opciones de orientación de pantalla para NV3007_Rotate().
+ *
+ * @warning El orden de los valores debe mantenerse sincronizado con
+ *          NV3007_OffsetTable (NV3007.c), que se indexa con este enum.
  */
 typedef enum {
     NV3007_Orientation_Portrait_1,    /**< Sin rotación          */
@@ -332,14 +362,17 @@ NV3007_Status_t NV3007_SetOffset(uint16_t x_offset, uint16_t y_offset);
 NV3007_Status_t NV3007_InvertDisplay(bool invert);
 
 /**
- * @brief Enciende la pantalla (sale del modo DISPOFF).
+ * @brief Enciende la pantalla: sale del modo Sleep (SLPOUT) y habilita la salida (DISPON).
  *
  * @return NV3007_Status_t Estado de la operación.
  */
 NV3007_Status_t NV3007_DisplayOn(void);
 
 /**
- * @brief Apaga la pantalla (entra en modo DISPOFF).
+ * @brief Apaga la pantalla: deshabilita la salida (DISPOFF) y entra en modo Sleep (SLPIN).
+ *
+ * @details DISPOFF antes de SLPIN evita el destello que produce cortar la alimentación
+ *          del panel con la salida de display todavía activa.
  *
  * @return NV3007_Status_t Estado de la operación.
  */

@@ -1,13 +1,16 @@
 /**
  * @file NV3007.c
- * @brief Driver del controlador LCD NV3007 (168x428) sobre interfaz SPI.
+ * @brief Driver del controlador LCD NV3007 sobre interfaz SPI, panel Estardyn 2.79" 142x428.
  *
  * @details Traducción a STM32 HAL de la librería Arduino_NV3007 (Arduino_GFX),
  *          usando un pin DC dedicado para distinguir comando/dato en el bus SPI.
  *
+ *          La GRAM del controlador es de 168x428; el panel solo expone 142 columnas,
+ *          por lo que CASET/RASET se desplazan con los offsets de NV3007.h.
+ *
  * @author Daniel Ruiz
  * @date Junio 23, 2026
- * @version 0.1.0
+ * @version 0.2.0
  */
 
 #include "NV3007.h"
@@ -32,6 +35,17 @@ static uint16_t             NV3007_CurrentY         = 0xFFFFU; /**< Fila de inic
 
 static uint16_t             NV3007_Width            = NV3007_WIDTH;  /**< Ancho lógico de la pantalla, según la rotación activa */
 static uint16_t             NV3007_Height           = NV3007_HEIGHT; /**< Alto lógico de la pantalla, según la rotación activa  */
+
+static uint16_t             NV3007_XOffset          = NV3007_OFFSET_P1_X; /**< Offset de columna activo, sumado en CASET */
+static uint16_t             NV3007_YOffset          = NV3007_OFFSET_P1_Y; /**< Offset de fila activo, sumado en RASET    */
+
+/** Offsets de GRAM por orientación. El índice coincide con NV3007_Orientation_t. */
+static const uint16_t NV3007_OffsetTable[4][2] = {
+    { NV3007_OFFSET_P1_X, NV3007_OFFSET_P1_Y },  /* NV3007_Orientation_Portrait_1  */
+    { NV3007_OFFSET_P2_X, NV3007_OFFSET_P2_Y },  /* NV3007_Orientation_Portrait_2  */
+    { NV3007_OFFSET_L1_X, NV3007_OFFSET_L1_Y },  /* NV3007_Orientation_Landscape_1 */
+    { NV3007_OFFSET_L2_X, NV3007_OFFSET_L2_Y },  /* NV3007_Orientation_Landscape_2 */
+};
 
 // ============================================================================
 // FUNCIONES PRIVADAS
@@ -187,13 +201,23 @@ static NV3007_Status_t NV3007_FillColor(uint16_t color, uint32_t count)
 }
 
 /**
- * @brief Ejecuta la secuencia de registros propietaria de inicialización del panel NV3007 168x428.
+ * @brief Ejecuta la secuencia de registros propietaria de inicialización del panel 2.79" 142x428.
  *
- * @details Traducción directa de @c nv3007_279_init_operations (Arduino_NV3007.h),
- *          la variante específica del panel de 2.79". Difiere de la secuencia
- *          estándar @c nv3007_init_operations en los ajustes de charge-pump
- *          (VGH/VGL), gamma y timing; con la estándar el panel 2.79" no genera
- *          imagen aunque el backlight encienda.
+ * @details Coincide byte a byte con el fichero de inicialización del fabricante
+ *          "NV3006A1N/NV3007 + IVO2.66" y con @c nv3007_279_init_operations
+ *          (Arduino_NV3007.h). Difiere de la secuencia estándar de 168 columnas
+ *          @c nv3007_init_operations en los ajustes de charge-pump (VGH/VGL),
+ *          gamma y timing; con la estándar el panel 2.79" no genera imagen
+ *          aunque el backlight encienda.
+ *
+ *          Registros dependientes del panel, por si hay que reajustarlos:
+ *            - 0x9A-0x9E, 0x8F, 0x83-0x85 : booster / VGH / VGL / oscilador
+ *            - 0x60-0x7F                  : curvas gamma (positiva y negativa)
+ *            - 0x50-0x56                  : VCOM y control de fuente
+ *            - 0xA0-0xD1, 0xB0-0xBF       : señales GIP (gate-in-panel)
+ *            - 0xE0-0xF1                  : formas de onda STV/CLK del gate driver
+ *            - 0xF2                       : timing horizontal (escala con nº de columnas)
+ *            - 0x3A = 0x05                : RGB565, 16 bpp (fijo, lo asume el driver)
  */
 static NV3007_Status_t NV3007_RunInitSequence(void)
 {
@@ -331,17 +355,19 @@ static NV3007_Status_t NV3007_RunInitSequence(void)
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xFF, 0x00) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x3A, 0x05) : st;
 
-    /* En la secuencia 2.79" SLPOUT y DISPON van dentro del mismo bloque de
-     * escritura (CS bajo), con 120 ms entre ambos, y luego END_WRITE. */
+    /* SLPOUT y DISPON van dentro del mismo bloque de escritura (CS bajo) y luego
+     * END_WRITE. Los retardos son los del fichero del fabricante (220/200 ms), no los
+     * 120/150 de Arduino_GFX: el charge-pump necesita ese tiempo para estabilizarse
+     * antes de habilitar la salida, y quedarse corto deja el panel en negro. */
     st  = (st == NV3007_OK) ? NV3007_WriteCommandRaw(NV3007_CMD_SLPOUT) : st;
-    if (st == NV3007_OK) { HAL_Delay(120U); }
+    if (st == NV3007_OK) { HAL_Delay(NV3007_SLPOUT_DELAY); }
     st  = (st == NV3007_OK) ? NV3007_WriteCommandRaw(NV3007_CMD_DISPON) : st;
 
     /* END_WRITE */
     NV3007_Unselect();
     if (st != NV3007_OK) { return st; }
 
-    HAL_Delay(150U);
+    HAL_Delay(NV3007_DISPON_DELAY);
 
     return NV3007_OK;
 }
@@ -538,6 +564,31 @@ NV3007_Status_t NV3007_Init(SPI_HandleTypeDef* hspi,
         return NV3007_INVALID_PARAM;
     }
 
+    /* El panel no da ninguna señal de error cuando el bus está mal configurado: se
+     * queda simplemente en negro con el backlight encendido, que es indistinguible de
+     * un fallo de cableado. Se validan aquí las tres condiciones que el driver asume:
+     *
+     *   - Tramas de 8 bits: NV3007_SPI_Send() pasa un contador de BYTES a
+     *     HAL_SPI_Transmit(), que en 16 bits lo interpretaría como nº de half-words.
+     *   - MSB primero: los comandos y el RGB565 viajan con el bit más significativo
+     *     delante.
+     *   - Reloj muestreando en flanco de subida, es decir SPI Mode 0 (CPOL=0/CPHA=0)
+     *     o Mode 3 (CPOL=1/CPHA=1). Los modos 1 y 2 desplazan el muestreo medio ciclo
+     *     y el controlador solo recibe basura. */
+    if (hspi->Init.DataSize != SPI_DATASIZE_8BIT)
+    {
+        return NV3007_INVALID_PARAM;
+    }
+    if (hspi->Init.FirstBit != SPI_FIRSTBIT_MSB)
+    {
+        return NV3007_INVALID_PARAM;
+    }
+    if (!(((hspi->Init.CLKPolarity == SPI_POLARITY_LOW)  && (hspi->Init.CLKPhase == SPI_PHASE_1EDGE)) ||
+          ((hspi->Init.CLKPolarity == SPI_POLARITY_HIGH) && (hspi->Init.CLKPhase == SPI_PHASE_2EDGE))))
+    {
+        return NV3007_INVALID_PARAM;
+    }
+
     NV3007_hspi          = hspi;
     NV3007_CS_GPIO_Port  = CS_GPIOx;
     NV3007_CS_Pin        = CS_Pin;
@@ -560,24 +611,21 @@ NV3007_Status_t NV3007_Init(SPI_HandleTypeDef* hspi,
     status = NV3007_RunInitSequence();
     if (status != NV3007_OK) { return status; }
 
-    NV3007_CurrentX = 0xFFFFU;
-    NV3007_CurrentY = 0xFFFFU;
-    NV3007_CurrentW = 0U;
-    NV3007_CurrentH = 0U;
-    NV3007_Width    = NV3007_WIDTH;
-    NV3007_Height   = NV3007_HEIGHT;
-
-    /* MADCTL explícito. La referencia (Arduino_TFT::begin) siempre llama a
-     * setRotation() tras tftInit(), que escribe este registro. Tras un reset
-     * limpio vale 0x00 (== NV3007_MADCTL_RGB), pero dejarlo implícito hace que
-     * el estado del panel dependa de si el reset por hardware llegó o no. */
-    status = NV3007_WriteCmdData8(NV3007_CMD_MADCTL, NV3007_MADCTL_RGB);
-    if (status != NV3007_OK) { return status; }
-
-    status = NV3007_InvertDisplay(false);
-    if (status != NV3007_OK) { return status; }
-
+    /* NV3007_Rotate() e NV3007_InvertDisplay() exigen el módulo inicializado; se marca
+     * antes y se revierte si alguna falla, para no dejar el driver medio configurado
+     * y reportando NV3007_OK a futuras llamadas. */
     NV3007_Initialized = 1U;
+
+    /* MADCTL explícito, vía NV3007_Rotate() para que ancho/alto lógicos y offsets de
+     * GRAM queden coherentes con el registro que se acaba de escribir. La secuencia
+     * del fabricante no incluye 0x36: sin esto el panel se queda con la orientación y
+     * el orden de color por defecto del reset. */
+    status = NV3007_Rotate(NV3007_Orientation_Portrait_1);
+    if (status != NV3007_OK) { NV3007_Initialized = 0U; return status; }
+
+    /* Con NV3007_IPS=1 esto envía INVON, que es lo que exige este panel IPS. */
+    status = NV3007_InvertDisplay(false);
+    if (status != NV3007_OK) { NV3007_Initialized = 0U; return status; }
 
     return NV3007_OK;
 }
@@ -633,17 +681,24 @@ NV3007_Status_t NV3007_WriteAddrWindow(uint16_t x, uint16_t y, uint16_t w, uint1
 
     if ((x != NV3007_CurrentX) || (w != NV3007_CurrentW) || (y != NV3007_CurrentY) || (h != NV3007_CurrentH))
     {
+        /* La caché guarda coordenadas lógicas; el offset de GRAM se suma solo al emitir
+         * los comandos, para que el llamante siga razonando en píxeles de pantalla. */
+        uint16_t xs = x + NV3007_XOffset;
+        uint16_t xe = x + w - 1U + NV3007_XOffset;
+        uint16_t ys = y + NV3007_YOffset;
+        uint16_t ye = y + h - 1U + NV3007_YOffset;
+
         status = NV3007_WriteCommandRaw(NV3007_CMD_CASET);
-        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(x >> 8)) : status;
-        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(x & 0xFFU)) : status;
-        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)((x + w - 1U) >> 8)) : status;
-        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)((x + w - 1U) & 0xFFU)) : status;
+        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(xs >> 8)) : status;
+        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(xs & 0xFFU)) : status;
+        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(xe >> 8)) : status;
+        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(xe & 0xFFU)) : status;
 
         status = (status == NV3007_OK) ? NV3007_WriteCommandRaw(NV3007_CMD_RASET) : status;
-        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(y >> 8)) : status;
-        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(y & 0xFFU)) : status;
-        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)((y + h - 1U) >> 8)) : status;
-        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)((y + h - 1U) & 0xFFU)) : status;
+        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(ys >> 8)) : status;
+        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(ys & 0xFFU)) : status;
+        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(ye >> 8)) : status;
+        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(ye & 0xFFU)) : status;
 
         if (status != NV3007_OK)
         {
@@ -692,6 +747,13 @@ NV3007_Status_t NV3007_Rotate(NV3007_Orientation_t orientation)
         return NV3007_NOT_INITIALIZED;
     }
 
+    /* Ahora el parámetro indexa NV3007_OffsetTable, así que hay que validarlo:
+     * el default: del switch ya no puede hacer de red para valores fuera de rango. */
+    if ((unsigned int)orientation > (unsigned int)NV3007_Orientation_Landscape_2)
+    {
+        return NV3007_INVALID_PARAM;
+    }
+
     switch (orientation)
     {
     case NV3007_Orientation_Landscape_1:
@@ -723,7 +785,45 @@ NV3007_Status_t NV3007_Rotate(NV3007_Orientation_t orientation)
         NV3007_Height = NV3007_HEIGHT;
     }
 
-    /* Forzar reenvío de la ventana de direccionamiento tras el cambio de orientación */
+    /* MX/MY/MV remapean el direccionamiento sobre la GRAM, así que el origen del área
+     * visible cambia con la orientación. */
+    NV3007_XOffset = NV3007_OffsetTable[orientation][0];
+    NV3007_YOffset = NV3007_OffsetTable[orientation][1];
+
+    /* Forzar reenvío de la ventana de direccionamiento tras el cambio de orientación.
+     * Imprescindible: el offset acaba de cambiar y la caché guarda coordenadas lógicas. */
+    NV3007_CurrentX = 0xFFFFU;
+    NV3007_CurrentY = 0xFFFFU;
+    NV3007_CurrentW = 0U;
+    NV3007_CurrentH = 0U;
+
+    return NV3007_OK;
+}
+
+/**
+ * @brief Sobrescribe en tiempo de ejecución el offset de GRAM aplicado a CASET/RASET.
+ *
+ * @details Pensado para calibrar el panel sin recompilar: se ajustan los valores hasta
+ *          que la imagen encaja con el borde físico y luego se trasladan a las constantes
+ *          NV3007_OFFSET_* de NV3007.h. El valor se pierde en la siguiente llamada a
+ *          NV3007_Rotate(), que lo recarga desde la tabla.
+ *
+ * @param x_offset Desplazamiento de columna aplicado a CASET.
+ * @param y_offset Desplazamiento de fila aplicado a RASET.
+ *
+ * @return NV3007_Status_t Estado de la operación.
+ */
+NV3007_Status_t NV3007_SetOffset(uint16_t x_offset, uint16_t y_offset)
+{
+    if (!NV3007_Initialized)
+    {
+        return NV3007_NOT_INITIALIZED;
+    }
+
+    NV3007_XOffset = x_offset;
+    NV3007_YOffset = y_offset;
+
+    /* Forzar reenvío de la ventana con los nuevos offsets */
     NV3007_CurrentX = 0xFFFFU;
     NV3007_CurrentY = 0xFFFFU;
     NV3007_CurrentW = 0U;
@@ -750,27 +850,42 @@ NV3007_Status_t NV3007_InvertDisplay(bool invert)
 }
 
 /**
- * @brief Enciende la pantalla (sale del modo Sleep).
+ * @brief Enciende la pantalla: sale del modo Sleep (SLPOUT) y habilita la salida (DISPON).
+ *
+ * @details SLPOUT por sí solo no basta: si antes se llamó a NV3007_DisplayOff(), la salida
+ *          del panel quedó deshabilitada con DISPOFF y hay que rehabilitarla explícitamente.
  *
  * @return NV3007_Status_t Estado de la operación.
  */
 NV3007_Status_t NV3007_DisplayOn(void)
 {
     NV3007_Status_t status = NV3007_SendCommand(NV3007_CMD_SLPOUT);
+    if (status != NV3007_OK) { return status; }
+
     HAL_Delay(NV3007_SLPOUT_DELAY);
-    return status;
+
+    return NV3007_SendCommand(NV3007_CMD_DISPON);
 }
 
 /**
- * @brief Apaga la pantalla (entra en modo Sleep).
+ * @brief Apaga la pantalla: deshabilita la salida (DISPOFF) y entra en modo Sleep (SLPIN).
+ *
+ * @details DISPOFF antes de SLPIN evita el destello que produce cortar la alimentación
+ *          del panel con la salida de display todavía activa.
  *
  * @return NV3007_Status_t Estado de la operación.
  */
 NV3007_Status_t NV3007_DisplayOff(void)
 {
-    NV3007_Status_t status = NV3007_SendCommand(NV3007_CMD_SLPIN);
+    NV3007_Status_t status = NV3007_SendCommand(NV3007_CMD_DISPOFF);
+    if (status != NV3007_OK) { return status; }
+
+    status = NV3007_SendCommand(NV3007_CMD_SLPIN);
+    if (status != NV3007_OK) { return status; }
+
     HAL_Delay(NV3007_SLPIN_DELAY);
-    return status;
+
+    return NV3007_OK;
 }
 
 // ============================================================================
