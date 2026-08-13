@@ -33,9 +33,6 @@ static uint16_t             NV3007_CurrentY         = 0xFFFFU; /**< Fila de inic
 static uint16_t             NV3007_Width            = NV3007_WIDTH;  /**< Ancho lógico de la pantalla, según la rotación activa */
 static uint16_t             NV3007_Height           = NV3007_HEIGHT; /**< Alto lógico de la pantalla, según la rotación activa  */
 
-static uint16_t             NV3007_XOffset          = NV3007_OFFSET_P1_X; /**< Offset de columna activo, sumado en CASET */
-static uint16_t             NV3007_YOffset          = NV3007_OFFSET_P1_Y; /**< Offset de fila activo, sumado en RASET    */
-
 // ============================================================================
 // FUNCIONES PRIVADAS
 // ============================================================================
@@ -192,7 +189,11 @@ static NV3007_Status_t NV3007_FillColor(uint16_t color, uint32_t count)
 /**
  * @brief Ejecuta la secuencia de registros propietaria de inicialización del panel NV3007 168x428.
  *
- * @details Traducción directa de @c nv3007_init_operations (Arduino_NV3007.h).
+ * @details Traducción directa de @c nv3007_279_init_operations (Arduino_NV3007.h),
+ *          la variante específica del panel de 2.79". Difiere de la secuencia
+ *          estándar @c nv3007_init_operations en los ajustes de charge-pump
+ *          (VGH/VGL), gamma y timing; con la estándar el panel 2.79" no genera
+ *          imagen aunque el backlight encienda.
  */
 static NV3007_Status_t NV3007_RunInitSequence(void)
 {
@@ -202,106 +203,101 @@ static NV3007_Status_t NV3007_RunInitSequence(void)
     NV3007_Select();
 
     st  = NV3007_BatchCmdData8(0xFF, 0xA5);
-    st  = (st == NV3007_OK) ? NV3007_WriteCommandRaw(NV3007_CMD_SLPOUT) : st;
-    if (st == NV3007_OK) { HAL_Delay(120U); }
-
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xFF, 0xA5) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x9A, 0x08) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x9B, 0x08) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x9C, 0xB0) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x9D, 0x17) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x9E, 0xC2) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData16(0x8F, 0x2204) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x9D, 0x16) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x9E, 0xC4) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData16(0x8F, 0x5504) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x84, 0x90) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x83, 0x7B) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x85, 0x4F) : st;
-
-    /* GAMMA */
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x6E, 0x0F) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x7E, 0x0F) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x85, 0x33) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x60, 0x00) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x70, 0x00) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x6D, 0x39) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x7D, 0x31) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x61, 0x0A) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x71, 0x0A) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x6C, 0x35) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x61, 0x02) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x71, 0x02) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x62, 0x04) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x72, 0x04) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x6C, 0x29) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x7C, 0x29) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x62, 0x0F) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x72, 0x0F) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x68, 0x4F) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x78, 0x45) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x66, 0x33) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x76, 0x33) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x6B, 0x14) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x7B, 0x14) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x63, 0x09) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x73, 0x09) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x6D, 0x31) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x7D, 0x31) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x6E, 0x0F) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x7E, 0x0F) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x66, 0x21) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x76, 0x21) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x68, 0x3A) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x78, 0x3A) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x63, 0x07) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x73, 0x07) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x64, 0x05) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x74, 0x05) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x65, 0x02) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x75, 0x02) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x67, 0x23) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x77, 0x23) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x69, 0x08) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x79, 0x08) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x6A, 0x13) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x7A, 0x16) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x64, 0x08) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x74, 0x08) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x69, 0x07) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x79, 0x0D) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x65, 0x05) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x75, 0x05) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x67, 0x33) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x77, 0x33) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x7A, 0x13) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x6B, 0x13) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x7B, 0x13) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x6F, 0x00) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x7F, 0x00) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x50, 0x00) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x52, 0xD6) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x53, 0x04) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x54, 0x04) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x55, 0x1B) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x56, 0x1B) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x53, 0x08) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x54, 0x08) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x55, 0x1E) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x56, 0x1C) : st;
 
     st  = (st == NV3007_OK) ? NV3007_WriteCommandRaw(0xA0) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteDataRaw(0x2A) : st;
+    st  = (st == NV3007_OK) ? NV3007_WriteDataRaw(0x2B) : st;
     st  = (st == NV3007_OK) ? NV3007_WriteDataRaw(0x24) : st;
     st  = (st == NV3007_OK) ? NV3007_WriteDataRaw(0x00) : st;
 
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xA1, 0x84) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xA2, 0x85) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xA8, 0x34) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xA9, 0x80) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xAA, 0x73) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData16(0xAB, 0x0361) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData16(0xAC, 0x0365) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData16(0xAD, 0x0360) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData16(0xAE, 0x0364) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xB9, 0x82) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xBA, 0x83) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xBB, 0x80) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xBC, 0x81) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xBD, 0x02) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xBE, 0x01) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xBF, 0x04) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xC0, 0x03) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xA1, 0x87) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xA2, 0x86) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xA5, 0x00) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xA6, 0x00) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xA7, 0x00) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xA8, 0x36) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xA9, 0x7E) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xAA, 0x7E) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xB9, 0x85) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xBA, 0x84) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xBB, 0x83) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xBC, 0x82) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xBD, 0x81) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xBE, 0x80) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xBF, 0x01) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xC0, 0x02) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xC1, 0x00) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xC2, 0x00) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xC3, 0x00) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xC4, 0x33) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xC5, 0x80) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xC6, 0x73) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xC7, 0x00) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xC5, 0x7E) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xC6, 0x7E) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData16(0xC8, 0x3333) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xC9, 0x5B) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xCA, 0x5A) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xCB, 0x5D) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xCC, 0x5C) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xC9, 0x68) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xCA, 0x69) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xCB, 0x6A) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xCC, 0x6B) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData16(0xCD, 0x3333) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xCE, 0x5F) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xCF, 0x5E) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xD0, 0x61) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xD1, 0x60) : st;
-
-    st  = (st == NV3007_OK) ? NV3007_WriteCommandRaw(0xB0) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteDataRaw(0x3A) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteDataRaw(0x3A) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteDataRaw(0x00) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteDataRaw(0x00) : st;
-
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xCE, 0x6C) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xCF, 0x6D) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xD0, 0x6E) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xD1, 0x6F) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData16(0xAB, 0x0367) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData16(0xAC, 0x036B) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData16(0xAD, 0x0368) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData16(0xAE, 0x036C) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xB3, 0x00) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xB4, 0x00) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xB5, 0x00) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xB6, 0x32) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xB7, 0x80) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xB8, 0x73) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xB7, 0x7E) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xB8, 0x7E) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xE0, 0x00) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData16(0xE1, 0x030F) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xE2, 0x04) : st;
@@ -311,7 +307,6 @@ static NV3007_Status_t NV3007_RunInitSequence(void)
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xE6, 0x19) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xE7, 0x10) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xE8, 0x10) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xE9, 0x21) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xEA, 0x12) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xEB, 0xD0) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xEC, 0x04) : st;
@@ -320,29 +315,30 @@ static NV3007_Status_t NV3007_RunInitSequence(void)
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xEF, 0x09) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xF0, 0xD0) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xF1, 0x0E) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xF9, 0x56) : st;
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xF9, 0x17) : st;
 
     st  = (st == NV3007_OK) ? NV3007_WriteCommandRaw(0xF2) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteDataRaw(0x26) : st;
+    st  = (st == NV3007_OK) ? NV3007_WriteDataRaw(0x2C) : st;
     st  = (st == NV3007_OK) ? NV3007_WriteDataRaw(0x1B) : st;
     st  = (st == NV3007_OK) ? NV3007_WriteDataRaw(0x0B) : st;
     st  = (st == NV3007_OK) ? NV3007_WriteDataRaw(0x20) : st;
 
+    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xE9, 0x29) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xEC, 0x04) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x35, 0x00) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData16(0x44, 0x0010) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x46, 0x10) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xFF, 0x00) : st;
     st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x3A, 0x05) : st;
+
+    /* En la secuencia 2.79" SLPOUT y DISPON van dentro del mismo bloque de
+     * escritura (CS bajo), con 120 ms entre ambos, y luego END_WRITE. */
     st  = (st == NV3007_OK) ? NV3007_WriteCommandRaw(NV3007_CMD_SLPOUT) : st;
+    if (st == NV3007_OK) { HAL_Delay(120U); }
+    st  = (st == NV3007_OK) ? NV3007_WriteCommandRaw(NV3007_CMD_DISPON) : st;
 
     /* END_WRITE */
     NV3007_Unselect();
-    if (st != NV3007_OK) { return st; }
-
-    HAL_Delay(200U);
-
-    st = NV3007_SendCommand(NV3007_CMD_DISPON);
     if (st != NV3007_OK) { return st; }
 
     HAL_Delay(150U);
@@ -570,8 +566,13 @@ NV3007_Status_t NV3007_Init(SPI_HandleTypeDef* hspi,
     NV3007_CurrentH = 0U;
     NV3007_Width    = NV3007_WIDTH;
     NV3007_Height   = NV3007_HEIGHT;
-    NV3007_XOffset  = NV3007_OFFSET_P1_X;
-    NV3007_YOffset  = NV3007_OFFSET_P1_Y;
+
+    /* MADCTL explícito. La referencia (Arduino_TFT::begin) siempre llama a
+     * setRotation() tras tftInit(), que escribe este registro. Tras un reset
+     * limpio vale 0x00 (== NV3007_MADCTL_RGB), pero dejarlo implícito hace que
+     * el estado del panel dependa de si el reset por hardware llegó o no. */
+    status = NV3007_WriteCmdData8(NV3007_CMD_MADCTL, NV3007_MADCTL_RGB);
+    if (status != NV3007_OK) { return status; }
 
     status = NV3007_InvertDisplay(false);
     if (status != NV3007_OK) { return status; }
@@ -632,24 +633,17 @@ NV3007_Status_t NV3007_WriteAddrWindow(uint16_t x, uint16_t y, uint16_t w, uint1
 
     if ((x != NV3007_CurrentX) || (w != NV3007_CurrentW) || (y != NV3007_CurrentY) || (h != NV3007_CurrentH))
     {
-        /* El área visible no arranca en la posición 0 de la GRAM: se suma el offset solo al
-         * emitir CASET/RASET, de forma que la caché siga guardando coordenadas lógicas. */
-        uint16_t xs = x + NV3007_XOffset;
-        uint16_t xe = x + w - 1U + NV3007_XOffset;
-        uint16_t ys = y + NV3007_YOffset;
-        uint16_t ye = y + h - 1U + NV3007_YOffset;
-
         status = NV3007_WriteCommandRaw(NV3007_CMD_CASET);
-        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(xs >> 8)) : status;
-        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(xs & 0xFFU)) : status;
-        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(xe >> 8)) : status;
-        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(xe & 0xFFU)) : status;
+        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(x >> 8)) : status;
+        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(x & 0xFFU)) : status;
+        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)((x + w - 1U) >> 8)) : status;
+        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)((x + w - 1U) & 0xFFU)) : status;
 
         status = (status == NV3007_OK) ? NV3007_WriteCommandRaw(NV3007_CMD_RASET) : status;
-        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(ys >> 8)) : status;
-        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(ys & 0xFFU)) : status;
-        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(ye >> 8)) : status;
-        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(ye & 0xFFU)) : status;
+        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(y >> 8)) : status;
+        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(y & 0xFFU)) : status;
+        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)((y + h - 1U) >> 8)) : status;
+        status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)((y + h - 1U) & 0xFFU)) : status;
 
         if (status != NV3007_OK)
         {
@@ -677,34 +671,6 @@ NV3007_Status_t NV3007_WriteAddrWindow(uint16_t x, uint16_t y, uint16_t w, uint1
         NV3007_Unselect();
     }
     return status;
-}
-
-/**
- * @brief Sobrescribe en tiempo de ejecución el offset de GRAM aplicado a CASET/RASET.
- *
- * @param x_offset Desplazamiento de columna aplicado a CASET.
- * @param y_offset Desplazamiento de fila aplicado a RASET.
- *
- * @return NV3007_Status_t Estado de la operación.
- */
-NV3007_Status_t NV3007_SetOffset(uint16_t x_offset, uint16_t y_offset)
-{
-    if (!NV3007_Initialized)
-    {
-        return NV3007_NOT_INITIALIZED;
-    }
-
-    NV3007_XOffset = x_offset;
-    NV3007_YOffset = y_offset;
-
-    /* La caché guarda coordenadas lógicas, así que no detectaría el cambio de offset:
-     * hay que invalidarla para forzar el reenvío de CASET/RASET. */
-    NV3007_CurrentX = 0xFFFFU;
-    NV3007_CurrentY = 0xFFFFU;
-    NV3007_CurrentW = 0U;
-    NV3007_CurrentH = 0U;
-
-    return NV3007_OK;
 }
 
 /**
@@ -775,7 +741,12 @@ NV3007_Status_t NV3007_Rotate(NV3007_Orientation_t orientation)
  */
 NV3007_Status_t NV3007_InvertDisplay(bool invert)
 {
+#if (NV3007_IPS != 0)
+    /* En panel IPS la polaridad va al revés (ver NV3007_IPS en NV3007.h) */
+    return NV3007_SendCommand(invert ? NV3007_CMD_INVOFF : NV3007_CMD_INVON);
+#else
     return NV3007_SendCommand(invert ? NV3007_CMD_INVON : NV3007_CMD_INVOFF);
+#endif
 }
 
 /**
