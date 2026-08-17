@@ -291,6 +291,35 @@ extern "C" {
 #endif
 
 /**
+ * @brief Secuencia de registros propietaria del panel 2.79" 142x428, como tabla de bytes.
+ *
+ * @details Formato de cada registro: @c cmd, @c n, @c data[n]. No incluye SLPOUT ni DISPON,
+ *          que necesitan retardos y los emite el driver.
+ *
+ *          Se expone para poder reproducir exactamente la misma secuencia por un transporte
+ *          alternativo (p.ej. un sondeo de 3 hilos / 9 bits) sin duplicarla. Ver NV3007.c.
+ */
+extern const uint8_t  NV3007_InitTable[];
+extern const uint16_t NV3007_InitTableSize;
+
+/**
+ * @brief Ancho lógico activo, ya intercambiado según la rotación en curso.
+ *
+ * @details Usar esto y no NV3007_WIDTH en el código de aplicación: NV3007_WIDTH es la
+ *          geometría en Portrait y queda invertida tras un NV3007_Rotate() a Landscape.
+ *
+ * @return Ancho en píxeles.
+ */
+uint16_t NV3007_GetWidth(void);
+
+/**
+ * @brief Alto lógico activo, ya intercambiado según la rotación en curso.
+ *
+ * @return Alto en píxeles.
+ */
+uint16_t NV3007_GetHeight(void);
+
+/**
  * @brief Inicializa el módulo NV3007
  *
  * @param hspi Puntero al manejador de la interfaz SPI utilizada para comunicarse con el módulo.

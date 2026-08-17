@@ -108,17 +108,6 @@ static NV3007_Status_t NV3007_BatchCmdData8(uint8_t cmd, uint8_t data)
 }
 
 /**
- * @brief Envía un comando seguido de un dato de 16 bits (MSB primero) dentro de una
- *        transacción ya abierta (uso en la secuencia de inicialización).
- */
-static NV3007_Status_t NV3007_BatchCmdData16(uint8_t cmd, uint16_t data)
-{
-    NV3007_Status_t status = NV3007_WriteCommandRaw(cmd);
-    status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(data >> 8)) : status;
-    return (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(data & 0xFFU)) : status;
-}
-
-/**
  * @brief Envía un byte de comando al NV3007 en su propia transacción (CS bajo→alto).
  */
 static NV3007_Status_t NV3007_SendCommand(uint8_t cmd)
@@ -201,14 +190,19 @@ static NV3007_Status_t NV3007_FillColor(uint16_t color, uint32_t count)
 }
 
 /**
- * @brief Ejecuta la secuencia de registros propietaria de inicialización del panel 2.79" 142x428.
+ * @brief Secuencia de registros propietaria del panel 2.79" 142x428.
  *
- * @details Coincide byte a byte con el fichero de inicialización del fabricante
- *          "NV3006A1N/NV3007 + IVO2.66" y con @c nv3007_279_init_operations
- *          (Arduino_NV3007.h). Difiere de la secuencia estándar de 168 columnas
- *          @c nv3007_init_operations en los ajustes de charge-pump (VGH/VGL),
- *          gamma y timing; con la estándar el panel 2.79" no genera imagen
- *          aunque el backlight encienda.
+ * @details Formato de cada registro: @c cmd, @c n, @c data[n]. Verificada byte a byte
+ *          contra @c nv3007_279_init_operations (Arduino_GFX, Arduino_NV3007.h) y contra
+ *          el fichero del fabricante "NV3006A1N/NV3007 + IVO2.66": 117 registros, 365 bytes.
+ *
+ *          Tener la secuencia como TABLA y no como cadena de llamadas permite reproducirla
+ *          por un transporte alternativo (p.ej. el sondeo de 3 hilos / 9 bits de main.c)
+ *          sin duplicarla, que es justo lo que hace falta para descartar el modo de bus.
+ *
+ *          Difiere de la secuencia estándar de 168 columnas @c nv3007_init_operations en los
+ *          ajustes de charge-pump (VGH/VGL), gamma y timing; con la estándar el panel 2.79"
+ *          no genera imagen aunque el backlight encienda.
  *
  *          Registros dependientes del panel, por si hay que reajustarlos:
  *            - 0x9A-0x9E, 0x8F, 0x83-0x85 : booster / VGH / VGL / oscilador
@@ -218,147 +212,167 @@ static NV3007_Status_t NV3007_FillColor(uint16_t color, uint32_t count)
  *            - 0xE0-0xF1                  : formas de onda STV/CLK del gate driver
  *            - 0xF2                       : timing horizontal (escala con nº de columnas)
  *            - 0x3A = 0x05                : RGB565, 16 bpp (fijo, lo asume el driver)
+ *
+ * @note SLPOUT (0x11) y DISPON (0x29) NO están en la tabla: necesitan retardos entre medias
+ *       y los emite NV3007_RunInitSequence().
+ */
+const uint8_t NV3007_InitTable[] = {
+    0xFF, 1, 0xA5,
+    0x9A, 1, 0x08,
+    0x9B, 1, 0x08,
+    0x9C, 1, 0xB0,
+    0x9D, 1, 0x16,
+    0x9E, 1, 0xC4,
+    0x8F, 2, 0x55, 0x04,
+    0x84, 1, 0x90,
+    0x83, 1, 0x7B,
+    0x85, 1, 0x33,
+    0x60, 1, 0x00,
+    0x70, 1, 0x00,
+    0x61, 1, 0x02,
+    0x71, 1, 0x02,
+    0x62, 1, 0x04,
+    0x72, 1, 0x04,
+    0x6C, 1, 0x29,
+    0x7C, 1, 0x29,
+    0x6D, 1, 0x31,
+    0x7D, 1, 0x31,
+    0x6E, 1, 0x0F,
+    0x7E, 1, 0x0F,
+    0x66, 1, 0x21,
+    0x76, 1, 0x21,
+    0x68, 1, 0x3A,
+    0x78, 1, 0x3A,
+    0x63, 1, 0x07,
+    0x73, 1, 0x07,
+    0x64, 1, 0x05,
+    0x74, 1, 0x05,
+    0x65, 1, 0x02,
+    0x75, 1, 0x02,
+    0x67, 1, 0x23,
+    0x77, 1, 0x23,
+    0x69, 1, 0x08,
+    0x79, 1, 0x08,
+    0x6A, 1, 0x13,
+    0x7A, 1, 0x13,
+    0x6B, 1, 0x13,
+    0x7B, 1, 0x13,
+    0x6F, 1, 0x00,
+    0x7F, 1, 0x00,
+    0x50, 1, 0x00,
+    0x52, 1, 0xD6,
+    0x53, 1, 0x08,
+    0x54, 1, 0x08,
+    0x55, 1, 0x1E,
+    0x56, 1, 0x1C,
+    0xA0, 3, 0x2B, 0x24, 0x00,
+    0xA1, 1, 0x87,
+    0xA2, 1, 0x86,
+    0xA5, 1, 0x00,
+    0xA6, 1, 0x00,
+    0xA7, 1, 0x00,
+    0xA8, 1, 0x36,
+    0xA9, 1, 0x7E,
+    0xAA, 1, 0x7E,
+    0xB9, 1, 0x85,
+    0xBA, 1, 0x84,
+    0xBB, 1, 0x83,
+    0xBC, 1, 0x82,
+    0xBD, 1, 0x81,
+    0xBE, 1, 0x80,
+    0xBF, 1, 0x01,
+    0xC0, 1, 0x02,
+    0xC1, 1, 0x00,
+    0xC2, 1, 0x00,
+    0xC3, 1, 0x00,
+    0xC4, 1, 0x33,
+    0xC5, 1, 0x7E,
+    0xC6, 1, 0x7E,
+    0xC8, 2, 0x33, 0x33,
+    0xC9, 1, 0x68,
+    0xCA, 1, 0x69,
+    0xCB, 1, 0x6A,
+    0xCC, 1, 0x6B,
+    0xCD, 2, 0x33, 0x33,
+    0xCE, 1, 0x6C,
+    0xCF, 1, 0x6D,
+    0xD0, 1, 0x6E,
+    0xD1, 1, 0x6F,
+    0xAB, 2, 0x03, 0x67,
+    0xAC, 2, 0x03, 0x6B,
+    0xAD, 2, 0x03, 0x68,
+    0xAE, 2, 0x03, 0x6C,
+    0xB3, 1, 0x00,
+    0xB4, 1, 0x00,
+    0xB5, 1, 0x00,
+    0xB6, 1, 0x32,
+    0xB7, 1, 0x7E,
+    0xB8, 1, 0x7E,
+    0xE0, 1, 0x00,
+    0xE1, 2, 0x03, 0x0F,
+    0xE2, 1, 0x04,
+    0xE3, 1, 0x01,
+    0xE4, 1, 0x0E,
+    0xE5, 1, 0x01,
+    0xE6, 1, 0x19,
+    0xE7, 1, 0x10,
+    0xE8, 1, 0x10,
+    0xEA, 1, 0x12,
+    0xEB, 1, 0xD0,
+    0xEC, 1, 0x04,
+    0xED, 1, 0x07,
+    0xEE, 1, 0x07,
+    0xEF, 1, 0x09,
+    0xF0, 1, 0xD0,
+    0xF1, 1, 0x0E,
+    0xF9, 1, 0x17,
+    0xF2, 4, 0x2C, 0x1B, 0x0B, 0x20,
+    0xE9, 1, 0x29,
+    0xEC, 1, 0x04,
+    0x35, 1, 0x00,
+    0x44, 2, 0x00, 0x10,
+    0x46, 1, 0x10,
+    0xFF, 1, 0x00,
+    0x3A, 1, 0x05,
+};
+
+const uint16_t NV3007_InitTableSize = (uint16_t)sizeof(NV3007_InitTable);
+
+/**
+ * @brief Reproduce NV3007_InitTable por el bus SPI y remata con SLPOUT/DISPON.
+ *
+ * @details Toda la tabla viaja en una única transacción (CS bajo de principio a fin),
+ *          igual que el BEGIN_WRITE/END_WRITE de la referencia.
+ *
+ *          Los retardos de SLPOUT/DISPON son los del fichero del fabricante (220/200 ms),
+ *          no los 120/150 de Arduino_GFX: el charge-pump necesita ese tiempo para
+ *          estabilizarse antes de habilitar la salida, y quedarse corto deja el panel en negro.
  */
 static NV3007_Status_t NV3007_RunInitSequence(void)
 {
-    NV3007_Status_t st;
+    NV3007_Status_t st = NV3007_OK;
+    uint16_t i = 0U;
 
     /* BEGIN_WRITE: CS permanece bajo durante todo el bloque, igual que la referencia */
     NV3007_Select();
 
-    st  = NV3007_BatchCmdData8(0xFF, 0xA5);
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x9A, 0x08) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x9B, 0x08) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x9C, 0xB0) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x9D, 0x16) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x9E, 0xC4) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData16(0x8F, 0x5504) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x84, 0x90) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x83, 0x7B) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x85, 0x33) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x60, 0x00) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x70, 0x00) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x61, 0x02) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x71, 0x02) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x62, 0x04) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x72, 0x04) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x6C, 0x29) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x7C, 0x29) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x6D, 0x31) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x7D, 0x31) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x6E, 0x0F) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x7E, 0x0F) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x66, 0x21) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x76, 0x21) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x68, 0x3A) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x78, 0x3A) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x63, 0x07) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x73, 0x07) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x64, 0x05) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x74, 0x05) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x65, 0x02) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x75, 0x02) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x67, 0x23) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x77, 0x23) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x69, 0x08) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x79, 0x08) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x6A, 0x13) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x7A, 0x13) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x6B, 0x13) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x7B, 0x13) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x6F, 0x00) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x7F, 0x00) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x50, 0x00) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x52, 0xD6) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x53, 0x08) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x54, 0x08) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x55, 0x1E) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x56, 0x1C) : st;
+    while ((i < NV3007_InitTableSize) && (st == NV3007_OK))
+    {
+        uint8_t cmd = NV3007_InitTable[i++];
+        uint8_t n   = NV3007_InitTable[i++];
+        uint8_t k;
 
-    st  = (st == NV3007_OK) ? NV3007_WriteCommandRaw(0xA0) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteDataRaw(0x2B) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteDataRaw(0x24) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteDataRaw(0x00) : st;
+        st = NV3007_WriteCommandRaw(cmd);
 
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xA1, 0x87) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xA2, 0x86) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xA5, 0x00) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xA6, 0x00) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xA7, 0x00) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xA8, 0x36) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xA9, 0x7E) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xAA, 0x7E) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xB9, 0x85) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xBA, 0x84) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xBB, 0x83) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xBC, 0x82) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xBD, 0x81) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xBE, 0x80) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xBF, 0x01) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xC0, 0x02) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xC1, 0x00) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xC2, 0x00) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xC3, 0x00) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xC4, 0x33) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xC5, 0x7E) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xC6, 0x7E) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData16(0xC8, 0x3333) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xC9, 0x68) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xCA, 0x69) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xCB, 0x6A) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xCC, 0x6B) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData16(0xCD, 0x3333) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xCE, 0x6C) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xCF, 0x6D) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xD0, 0x6E) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xD1, 0x6F) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData16(0xAB, 0x0367) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData16(0xAC, 0x036B) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData16(0xAD, 0x0368) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData16(0xAE, 0x036C) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xB3, 0x00) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xB4, 0x00) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xB5, 0x00) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xB6, 0x32) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xB7, 0x7E) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xB8, 0x7E) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xE0, 0x00) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData16(0xE1, 0x030F) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xE2, 0x04) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xE3, 0x01) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xE4, 0x0E) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xE5, 0x01) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xE6, 0x19) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xE7, 0x10) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xE8, 0x10) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xEA, 0x12) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xEB, 0xD0) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xEC, 0x04) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xED, 0x07) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xEE, 0x07) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xEF, 0x09) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xF0, 0xD0) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xF1, 0x0E) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xF9, 0x17) : st;
+        /* El índice avanza siempre el registro completo, falle o no la transferencia,
+         * para no desalinear la tabla si se decide continuar tras un error. */
+        for (k = 0U; k < n; k++)
+        {
+            if (st == NV3007_OK) { st = NV3007_WriteDataRaw(NV3007_InitTable[i]); }
+            i++;
+        }
+    }
 
-    st  = (st == NV3007_OK) ? NV3007_WriteCommandRaw(0xF2) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteDataRaw(0x2C) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteDataRaw(0x1B) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteDataRaw(0x0B) : st;
-    st  = (st == NV3007_OK) ? NV3007_WriteDataRaw(0x20) : st;
-
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xE9, 0x29) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xEC, 0x04) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x35, 0x00) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData16(0x44, 0x0010) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x46, 0x10) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0xFF, 0x00) : st;
-    st  = (st == NV3007_OK) ? NV3007_BatchCmdData8(0x3A, 0x05) : st;
-
-    /* SLPOUT y DISPON van dentro del mismo bloque de escritura (CS bajo) y luego
-     * END_WRITE. Los retardos son los del fichero del fabricante (220/200 ms), no los
-     * 120/150 de Arduino_GFX: el charge-pump necesita ese tiempo para estabilizarse
-     * antes de habilitar la salida, y quedarse corto deja el panel en negro. */
     st  = (st == NV3007_OK) ? NV3007_WriteCommandRaw(NV3007_CMD_SLPOUT) : st;
     if (st == NV3007_OK) { HAL_Delay(NV3007_SLPOUT_DELAY); }
     st  = (st == NV3007_OK) ? NV3007_WriteCommandRaw(NV3007_CMD_DISPON) : st;
@@ -801,6 +815,20 @@ NV3007_Status_t NV3007_Rotate(NV3007_Orientation_t orientation)
 }
 
 /**
+ * @brief Devuelve el ancho lógico activo, ya intercambiado según la rotación.
+ *
+ * @details El código de aplicación no debe usar NV3007_WIDTH/NV3007_HEIGHT directamente:
+ *          esas constantes son la geometría del panel en Portrait, y quedan invertidas
+ *          en cuanto se llama a NV3007_Rotate() con una orientación Landscape.
+ */
+uint16_t NV3007_GetWidth(void)  { return NV3007_Width; }
+
+/**
+ * @brief Devuelve el alto lógico activo, ya intercambiado según la rotación.
+ */
+uint16_t NV3007_GetHeight(void) { return NV3007_Height; }
+
+/**
  * @brief Sobrescribe en tiempo de ejecución el offset de GRAM aplicado a CASET/RASET.
  *
  * @details Pensado para calibrar el panel sin recompilar: se ajustan los valores hasta
@@ -841,6 +869,13 @@ NV3007_Status_t NV3007_SetOffset(uint16_t x_offset, uint16_t y_offset)
  */
 NV3007_Status_t NV3007_InvertDisplay(bool invert)
 {
+    /* Sin esta guarda, llamarla antes de NV3007_Init() pasa punteros NULL a
+     * HAL_GPIO_WritePin() y provoca un HardFault en lugar de un código de error. */
+    if (!NV3007_Initialized)
+    {
+        return NV3007_NOT_INITIALIZED;
+    }
+
 #if (NV3007_IPS != 0)
     /* En panel IPS la polaridad va al revés (ver NV3007_IPS en NV3007.h) */
     return NV3007_SendCommand(invert ? NV3007_CMD_INVOFF : NV3007_CMD_INVON);
@@ -859,7 +894,14 @@ NV3007_Status_t NV3007_InvertDisplay(bool invert)
  */
 NV3007_Status_t NV3007_DisplayOn(void)
 {
-    NV3007_Status_t status = NV3007_SendCommand(NV3007_CMD_SLPOUT);
+    NV3007_Status_t status;
+
+    if (!NV3007_Initialized)
+    {
+        return NV3007_NOT_INITIALIZED;
+    }
+
+    status = NV3007_SendCommand(NV3007_CMD_SLPOUT);
     if (status != NV3007_OK) { return status; }
 
     HAL_Delay(NV3007_SLPOUT_DELAY);
@@ -877,7 +919,14 @@ NV3007_Status_t NV3007_DisplayOn(void)
  */
 NV3007_Status_t NV3007_DisplayOff(void)
 {
-    NV3007_Status_t status = NV3007_SendCommand(NV3007_CMD_DISPOFF);
+    NV3007_Status_t status;
+
+    if (!NV3007_Initialized)
+    {
+        return NV3007_NOT_INITIALIZED;
+    }
+
+    status = NV3007_SendCommand(NV3007_CMD_DISPOFF);
     if (status != NV3007_OK) { return status; }
 
     status = NV3007_SendCommand(NV3007_CMD_SLPIN);
