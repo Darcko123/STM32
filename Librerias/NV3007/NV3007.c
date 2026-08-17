@@ -10,7 +10,7 @@
  *
  * @author Daniel Ruiz
  * @date Junio 23, 2026
- * @version 0.2.0
+ * @version 0.1.0
  */
 
 #include "NV3007.h"
