@@ -7,8 +7,8 @@
  *          aplicación de configuración de red/modulación y la telemetría RSSI/SNR.
  *
  * @author Daniel Ruiz
- * @date July 22, 2026
- * @version 2.0.0
+ * @date Abril 27, 2026
+ * @version 1.6.0
  */
 
 #include "SX1262.h"
@@ -393,32 +393,6 @@ static uint8_t sx1262_ComputeLDRO(uint8_t sf, lora_signal_bandwidth_t bw)
 }
 
 /**
- * @brief Devuelve el cadDetPeak recomendado para el Spreading Factor activo,
- *        asumiendo un CAD de 2 símbolos.
- *
- *        cadDetPeak fija el umbral de correlación con el preámbulo LoRa: un valor
- *        bajo dispara falsas detecciones sobre el ruido y uno alto hace que el
- *        chip pase por alto señales débiles. El datasheet (§13.4.7) delega la
- *        elección en la nota de aplicación de Semtech AN1200.48, de donde sale
- *        esta tabla. Si en un entorno concreto abundan las falsas detecciones,
- *        subir el valor una o dos unidades.
- *
- * @param sf Spreading Factor (5–12)
- * @return uint8_t Valor de cadDetPeak
- */
-static uint8_t sx1262_CadDetPeak(uint8_t sf)
-{
-    static const uint8_t det_peak[] = { 21, 21, 22, 22, 23, 24, 25, 28 }; // SF5..SF12
-
-    if (sf < 5 || sf > 12)
-    {
-        return 22; // SF fuera de rango: valor intermedio de la tabla
-    }
-
-    return det_peak[sf - 5];
-}
-
-/**
  * @brief Calcula el Time on Air (ToA) aproximado de un paquete LoRa en
  * milisegundos.
  *
@@ -524,16 +498,15 @@ static uint32_t sx1262_ComputeFskToA_ms(uint8_t payload_len, const fsk_config_t 
 }
 
 /**
- * @brief Espera activa a que DIO1 suba. Usado por las rutas bloqueantes de TX
- *        (que son la ruta IT con esta espera intercalada entre StartTransmitIT y
- *        GetTransmitStatus) y por el CAD. Es agnóstico al evento: quién decide
- *        qué significa el flanco es el llamante, al leer el registro IRQ.
+ * @brief Espera activa a que DIO1 suba (TxDone o TxTimeout). Usado por las rutas
+ *        bloqueantes de TX, que son la ruta IT con esta espera intercalada entre
+ *        StartTransmitIT y GetTransmitStatus.
  *
  * @param timeout_ms Timeout de software para el bucle de espera en DIO1
  * @return SX1262_Status_t SX1262_OK si DIO1 subió, SX1262_TIMEOUT si expiró el
  *                         plazo sin evento.
  */
-static SX1262_Status_t sx1262_WaitDio1(uint32_t timeout_ms)
+static SX1262_Status_t sx1262_WaitTxDone(uint32_t timeout_ms)
 {
     uint32_t start = HAL_GetTick();
 
@@ -556,17 +529,13 @@ static SX1262_Status_t sx1262_WaitDio1(uint32_t timeout_ms)
  *        (el bit HEADER_ERR nunca se activa en GFSK, por lo que su chequeo es
  *        inofensivo). Los llamantes públicos aportan la validación de estado.
  *
- * @param data       Buffer destino del payload recibido.
- * @param max_length Capacidad de `data` en bytes. El chip puede reportar hasta 255
- *                   bytes y el tamaño lo decide el emisor, así que este límite es la
- *                   única protección contra desbordar el buffer del llamante.
- * @param length     Puntero donde se escribe la longitud del payload (bytes).
+ * @param data   Buffer destino del payload recibido.
+ * @param length Puntero donde se escribe la longitud del payload (bytes).
  * @return SX1262_Status_t SX1262_OK si el paquete es válido, SX1262_TIMEOUT si el
- *                         IRQ indica timeout de chip, SX1262_RX_BUFFER_TOO_SMALL si
- *                         el payload no cabe en `data`, SX1262_ERROR ante CRC/header
+ *                         IRQ indica timeout de chip, SX1262_ERROR ante CRC/header
  *                         inválido, ausencia de RX_DONE o fallo SPI.
  */
-static SX1262_Status_t sx1262_GetReceivedPacket(uint8_t *data, uint8_t max_length, uint8_t *length)
+static SX1262_Status_t sx1262_GetReceivedPacket(uint8_t *data, uint8_t *length)
 {
     // 1. Leer registro IRQ del chip
     uint8_t irqStatus[2];
@@ -613,18 +582,7 @@ static SX1262_Status_t sx1262_GetReceivedPacket(uint8_t *data, uint8_t max_lengt
     *length = rxBufferStatus[0];        // Número de bytes del payload
     uint8_t offset = rxBufferStatus[1]; // Offset base en el buffer del chip
 
-    // 5. El tamaño del payload lo decide el emisor (hasta 255 bytes), no la
-    //    configuración local: sin este chequeo un paquete grande desbordaría el
-    //    buffer del llamante. Se rechaza el paquete entero en lugar de truncarlo
-    //    —un payload parcial es indistinguible de uno íntegro para el llamante—
-    //    y *length ya trae el tamaño real para que pueda redimensionar su buffer.
-    //    El IRQ ya se limpió en el paso 2: el chip sigue en RX continuo.
-    if (*length > max_length)
-    {
-        return SX1262_RX_BUFFER_TOO_SMALL;
-    }
-
-    // 6. Leer payload desde el buffer interno del SX1262
+    // 5. Leer payload desde el buffer interno del SX1262
     return sx1262_ReadBuffer(offset, data, *length);
 }
 
@@ -985,7 +943,7 @@ SX1262_Status_t SX1262_LoRa_Transmit(uint8_t *data, uint8_t length)
     uint32_t timeout_ms = toa_ms + toa_ms / 2U + 100U;
 
     // Esperar IRQ (DIO1 en alto => TxDone o TxTimeout)
-    if (sx1262_WaitDio1(timeout_ms) != SX1262_OK)
+    if (sx1262_WaitTxDone(timeout_ms) != SX1262_OK)
     {
         // Timeout de software: DIO1 nunca subió, así que GetTransmitStatus
         // no llegará a consumir el evento ni a liberar el semáforo. Abort
@@ -1070,14 +1028,14 @@ SX1262_Status_t SX1262_LoRa_AbortTransmit(void)
 /**
  * @brief Recibe datos en modo LoRa (bloqueante). Contrato en SX1262.h.
  */
-SX1262_Status_t SX1262_LoRa_Receive(uint8_t *data, uint8_t max_length, uint8_t *length, uint32_t timeout_ms)
+SX1262_Status_t SX1262_LoRa_Receive(uint8_t *data, uint8_t *length, uint32_t timeout_ms)
 {
     if (SX1262_Initialized != 1)
     {
         return SX1262_NOT_INITIALIZED;
     }
 
-    if (data == NULL || length == NULL || max_length == 0)
+    if (data == NULL || length == NULL)
     {
         return SX1262_INVALID_PARAM;
     }
@@ -1116,7 +1074,7 @@ SX1262_Status_t SX1262_LoRa_Receive(uint8_t *data, uint8_t max_length, uint8_t *
 
     // DIO1 en alto: evaluar el registro IRQ, leer el payload y limpiar. Es
     // exactamente el trabajo de la ruta IT, sin estado propio de la RX continua.
-    return SX1262_LoRa_GetReceivedPacket(data, max_length, length);
+    return SX1262_LoRa_GetReceivedPacket(data, length);
 }
 
 /**
@@ -1164,18 +1122,18 @@ SX1262_Status_t SX1262_LoRa_StartReceiveIT(void)
 /**
  * @brief Lee el payload del paquete LoRa recibido. Contrato en SX1262.h.
  */
-SX1262_Status_t SX1262_LoRa_GetReceivedPacket(uint8_t *data, uint8_t max_length, uint8_t *length)
+SX1262_Status_t SX1262_LoRa_GetReceivedPacket(uint8_t *data, uint8_t *length)
 {
     if (SX1262_Initialized != 1)
     {
         return SX1262_NOT_INITIALIZED;
     }
-    if (data == NULL || length == NULL || max_length == 0)
+    if (data == NULL || length == NULL)
     {
         return SX1262_INVALID_PARAM;
     }
 
-    return sx1262_GetReceivedPacket(data, max_length, length);
+    return sx1262_GetReceivedPacket(data, length);
 }
 
 /**
@@ -1189,128 +1147,6 @@ SX1262_Status_t SX1262_LoRa_AbortReceive(void)
     }
 
     return sx1262_AbortReceive();
-}
-
-/**
- * @brief Ejecuta una detección de actividad en el canal (CAD). Contrato en SX1262.h.
- */
-SX1262_Status_t SX1262_LoRa_ChannelActivityDetection(bool *activity_detected)
-{
-    if (SX1262_Initialized != 1)
-    {
-        return SX1262_NOT_INITIALIZED;
-    }
-
-    if (activity_detected == NULL)
-    {
-        return SX1262_INVALID_PARAM;
-    }
-
-    // El CAD depende del SF y el BW activos para su sensibilidad y su duración:
-    // con configuración sin aplicar, el resultado no describiría el canal real.
-    if (SX1262_LoRa_CurrentConfig.config_pending)
-    {
-        return SX1262_ERROR; // Llamar a SX1262_LoRa_ApplyConfig() antes del CAD
-    }
-
-    if (SX1262_TxActive)
-    {
-        // Hay una TX IT en vuelo. Lanzar un CAD ahora forzaría Standby sobre la TX
-        // y el dispatcher del ISR despacharía mal el flanco DIO1.
-        return SX1262_TX_BUSY;
-    }
-
-    *activity_detected = false;
-
-    uint8_t buf[8];
-    SX1262_Status_t st = SX1262_OK;
-
-    // 1. Standby RC (el chip debe estar en Standby antes de configurar el CAD).
-    //    Igual que en la ruta TX, el Standby cancela cualquier RX continuo previo:
-    //    liberar el semáforo para no dejar estado obsoleto.
-    st = st ? st : sx1262_Standby();
-    SX1262_RxActive = 0;
-
-    // 2. Limpiar IRQ pendientes
-    st = st ? st : sx1262_ClearIrq();
-
-    // 3. Parámetros del CAD (datasheet §13.4.7)
-    buf[0] = 0x01;                                                            // cadSymbolNum = CAD_ON_2_SYMB
-    buf[1] = sx1262_CadDetPeak(SX1262_LoRa_CurrentConfig.spreading_factor);   // cadDetPeak
-    buf[2] = 10;                                                              // cadDetMin (valor de AN1200.48, común a todos los SF)
-    buf[3] = 0x00;                                                            // cadExitMode = CAD_ONLY: al terminar vuelve a Standby RC
-    buf[4] = 0x00;                                                            // cadTimeout(23:0): solo se usa con CAD_RX
-    buf[5] = 0x00;
-    buf[6] = 0x00;
-    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_CAD_PARAMS, buf, 7);
-
-    // 4. Enrutar CAD_DONE y CAD_DETECTED a DIO1
-    uint16_t irqMask = SX126X_IRQ_CAD_DONE | SX126X_IRQ_CAD_DETECTED;
-    buf[0] = (irqMask >> 8) & 0xFF;
-    buf[1] = irqMask & 0xFF; // IRQ global mask
-    buf[2] = (irqMask >> 8) & 0xFF;
-    buf[3] = irqMask & 0xFF; // DIO1 mask
-    buf[4] = 0x00;
-    buf[5] = 0x00; // DIO2 (no usado)
-    buf[6] = 0x00;
-    buf[7] = 0x00; // DIO3 (no usado)
-    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_DIO_IRQ_PARAMS, buf, 8);
-
-    // 5. Lanzar el CAD (comando sin argumentos)
-    st = st ? st : sx1262_WriteCommand(SX126X_CMD_SET_CAD, NULL, 0);
-
-    if (st != SX1262_OK)
-    {
-        return st;
-    }
-
-    // 6. Timeout de software derivado de la modulación activa: el CAD dura poco
-    //    más de los 2 símbolos analizados, así que 8 símbolos más un margen fijo
-    //    cubren cualquier combinación SF/BW sin colgar el bucle si DIO1 no sube.
-    uint32_t bw_hz = sx1262_BandwidthToHz(SX1262_LoRa_CurrentConfig.bandwidth);
-    uint32_t timeout_ms = 100U; // Valor de seguridad si el BW es inválido
-    if (bw_hz != 0)
-    {
-        // T_sym_us = (1 << SF) * 1_000_000 / BW_Hz  (64 bits: SF12/BW7.8k desborda 32)
-        uint64_t t_sym_us = ((uint64_t)1 << SX1262_LoRa_CurrentConfig.spreading_factor) * 1000000ULL / (uint64_t)bw_hz;
-        timeout_ms = (uint32_t)((t_sym_us * 8ULL) / 1000ULL) + 10U;
-    }
-
-    if (sx1262_WaitDio1(timeout_ms) != SX1262_OK)
-    {
-        // Sacar el chip del modo CAD antes de reportar (best-effort)
-        sx1262_Standby();
-        sx1262_ClearIrq();
-        return SX1262_TIMEOUT;
-    }
-
-    // 7. Leer el registro IRQ y limpiarlo
-    uint8_t irqStatus[2];
-    st = sx1262_ReadCommand(SX126X_CMD_GET_IRQ_STATUS, irqStatus, 2);
-    if (st != SX1262_OK)
-    {
-        return st;
-    }
-
-    uint16_t irqReg = ((uint16_t)irqStatus[0] << 8) | irqStatus[1];
-    SX1262_LastIrqStatus = irqReg; // Cachear para diagnóstico (SX1262_GetLastIrqStatus)
-
-    sx1262_ClearIrq();
-
-    // El flanco de DIO1 también despertó al ISR, que al no haber TX en curso marcó
-    // SX1262_LoRa_RxDoneFlag. El evento ya se consumió aquí: limpiarla para que el
-    // main loop no procese una recepción que nunca ocurrió.
-    SX1262_LoRa_RxDoneFlag = 0;
-
-    if ((irqReg & SX126X_IRQ_CAD_DONE) == 0)
-    {
-        return SX1262_ERROR; // DIO1 subió sin CAD_DONE: condición inesperada
-    }
-
-    // Tras CAD_ONLY el chip ya está de vuelta en Standby RC por sí mismo
-    *activity_detected = (irqReg & SX126X_IRQ_CAD_DETECTED) != 0;
-
-    return SX1262_OK;
 }
 
 /**
@@ -1502,36 +1338,6 @@ SX1262_Status_t SX1262_LoRa_GetSNR(int8_t *snr_db)
 }
 
 /**
- * @brief Obtiene el RSSI instantáneo del canal. Contrato en SX1262.h.
- */
-SX1262_Status_t SX1262_GetRSSIInst(int16_t *rssi_dbm)
-{
-    if (SX1262_Initialized != 1)
-    {
-        return SX1262_NOT_INITIALIZED;
-    }
-    if (rssi_dbm == NULL)
-    {
-        return SX1262_INVALID_PARAM;
-    }
-
-    // GetRssiInst devuelve 1 byte:
-    //   [0] RssiInst → RSSI = -RssiInst/2  (dBm)
-    // Solo es válido en modo RX; en STDBY/SLEEP el valor no es significativo.
-    uint8_t rssi_inst;
-    SX1262_Status_t st = sx1262_ReadCommand(SX126X_CMD_GET_RSSI_INST, &rssi_inst, 1);
-    if (st != SX1262_OK)
-    {
-        return st;
-    }
-
-    // RssiInst es un valor sin signo; el resultado en dBm es siempre <= 0
-    *rssi_dbm = -(int16_t)rssi_inst / 2;
-
-    return SX1262_OK;
-}
-
-/**
  * @brief Retorna una copia de la configuración LoRa aplicada. Contrato en SX1262.h.
  */
 SX1262_Status_t SX1262_LoRa_GetConfig(lora_config_t *config)
@@ -1573,7 +1379,7 @@ SX1262_Status_t SX1262_FSK_Transmit(uint8_t *data, uint8_t length)
     uint32_t timeout_ms = toa_ms + toa_ms / 2U + 100U;
 
     // Esperar IRQ (DIO1 en alto => TxDone o TxTimeout)
-    if (sx1262_WaitDio1(timeout_ms) != SX1262_OK)
+    if (sx1262_WaitTxDone(timeout_ms) != SX1262_OK)
     {
         // Timeout de software: DIO1 nunca subió, así que GetTransmitStatus no
         // llegará a consumir el evento ni a liberar el semáforo. Abort devuelve
@@ -1668,14 +1474,14 @@ SX1262_Status_t SX1262_FSK_AbortTransmit(void)
 /**
  * @brief Recibe datos en modo FSK (bloqueante). Contrato en SX1262.h.
  */
-SX1262_Status_t SX1262_FSK_Receive(uint8_t *data, uint8_t max_length, uint8_t *length, uint32_t timeout_ms)
+SX1262_Status_t SX1262_FSK_Receive(uint8_t *data, uint8_t *length, uint32_t timeout_ms)
 {
     if (SX1262_Initialized != 1)
     {
         return SX1262_NOT_INITIALIZED;
     }
 
-    if (data == NULL || length == NULL || max_length == 0)
+    if (data == NULL || length == NULL)
     {
         return SX1262_INVALID_PARAM;
     }
@@ -1715,7 +1521,7 @@ SX1262_Status_t SX1262_FSK_Receive(uint8_t *data, uint8_t max_length, uint8_t *l
     }
 
     // DIO1 en alto: evaluar el registro IRQ, leer el payload y limpiar.
-    return sx1262_GetReceivedPacket(data, max_length, length);
+    return sx1262_GetReceivedPacket(data, length);
 }
 
 // ----------------------------------------------------------------------------
@@ -1770,18 +1576,18 @@ SX1262_Status_t SX1262_FSK_StartReceiveIT(void)
 /**
  * @brief Lee el payload del paquete FSK recibido. Contrato en SX1262.h.
  */
-SX1262_Status_t SX1262_FSK_GetReceivedPacket(uint8_t *data, uint8_t max_length, uint8_t *length)
+SX1262_Status_t SX1262_FSK_GetReceivedPacket(uint8_t *data, uint8_t *length)
 {
     if (SX1262_Initialized != 1)
     {
         return SX1262_NOT_INITIALIZED;
     }
-    if (data == NULL || length == NULL || max_length == 0)
+    if (data == NULL || length == NULL)
     {
         return SX1262_INVALID_PARAM;
     }
 
-    return sx1262_GetReceivedPacket(data, max_length, length);
+    return sx1262_GetReceivedPacket(data, length);
 }
 
 /**
@@ -1880,6 +1686,34 @@ SX1262_Status_t SX1262_FSK_ApplyConfig(fsk_config_t *config)
         buf[2 + i] = config->fsk_sync_word[i];
     }
     st = st ? st : sx1262_WriteCommand(SX126X_CMD_WRITE_REGISTER, buf, 2U + config->sync_word_len);
+
+    // --- 5b. SEMILLA DE WHITENING ---
+    // El valor de reset del chip es 0x0100, pero el receptor fuerza 0x01FF.
+    // Sin igualarlo, el payload — y el byte de longitud, que en modo variable
+    // también va aleatorizado — se desaleatoriza a basura en RX.
+    if (config->whitening)
+    {
+        buf[0] = (SX126X_REG_WHITENING_MSB >> 8) & 0xFF;
+        buf[1] = SX126X_REG_WHITENING_MSB & 0xFF;
+        buf[2] = (SX126X_FSK_WHITENING_SEED >> 8) & 0x01; // MSB: solo bit 0
+        buf[3] = SX126X_FSK_WHITENING_SEED & 0xFF;        // LSB
+        st = st ? st : sx1262_WriteCommand(SX126X_CMD_WRITE_REGISTER, buf, 4);
+    }
+
+    // --- 5c. SEMILLA Y POLINOMIO DEL CRC ---
+    // Reset del chip: init 0x1D0F; el receptor usa 0xFFFF. El polinomio
+    // coincide (0x1021) pero se escribe igual porque 0x06BC-0x06BF son
+    // contiguos y una sola ráfaga cubre ambos registros.
+    if (config->crc_type != FSK_CRC_OFF)
+    {
+        buf[0] = (SX126X_REG_CRC_INIT_MSB >> 8) & 0xFF;
+        buf[1] = SX126X_REG_CRC_INIT_MSB & 0xFF;
+        buf[2] = (SX126X_FSK_CRC_SEED >> 8) & 0xFF;
+        buf[3] = SX126X_FSK_CRC_SEED & 0xFF;
+        buf[4] = (SX126X_FSK_CRC_POLYNOMIAL >> 8) & 0xFF;
+        buf[5] = SX126X_FSK_CRC_POLYNOMIAL & 0xFF;
+        st = st ? st : sx1262_WriteCommand(SX126X_CMD_WRITE_REGISTER, buf, 6);
+    }
 
     // --- 6. PARÁMETROS DEL PAQUETE ---
     // PreambleLength y SyncWordLength se expresan en bits en el comando GFSK
