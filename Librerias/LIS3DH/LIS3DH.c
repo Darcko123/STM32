@@ -23,9 +23,6 @@ static uint8_t              LIS3DH_Initialized = 0U;   /**< Bandera para verific
 /** @brief Almacenan valores RAW del acelerómetro. */
 static int16_t Accel_X_RAW = 0, Accel_Y_RAW = 0, Accel_Z_RAW = 0;
 
-/** @brief Almacenan valores RAW del giroscopio. */
-static int16_t Gyro_X_RAW = 0, Gyro_Y_RAW = 0, Gyro_Z_RAW = 0;
-
 // ============================================================================
 // FUNCIONES PÚBLICAS
 // ============================================================================
@@ -110,5 +107,18 @@ LIS3DH_Status_t LIS3DH_Init(I2C_HandleTypeDef* hi2c)
     // Marcar como inicializado
     LIS3DH_Initialized = 1U;
 
+    return LIS3DH_OK;
+}
+
+/**
+ * @brief Desinicializa el sensor LIS3DH, liberando recursos y marcando el módulo como no inicializado.
+ * 
+ * @return LIS3DH_Status_t Siempre retorna LIS3DH_OK
+ */
+LIS3DH_Status_t LIS3DH_DeInit(void)
+{
+    LIS3DH_hi2c         = NULL;    // Limpia el handler de I2C
+    LIS3DH_Initialized  = 0U;      // Marca el módulo como no inicializado
+    
     return LIS3DH_OK;
 }

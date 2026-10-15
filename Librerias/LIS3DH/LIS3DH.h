@@ -59,15 +59,6 @@ typedef struct {
     float z;    /**< Valor de aceleración en el eje Z. */
 } LIS3DH_Accel_t;
 
-/**
- * @brief Datos de medición del giroscopio del LIS3DH.
- */
-typedef struct {
-    float x;    /**< Valor de velocidad angular en el eje X. */
-    float y;    /**< Valor de velocidad angular en el eje Y. */
-    float z;    /**< Valor de velocidad angular en el eje Z. */
-} LIS3DH_Gyro_t;
-
 // ============================================================================
 // PROTOTIPOS DE FUNCIONES PÚBLICAS
 // ============================================================================
