@@ -26,7 +26,14 @@
 // DEFINICIONES DE CONSTANTES
 // ============================================================================
 
-#define WHO_AM_I_REG        0x18    /**< Registro de identificación del dispositivo. */
+#define LIS3DH_ADDRESS          (0x18 << 1) /**< Dirección I2C (SA0 = GND). Usar (0x19 << 1) si SA0 = VDD. */
+#define LIS3DH_WHO_AM_I_CONTENT 0x33        /**< Valor esperado del registro WHO_AM_I. */
+
+#define TEMP_CFG_REG        0x1F    /**< Configuración del ADC auxiliar y sensor de temperatura. */
+#define WHO_AM_I_REG        0x0F    /**< Registro de identificación del dispositivo. */
+#define CTRL_REG1           0x20    /**< ODR, modo bajo consumo y habilitación de ejes. */
+#define CTRL_REG3           0x22    /**< Enrutamiento de interrupciones al pin INT1. */
+#define CTRL_REG4           0x23    /**< BDU, escala completa y modo alta resolución. */
 
 // ============================================================================
 // ENUMERACIONES Y ESTRUCTURAS
@@ -68,6 +75,17 @@ typedef struct {
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/**
+ * @brief Inicializa el LIS3DH.
+ * @details Configura los registros básicos del LIS3DH para activar el dispositivo
+ *          y establecer parámetros predeterminados de muestreo.
+ * 
+ * @param[in] hi2c Puntero al manejador I2C.
+ *
+ * @return LIS3DH_Status_t Estado de la operación
+ */
+LIS3DH_Status_t LIS3DH_Init(I2C_HandleTypeDef* hi2c);
 
 #ifdef __cplusplus
 }
