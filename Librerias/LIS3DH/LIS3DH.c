@@ -195,3 +195,50 @@ LIS3DH_Status_t LIS3DH_GetAccel(LIS3DH_Accel_t *accel)
 
     return LIS3DH_OK;
 }
+
+/**
+ * @brief Configura la escala completa del acelerómetro.
+ *
+ * @param[in] range Escala deseada (±2g, ±4g, ±8g o ±16g).
+ *
+ * @return LIS3DH_Status_t Estado de la operación
+ *
+ * @details
+ * - Lectura-modificación-escritura de CTRL_REG4: solo cambia FS[1:0] (bits 5:4),
+ *   conservando BDU, HR y el resto de bits.
+ * - LIS3DH_GetAccel lee FS del registro, por lo que la conversión a 'g' se
+ *   ajusta automáticamente.
+ */
+LIS3DH_Status_t LIS3DH_SetRange(LIS3DH_Range_t range)
+{
+    HAL_StatusTypeDef hal_status;
+    uint8_t ctrl4;
+
+    // Verificación de inicialización
+    if(LIS3DH_Initialized == 0) { return LIS3DH_NOT_INITIALIZED; }
+
+    // Validar escala
+    if(range > LIS3DH_RANGE_16G) { return LIS3DH_INVALID_PARAM; }
+
+    // Leer CTRL_REG4, sustituir FS[1:0] y escribir de vuelta
+    hal_status = HAL_I2C_Mem_Read(LIS3DH_hi2c, LIS3DH_ADDRESS, CTRL_REG4, 1, &ctrl4, 1, 1000);
+    if(hal_status == HAL_OK)
+    {
+        ctrl4 = (ctrl4 & ~0x30) | ((uint8_t)range << 4);
+        hal_status = HAL_I2C_Mem_Write(LIS3DH_hi2c, LIS3DH_ADDRESS, CTRL_REG4, 1, &ctrl4, 1, 1000);
+    }
+
+    if(hal_status == HAL_TIMEOUT)
+    {
+        return LIS3DH_TIMEOUT;
+    }
+    else if (hal_status != HAL_OK)
+    {
+        return LIS3DH_ERROR;
+    }
+
+    // Tiempo para que la nueva escala se estabilice
+    HAL_Delay(15);
+
+    return LIS3DH_OK;
+}

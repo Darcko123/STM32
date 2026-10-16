@@ -62,6 +62,16 @@ typedef struct {
     float z;    /**< Valor de aceleración en el eje Z. */
 } LIS3DH_Accel_t;
 
+/**
+ * @brief Escala completa del acelerómetro (bits FS[1:0] de CTRL_REG4).
+ */
+typedef enum {
+    LIS3DH_RANGE_2G  = 0,   /**< ±2g */
+    LIS3DH_RANGE_4G  = 1,   /**< ±4g */
+    LIS3DH_RANGE_8G  = 2,   /**< ±8g */
+    LIS3DH_RANGE_16G = 3    /**< ±16g */
+} LIS3DH_Range_t;
+
 // ============================================================================
 // PROTOTIPOS DE FUNCIONES PÚBLICAS
 // ============================================================================
@@ -96,6 +106,15 @@ LIS3DH_Status_t LIS3DH_DeInit(void);
  * @return LIS3DH_Status_t Estado de la operación
  */
 LIS3DH_Status_t LIS3DH_GetAccel(LIS3DH_Accel_t *accel);
+
+/**
+ * @brief Configura la escala completa del acelerómetro.
+ *
+ * @param[in] range Escala deseada (±2g, ±4g, ±8g o ±16g).
+ *
+ * @return LIS3DH_Status_t Estado de la operación
+ */
+LIS3DH_Status_t LIS3DH_SetRange(LIS3DH_Range_t range);
 
 #ifdef __cplusplus
 }
