@@ -89,6 +89,18 @@ typedef enum {
     LIS3DH_DATARATE_1K344HZ_LP5K376 = 9     /**< 1.344 kHz (normal/HR) o 5.376 kHz (bajo consumo) */
 } LIS3DH_DataRate_t;
 
+/**
+ * @brief Descripción del sensor según su configuración actual.
+ */
+typedef struct {
+    const char *name;       /**< Nombre del sensor. */
+    int32_t     version;    /**< Versión del driver. */
+    float       max_value;  /**< Valor máximo medible (m/s²). */
+    float       min_value;  /**< Valor mínimo medible (m/s²). */
+    float       resolution; /**< Resolución (m/s² por dígito). */
+    uint32_t    min_delay;  /**< Periodo de muestreo en µs (0 si está apagado). */
+} LIS3DH_Sensor_t;
+
 // ============================================================================
 // PROTOTIPOS DE FUNCIONES PÚBLICAS
 // ============================================================================
@@ -168,6 +180,15 @@ LIS3DH_Status_t LIS3DH_GetDataRate(LIS3DH_DataRate_t *dataRate);
  * @return LIS3DH_Status_t Estado de la operación
  */
 LIS3DH_Status_t LIS3DH_GetEvent(LIS3DH_Accel_t *accel);
+
+/**
+ * @brief Obtiene la descripción del sensor (rango, resolución y periodo de muestreo).
+ *
+ * @param[out] sensor Puntero a la estructura donde se almacenará la descripción.
+ *
+ * @return LIS3DH_Status_t Estado de la operación
+ */
+LIS3DH_Status_t LIS3DH_GetSensor(LIS3DH_Sensor_t *sensor);
 
 #ifdef __cplusplus
 }

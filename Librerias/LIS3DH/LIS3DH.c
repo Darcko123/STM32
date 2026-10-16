@@ -23,6 +23,53 @@ static uint8_t              LIS3DH_Initialized = 0U;   /**< Bandera para verific
 /** @brief Almacenan valores RAW del acelerómetro. */
 static int16_t Accel_X_RAW = 0, Accel_Y_RAW = 0, Accel_Z_RAW = 0;
 
+/** @brief Sensibilidad en mg/dígito [modo][FS] (datasheet LIS3DH, tabla 4). Modo: 0 = HR, 1 = normal, 2 = bajo consumo. */
+static const uint8_t LIS3DH_SensMg[3][4] = {
+    {  1,  2,  4,  12 },    // Alta resolución (12 bits)
+    {  4,  8, 16,  48 },    // Normal (10 bits)
+    { 16, 32, 64, 192 }     // Bajo consumo (8 bits)
+};
+
+// ============================================================================
+// FUNCIONES PRIVADAS
+// ============================================================================
+
+/**
+ * @brief Lee CTRL_REG1..CTRL_REG4 y extrae modo de operación, escala y ODR.
+ *
+ * @param[out] mode 0 = alta resolución, 1 = normal, 2 = bajo consumo.
+ * @param[out] fs   FS[1:0] de CTRL_REG4.
+ * @param[out] odr  ODR[3:0] de CTRL_REG1.
+ *
+ * @return LIS3DH_Status_t Estado de la operación
+ */
+static LIS3DH_Status_t LIS3DH_ReadConfig(uint8_t *mode, uint8_t *fs, uint8_t *odr)
+{
+    HAL_StatusTypeDef hal_status;
+    uint8_t ctrl[4];
+
+    // Leer CTRL_REG1..CTRL_REG4 (auto-incremento)
+    hal_status = HAL_I2C_Mem_Read(LIS3DH_hi2c, LIS3DH_ADDRESS, CTRL_REG1 | LIS3DH_AUTO_INC, 1, ctrl, 4, 1000);
+
+    if(hal_status == HAL_TIMEOUT)
+    {
+        return LIS3DH_TIMEOUT;
+    }
+    else if (hal_status != HAL_OK)
+    {
+        return LIS3DH_ERROR;
+    }
+
+    // Modo: LPen (CTRL_REG1 bit 3) / HR (CTRL_REG4 bit 3); escala: FS (CTRL_REG4 bits 5:4)
+    if(ctrl[0] & 0x08)      { *mode = 2; }
+    else if(ctrl[3] & 0x08) { *mode = 0; }
+    else                    { *mode = 1; }
+    *fs  = (ctrl[3] >> 4) & 0x03;
+    *odr = (ctrl[0] >> 4) & 0x0F;
+
+    return LIS3DH_OK;
+}
+
 // ============================================================================
 // FUNCIONES PÚBLICAS
 // ============================================================================
@@ -138,17 +185,12 @@ LIS3DH_Status_t LIS3DH_DeInit(void)
  */
 LIS3DH_Status_t LIS3DH_GetAccel(LIS3DH_Accel_t *accel)
 {
-    // Sensibilidad en mg/dígito [modo][FS] (datasheet LIS3DH, tabla 4)
-    static const uint8_t sens_mg[3][4] = {
-        {  1,  2,  4,  12 },    // Alta resolución (12 bits)
-        {  4,  8, 16,  48 },    // Normal (10 bits)
-        { 16, 32, 64, 192 }     // Bajo consumo (8 bits)
-    };
     static const uint8_t shift[3] = { 4, 6, 8 }; // Bits sin usar a la derecha
 
     HAL_StatusTypeDef hal_status;
-    uint8_t ctrl[4], Rec_Data[6];
-    uint8_t mode, fs;
+    LIS3DH_Status_t status;
+    uint8_t Rec_Data[6];
+    uint8_t mode, fs, odr;
     float scale;
 
     // Verificación de inicialización
@@ -157,13 +199,12 @@ LIS3DH_Status_t LIS3DH_GetAccel(LIS3DH_Accel_t *accel)
     // Validar puntero de salida
     if(accel == NULL) { return LIS3DH_INVALID_PARAM; }
 
-    // Leer CTRL_REG1..CTRL_REG4 (auto-incremento)
-    hal_status = HAL_I2C_Mem_Read(LIS3DH_hi2c, LIS3DH_ADDRESS, CTRL_REG1 | LIS3DH_AUTO_INC, 1, ctrl, 4, 1000);
-    if(hal_status == HAL_OK)
-    {
-        // Leer 6 bytes de datos del acelerómetro (auto-incremento)
-        hal_status = HAL_I2C_Mem_Read(LIS3DH_hi2c, LIS3DH_ADDRESS, OUT_X_L_REG | LIS3DH_AUTO_INC, 1, Rec_Data, 6, 1000);
-    }
+    // Leer modo y escala actuales
+    status = LIS3DH_ReadConfig(&mode, &fs, &odr);
+    if(status != LIS3DH_OK) { return status; }
+
+    // Leer 6 bytes de datos del acelerómetro (auto-incremento)
+    hal_status = HAL_I2C_Mem_Read(LIS3DH_hi2c, LIS3DH_ADDRESS, OUT_X_L_REG | LIS3DH_AUTO_INC, 1, Rec_Data, 6, 1000);
 
     if(hal_status == HAL_TIMEOUT)
     {
@@ -174,14 +215,8 @@ LIS3DH_Status_t LIS3DH_GetAccel(LIS3DH_Accel_t *accel)
         return LIS3DH_ERROR;
     }
 
-    // Modo: LPen (CTRL_REG1 bit 3) / HR (CTRL_REG4 bit 3); escala: FS (CTRL_REG4 bits 5:4)
-    if(ctrl[0] & 0x08)      { mode = 2; }
-    else if(ctrl[3] & 0x08) { mode = 0; }
-    else                    { mode = 1; }
-    fs = (ctrl[3] >> 4) & 0x03;
-
     // g por cuenta del valor de 16 bits justificado a la izquierda
-    scale = sens_mg[mode][fs] / (1000.0f * (1U << shift[mode]));
+    scale = LIS3DH_SensMg[mode][fs] / (1000.0f * (1U << shift[mode]));
 
     // Convertir datos RAW (little-endian) a valores enteros de 16 bits
     Accel_X_RAW = (int16_t)(Rec_Data[1] << 8 | Rec_Data[0]);
@@ -385,6 +420,52 @@ LIS3DH_Status_t LIS3DH_GetEvent(LIS3DH_Accel_t *accel)
     accel->x *= LIS3DH_GRAVITY_STANDARD;
     accel->y *= LIS3DH_GRAVITY_STANDARD;
     accel->z *= LIS3DH_GRAVITY_STANDARD;
+
+    return LIS3DH_OK;
+}
+
+/**
+ * @brief Obtiene la descripción del sensor según su configuración actual.
+ *
+ * @param[out] sensor Puntero a la estructura donde se almacenará la descripción.
+ *
+ * @return LIS3DH_Status_t Estado de la operación
+ *
+ * @details
+ * - Lee CTRL_REG1..CTRL_REG4 para conocer modo, escala y ODR.
+ * - max_value/min_value: escala completa en m/s².
+ * - resolution: sensibilidad (datasheet, tabla 4) en m/s² por dígito.
+ * - min_delay: periodo de muestreo en µs (0 en modo apagado).
+ */
+LIS3DH_Status_t LIS3DH_GetSensor(LIS3DH_Sensor_t *sensor)
+{
+    static const uint8_t  range_g[4] = { 2, 4, 8, 16 };
+    static const uint16_t odr_hz[10] = { 0, 1, 10, 25, 50, 100, 200, 400, 1600, 1344 };
+
+    LIS3DH_Status_t status;
+    uint8_t mode, fs, odr;
+    uint32_t hz;
+
+    // Verificación de inicialización
+    if(LIS3DH_Initialized == 0) { return LIS3DH_NOT_INITIALIZED; }
+
+    // Validar puntero de salida
+    if(sensor == NULL) { return LIS3DH_INVALID_PARAM; }
+
+    // Leer configuración actual
+    status = LIS3DH_ReadConfig(&mode, &fs, &odr);
+    if(status != LIS3DH_OK) { return status; }
+
+    // ODR 9 vale 5.376 kHz en bajo consumo; valores > 9 están reservados
+    hz = (odr < 10) ? odr_hz[odr] : 0;
+    if(odr == 9 && mode == 2) { hz = 5376; }
+
+    sensor->name       = "LIS3DH";
+    sensor->version    = 1;
+    sensor->max_value  = range_g[fs] * LIS3DH_GRAVITY_STANDARD;
+    sensor->min_value  = -sensor->max_value;
+    sensor->resolution = LIS3DH_SensMg[mode][fs] * LIS3DH_GRAVITY_STANDARD / 1000.0f;
+    sensor->min_delay  = hz ? (1000000UL / hz) : 0;
 
     return LIS3DH_OK;
 }
