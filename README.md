@@ -27,6 +27,7 @@ Este repositorio está dividido en cuatro secciones principales:
 | [HC05](./Librerias/HC05/) | v0.1.0 | Módulo Bluetooth |
 | [ILI9341](./Librerias/ILI9341/) | v2.0.0 | Pantalla TFT LCD ILI9341 para STM32 en general |
 | [ILI9341_Disc1](./Librerias/ILI9341_Disc1/) | v1.4.0 | Pantalla TFT LCD ILI9341 para STM32F429-Discovery |
+| [LIS3DH](./Librerias/LIS3DH/) | v1.0.0 | Acelerómetro de 3 ejes (I2C) |
 | [MAX7219](./Librerias/MAX7219/) | v2.1.0 | Control de matrices de LEDs y displays de 7 segmentos |
 | [MPU6050](./Librerias/MPU6050/) | v2.1.0 | Acelerómetro y giroscopio de 6 ejes |
 | [NEO_6M](./Librerias/NEO_6M/) | v1.1.0 | Módulo GPS NEO-6M |
@@ -51,6 +52,7 @@ STM32/
 │   ├── DS3231(RTC_Module)/  # Módulo de reloj de tiempo real
 │   ├── HC05/                # Módulo bluetooth
 │   ├── ILI9341_Disc1/       # Pantalla TFT LCD para STM32F429-Discovery
+│   ├── LIS3DH/              # Acelerómetro de 3 ejes
 │   ├── MAX7219/             # Control de matrices de LEDs / 7 segmentos
 │   ├── MPU6050/             # Acelerómetro y giroscopio
 │   ├── NEO_6M/              # Módulo GPS

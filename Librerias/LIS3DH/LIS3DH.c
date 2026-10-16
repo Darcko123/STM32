@@ -1,0 +1,471 @@
+/**
+ * @file LIS3DH.c
+ * @brief Implementación de funciones para el manejo del acelerómetro LIS3DH
+ * 
+ * @details Este archivo contiene las definiciones de las funciones para inicializar
+ *          y leer datos del acelerómetro LIS3DH mediante la interfaz 
+ *          I2C en un microcontrolador STM32.
+ * 
+ * @author   Daniel Ruiz
+ * @date     Octubre 15, 2026
+ * @version  1.0.0
+ */
+
+#include "LIS3DH.h"
+
+// ============================================================================
+// VARIABLES PRIVADAS
+// ============================================================================
+
+static I2C_HandleTypeDef*   LIS3DH_hi2c        = NULL; /**< Manejador de la interfaz I2C utilizado para comunicarse con el LIS3DH */
+static uint8_t              LIS3DH_Initialized = 0U;   /**< Bandera para verificar si el sensor está inicializado */
+
+/** @brief Almacenan valores RAW del acelerómetro. */
+static int16_t Accel_X_RAW = 0, Accel_Y_RAW = 0, Accel_Z_RAW = 0;
+
+/** @brief Sensibilidad en mg/dígito [modo][FS] (datasheet LIS3DH, tabla 4). Modo: 0 = HR, 1 = normal, 2 = bajo consumo. */
+static const uint8_t LIS3DH_SensMg[3][4] = {
+    {  1,  2,  4,  12 },    // Alta resolución (12 bits)
+    {  4,  8, 16,  48 },    // Normal (10 bits)
+    { 16, 32, 64, 192 }     // Bajo consumo (8 bits)
+};
+
+// ============================================================================
+// FUNCIONES PRIVADAS
+// ============================================================================
+
+/**
+ * @brief Lee CTRL_REG1..CTRL_REG4 y extrae modo de operación, escala y ODR.
+ *
+ * @param[out] mode 0 = alta resolución, 1 = normal, 2 = bajo consumo.
+ * @param[out] fs   FS[1:0] de CTRL_REG4.
+ * @param[out] odr  ODR[3:0] de CTRL_REG1.
+ *
+ * @return LIS3DH_Status_t Estado de la operación
+ */
+static LIS3DH_Status_t LIS3DH_ReadConfig(uint8_t *mode, uint8_t *fs, uint8_t *odr)
+{
+    HAL_StatusTypeDef hal_status;
+    uint8_t ctrl[4];
+
+    // Leer CTRL_REG1..CTRL_REG4 (auto-incremento)
+    hal_status = HAL_I2C_Mem_Read(LIS3DH_hi2c, LIS3DH_ADDRESS, CTRL_REG1 | LIS3DH_AUTO_INC, 1, ctrl, 4, 1000);
+
+    if(hal_status == HAL_TIMEOUT)
+    {
+        return LIS3DH_TIMEOUT;
+    }
+    else if (hal_status != HAL_OK)
+    {
+        return LIS3DH_ERROR;
+    }
+
+    // Modo: LPen (CTRL_REG1 bit 3) / HR (CTRL_REG4 bit 3); escala: FS (CTRL_REG4 bits 5:4)
+    if(ctrl[0] & 0x08)      { *mode = 2; }
+    else if(ctrl[3] & 0x08) { *mode = 0; }
+    else                    { *mode = 1; }
+    *fs  = (ctrl[3] >> 4) & 0x03;
+    *odr = (ctrl[0] >> 4) & 0x0F;
+
+    return LIS3DH_OK;
+}
+
+// ============================================================================
+// FUNCIONES PÚBLICAS
+// ============================================================================
+
+/**
+ * @brief  Inicializa el sensor LIS3DH.
+ * 
+ * @param[in] hi2c Puntero al manejador I2C.
+ * 
+ * @details  
+ * - Espera el tiempo de arranque del sensor (5 ms según datasheet).
+ * - Verifica la conexión con el dispositivo leyendo el registro WHO_AM_I.
+ * - Habilita los ejes X, Y, Z a 400 Hz en modo normal (CTRL_REG1).
+ * - Activa BDU y modo alta resolución, escala ±2g (CTRL_REG4).
+ * - Enruta la interrupción DRDY1 al pin INT1 (CTRL_REG3).
+ * - Habilita el ADC auxiliar (TEMP_CFG_REG).
+ * 
+ * @return LIS3DH_Status_t Estado de la operación
+ */
+LIS3DH_Status_t LIS3DH_Init(I2C_HandleTypeDef* hi2c)
+{
+    HAL_StatusTypeDef hal_status;
+    uint8_t check, data;
+
+    // Validar parámetros de entrada
+    if(hi2c == NULL)
+    {
+        return LIS3DH_INVALID_PARAM;
+    }
+
+    // Almacenar configuración para uso en funciones posteriores
+    LIS3DH_hi2c = hi2c;
+
+    // Tiempo de arranque tras alimentación (datasheet: 5 ms)
+    HAL_Delay(5);
+
+    // Comprobar conexión con el LIS3DH mediante el registro WHO_AM_I
+    hal_status = HAL_I2C_Mem_Read(LIS3DH_hi2c, LIS3DH_ADDRESS, WHO_AM_I_REG, 1, &check, 1, 1000);
+    if(hal_status != HAL_OK)
+    {
+        return LIS3DH_ERROR;
+    }
+
+    // Verificar que el dispositivo es un LIS3DH
+    if(check != LIS3DH_WHO_AM_I_CONTENT)
+    {
+        return LIS3DH_ERROR;
+    }
+
+    // Habilitar ejes X, Y, Z, modo normal (LPen = 0), ODR = 400 Hz
+    data = 0x77; // ODR[3:0] = 0111 | LPen = 0 | Zen = Yen = Xen = 1
+    hal_status = HAL_I2C_Mem_Write(LIS3DH_hi2c, LIS3DH_ADDRESS, CTRL_REG1, 1, &data, 1, 1000);
+    if(hal_status != HAL_OK)
+    {
+        return LIS3DH_ERROR;
+    }
+
+    // Block Data Update y alta resolución (12 bits), escala ±2g
+    data = 0x88; // BDU = 1 | FS = 00 | HR = 1
+    hal_status = HAL_I2C_Mem_Write(LIS3DH_hi2c, LIS3DH_ADDRESS, CTRL_REG4, 1, &data, 1, 1000);
+    if(hal_status != HAL_OK)
+    {
+        return LIS3DH_ERROR;
+    }
+
+    // Interrupción de dato listo (DRDY1) en el pin INT1
+    data = 0x10; // I1_ZYXDA = 1
+    hal_status = HAL_I2C_Mem_Write(LIS3DH_hi2c, LIS3DH_ADDRESS, CTRL_REG3, 1, &data, 1, 1000);
+    if(hal_status != HAL_OK)
+    {
+        return LIS3DH_ERROR;
+    }
+
+    // Habilitar el ADC auxiliar
+    data = 0x80; // ADC_EN = 1
+    hal_status = HAL_I2C_Mem_Write(LIS3DH_hi2c, LIS3DH_ADDRESS, TEMP_CFG_REG, 1, &data, 1, 1000);
+    if(hal_status != HAL_OK)
+    {
+        return LIS3DH_ERROR;
+    }
+
+    // Marcar como inicializado
+    LIS3DH_Initialized = 1U;
+
+    return LIS3DH_OK;
+}
+
+/**
+ * @brief Desinicializa el sensor LIS3DH, liberando recursos y marcando el módulo como no inicializado.
+ * 
+ * @return LIS3DH_Status_t Siempre retorna LIS3DH_OK
+ */
+LIS3DH_Status_t LIS3DH_DeInit(void)
+{
+    LIS3DH_hi2c         = NULL;    // Limpia el handler de I2C
+    LIS3DH_Initialized  = 0U;      // Marca el módulo como no inicializado
+    
+    return LIS3DH_OK;
+}
+
+/**
+ * @brief Lee los valores del acelerómetro y los convierte a unidades 'g'.
+ *
+ * @param[out] accel Puntero a la estructura donde se almacenarán los valores de aceleración en 'g'.
+ *
+ * @return LIS3DH_Status_t Estado de la operación
+ *
+ * @details
+ * - Lee CTRL_REG1..CTRL_REG4 para conocer el modo (LPen, HR) y la escala (FS).
+ * - Lee 6 bytes desde OUT_X_L con auto-incremento (bit 7 de la subdirección).
+ * - Los datos son little-endian y justificados a la izquierda; se escalan según
+ *   la sensibilidad del datasheet (tabla 4) para el modo y la escala actuales.
+ */
+LIS3DH_Status_t LIS3DH_GetAccel(LIS3DH_Accel_t *accel)
+{
+    static const uint8_t shift[3] = { 4, 6, 8 }; // Bits sin usar a la derecha
+
+    HAL_StatusTypeDef hal_status;
+    LIS3DH_Status_t status;
+    uint8_t Rec_Data[6];
+    uint8_t mode, fs, odr;
+    float scale;
+
+    // Verificación de inicialización
+    if(LIS3DH_Initialized == 0) { return LIS3DH_NOT_INITIALIZED; }
+
+    // Validar puntero de salida
+    if(accel == NULL) { return LIS3DH_INVALID_PARAM; }
+
+    // Leer modo y escala actuales
+    status = LIS3DH_ReadConfig(&mode, &fs, &odr);
+    if(status != LIS3DH_OK) { return status; }
+
+    // Leer 6 bytes de datos del acelerómetro (auto-incremento)
+    hal_status = HAL_I2C_Mem_Read(LIS3DH_hi2c, LIS3DH_ADDRESS, OUT_X_L_REG | LIS3DH_AUTO_INC, 1, Rec_Data, 6, 1000);
+
+    if(hal_status == HAL_TIMEOUT)
+    {
+        return LIS3DH_TIMEOUT;
+    }
+    else if (hal_status != HAL_OK)
+    {
+        return LIS3DH_ERROR;
+    }
+
+    // g por cuenta del valor de 16 bits justificado a la izquierda
+    scale = LIS3DH_SensMg[mode][fs] / (1000.0f * (1U << shift[mode]));
+
+    // Convertir datos RAW (little-endian) a valores enteros de 16 bits
+    Accel_X_RAW = (int16_t)(Rec_Data[1] << 8 | Rec_Data[0]);
+    Accel_Y_RAW = (int16_t)(Rec_Data[3] << 8 | Rec_Data[2]);
+    Accel_Z_RAW = (int16_t)(Rec_Data[5] << 8 | Rec_Data[4]);
+
+    // Convertir valores RAW a aceleración en 'g'
+    accel->x = Accel_X_RAW * scale;
+    accel->y = Accel_Y_RAW * scale;
+    accel->z = Accel_Z_RAW * scale;
+
+    return LIS3DH_OK;
+}
+
+/**
+ * @brief Configura la escala completa del acelerómetro.
+ *
+ * @param[in] range Escala deseada (±2g, ±4g, ±8g o ±16g).
+ *
+ * @return LIS3DH_Status_t Estado de la operación
+ *
+ * @details
+ * - Lectura-modificación-escritura de CTRL_REG4: solo cambia FS[1:0] (bits 5:4),
+ *   conservando BDU, HR y el resto de bits.
+ * - LIS3DH_GetAccel lee FS del registro, por lo que la conversión a 'g' se
+ *   ajusta automáticamente.
+ */
+LIS3DH_Status_t LIS3DH_SetRange(LIS3DH_Range_t range)
+{
+    HAL_StatusTypeDef hal_status;
+    uint8_t ctrl4;
+
+    // Verificación de inicialización
+    if(LIS3DH_Initialized == 0) { return LIS3DH_NOT_INITIALIZED; }
+
+    // Validar escala
+    if(range > LIS3DH_RANGE_16G) { return LIS3DH_INVALID_PARAM; }
+
+    // Leer CTRL_REG4, sustituir FS[1:0] y escribir de vuelta
+    hal_status = HAL_I2C_Mem_Read(LIS3DH_hi2c, LIS3DH_ADDRESS, CTRL_REG4, 1, &ctrl4, 1, 1000);
+    if(hal_status == HAL_OK)
+    {
+        ctrl4 = (ctrl4 & ~0x30) | ((uint8_t)range << 4);
+        hal_status = HAL_I2C_Mem_Write(LIS3DH_hi2c, LIS3DH_ADDRESS, CTRL_REG4, 1, &ctrl4, 1, 1000);
+    }
+
+    if(hal_status == HAL_TIMEOUT)
+    {
+        return LIS3DH_TIMEOUT;
+    }
+    else if (hal_status != HAL_OK)
+    {
+        return LIS3DH_ERROR;
+    }
+
+    // Tiempo para que la nueva escala se estabilice
+    HAL_Delay(15);
+
+    return LIS3DH_OK;
+}
+
+/**
+ * @brief Obtiene la escala completa actual del acelerómetro.
+ *
+ * @param[out] range Puntero donde se almacenará la escala actual (±2g, ±4g, ±8g o ±16g).
+ *
+ * @return LIS3DH_Status_t Estado de la operación
+ *
+ * @details
+ * - Lee CTRL_REG4 y extrae FS[1:0] (bits 5:4).
+ */
+LIS3DH_Status_t LIS3DH_GetRange(LIS3DH_Range_t *range)
+{
+    HAL_StatusTypeDef hal_status;
+    uint8_t ctrl4;
+
+    // Verificación de inicialización
+    if(LIS3DH_Initialized == 0) { return LIS3DH_NOT_INITIALIZED; }
+
+    // Validar puntero de salida
+    if(range == NULL) { return LIS3DH_INVALID_PARAM; }
+
+    // Leer CTRL_REG4
+    hal_status = HAL_I2C_Mem_Read(LIS3DH_hi2c, LIS3DH_ADDRESS, CTRL_REG4, 1, &ctrl4, 1, 1000);
+
+    if(hal_status == HAL_TIMEOUT)
+    {
+        return LIS3DH_TIMEOUT;
+    }
+    else if (hal_status != HAL_OK)
+    {
+        return LIS3DH_ERROR;
+    }
+
+    // Extraer FS[1:0] (bits 5:4)
+    *range = (LIS3DH_Range_t)((ctrl4 >> 4) & 0x03);
+
+    return LIS3DH_OK;
+}
+
+/**
+ * @brief Configura la tasa de muestreo del acelerómetro.
+ *
+ * @param[in] dataRate Tasa de muestreo deseada (ODR).
+ *
+ * @return LIS3DH_Status_t Estado de la operación
+ *
+ * @details
+ * - Lectura-modificación-escritura de CTRL_REG1: solo cambia ODR[3:0] (bits 7:4),
+ *   conservando LPen y la habilitación de ejes.
+ */
+LIS3DH_Status_t LIS3DH_SetDataRate(LIS3DH_DataRate_t dataRate)
+{
+    HAL_StatusTypeDef hal_status;
+    uint8_t ctrl1;
+
+    // Verificación de inicialización
+    if(LIS3DH_Initialized == 0) { return LIS3DH_NOT_INITIALIZED; }
+
+    // Validar tasa de muestreo
+    if(dataRate > LIS3DH_DATARATE_1K344HZ_LP5K376) { return LIS3DH_INVALID_PARAM; }
+
+    // Leer CTRL_REG1, sustituir ODR[3:0] y escribir de vuelta
+    hal_status = HAL_I2C_Mem_Read(LIS3DH_hi2c, LIS3DH_ADDRESS, CTRL_REG1, 1, &ctrl1, 1, 1000);
+    if(hal_status == HAL_OK)
+    {
+        ctrl1 = (ctrl1 & ~0xF0) | ((uint8_t)dataRate << 4);
+        hal_status = HAL_I2C_Mem_Write(LIS3DH_hi2c, LIS3DH_ADDRESS, CTRL_REG1, 1, &ctrl1, 1, 1000);
+    }
+
+    if(hal_status == HAL_TIMEOUT)
+    {
+        return LIS3DH_TIMEOUT;
+    }
+    else if (hal_status != HAL_OK)
+    {
+        return LIS3DH_ERROR;
+    }
+
+    return LIS3DH_OK;
+}
+
+/**
+ * @brief Obtiene la tasa de muestreo actual del acelerómetro.
+ *
+ * @param[out] dataRate Puntero donde se almacenará la tasa de muestreo actual (ODR).
+ *
+ * @return LIS3DH_Status_t Estado de la operación
+ *
+ * @details
+ * - Lee CTRL_REG1 y extrae ODR[3:0] (bits 7:4).
+ */
+LIS3DH_Status_t LIS3DH_GetDataRate(LIS3DH_DataRate_t *dataRate)
+{
+    HAL_StatusTypeDef hal_status;
+    uint8_t ctrl1;
+
+    // Verificación de inicialización
+    if(LIS3DH_Initialized == 0) { return LIS3DH_NOT_INITIALIZED; }
+
+    // Validar puntero de salida
+    if(dataRate == NULL) { return LIS3DH_INVALID_PARAM; }
+
+    // Leer CTRL_REG1
+    hal_status = HAL_I2C_Mem_Read(LIS3DH_hi2c, LIS3DH_ADDRESS, CTRL_REG1, 1, &ctrl1, 1, 1000);
+
+    if(hal_status == HAL_TIMEOUT)
+    {
+        return LIS3DH_TIMEOUT;
+    }
+    else if (hal_status != HAL_OK)
+    {
+        return LIS3DH_ERROR;
+    }
+
+    // Extraer ODR[3:0] (bits 7:4)
+    *dataRate = (LIS3DH_DataRate_t)((ctrl1 >> 4) & 0x0F);
+
+    return LIS3DH_OK;
+}
+
+/**
+ * @brief Lee los valores del acelerómetro y los convierte a m/s².
+ *
+ * @param[out] accel Puntero a la estructura donde se almacenarán los valores de aceleración en m/s².
+ *
+ * @return LIS3DH_Status_t Estado de la operación
+ *
+ * @details
+ * - Reutiliza LIS3DH_GetAccel (valores en 'g') y multiplica por LIS3DH_GRAVITY_STANDARD.
+ */
+LIS3DH_Status_t LIS3DH_GetEvent(LIS3DH_Accel_t *accel)
+{
+    LIS3DH_Status_t status;
+
+    // Leer aceleración en 'g' (valida inicialización y puntero)
+    status = LIS3DH_GetAccel(accel);
+    if(status != LIS3DH_OK) { return status; }
+
+    // Convertir 'g' a m/s²
+    accel->x *= LIS3DH_GRAVITY_STANDARD;
+    accel->y *= LIS3DH_GRAVITY_STANDARD;
+    accel->z *= LIS3DH_GRAVITY_STANDARD;
+
+    return LIS3DH_OK;
+}
+
+/**
+ * @brief Obtiene la descripción del sensor según su configuración actual.
+ *
+ * @param[out] sensor Puntero a la estructura donde se almacenará la descripción.
+ *
+ * @return LIS3DH_Status_t Estado de la operación
+ *
+ * @details
+ * - Lee CTRL_REG1..CTRL_REG4 para conocer modo, escala y ODR.
+ * - max_value/min_value: escala completa en m/s².
+ * - resolution: sensibilidad (datasheet, tabla 4) en m/s² por dígito.
+ * - min_delay: periodo de muestreo en µs (0 en modo apagado).
+ */
+LIS3DH_Status_t LIS3DH_GetSensor(LIS3DH_Sensor_t *sensor)
+{
+    static const uint8_t  range_g[4] = { 2, 4, 8, 16 };
+    static const uint16_t odr_hz[10] = { 0, 1, 10, 25, 50, 100, 200, 400, 1600, 1344 };
+
+    LIS3DH_Status_t status;
+    uint8_t mode, fs, odr;
+    uint32_t hz;
+
+    // Verificación de inicialización
+    if(LIS3DH_Initialized == 0) { return LIS3DH_NOT_INITIALIZED; }
+
+    // Validar puntero de salida
+    if(sensor == NULL) { return LIS3DH_INVALID_PARAM; }
+
+    // Leer configuración actual
+    status = LIS3DH_ReadConfig(&mode, &fs, &odr);
+    if(status != LIS3DH_OK) { return status; }
+
+    // ODR 9 vale 5.376 kHz en bajo consumo; valores > 9 están reservados
+    hz = (odr < 10) ? odr_hz[odr] : 0;
+    if(odr == 9 && mode == 2) { hz = 5376; }
+
+    sensor->name       = "LIS3DH";
+    sensor->version    = 1;
+    sensor->max_value  = range_g[fs] * LIS3DH_GRAVITY_STANDARD;
+    sensor->min_value  = -sensor->max_value;
+    sensor->resolution = LIS3DH_SensMg[mode][fs] * LIS3DH_GRAVITY_STANDARD / 1000.0f;
+    sensor->min_delay  = hz ? (1000000UL / hz) : 0;
+
+    return LIS3DH_OK;
+}
