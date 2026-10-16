@@ -34,6 +34,9 @@
 #define CTRL_REG1           0x20    /**< ODR, modo bajo consumo y habilitación de ejes. */
 #define CTRL_REG3           0x22    /**< Enrutamiento de interrupciones al pin INT1. */
 #define CTRL_REG4           0x23    /**< BDU, escala completa y modo alta resolución. */
+#define OUT_X_L_REG         0x28    /**< Primer registro de datos de aceleración (X_L, X_H, Y_L, Y_H, Z_L, Z_H). */
+
+#define LIS3DH_AUTO_INC     0x80    /**< Bit 7 de la subdirección I2C: auto-incremento en lecturas multibyte. */
 
 // ============================================================================
 // ENUMERACIONES Y ESTRUCTURAS
@@ -77,6 +80,22 @@ extern "C" {
  * @return LIS3DH_Status_t Estado de la operación
  */
 LIS3DH_Status_t LIS3DH_Init(I2C_HandleTypeDef* hi2c);
+
+/**
+ * @brief Desinicializa el sensor LIS3DH, liberando recursos y marcando el módulo como no inicializado.
+ * 
+ * @return LIS3DH_Status_t Siempre retorna LIS3DH_OK
+ */
+LIS3DH_Status_t LIS3DH_DeInit(void);
+
+/**
+ * @brief Lee los valores del acelerómetro y los convierte a unidades 'g'.
+ *
+ * @param[out] accel Puntero a la estructura donde se almacenarán los valores de aceleración en 'g'.
+ *
+ * @return LIS3DH_Status_t Estado de la operación
+ */
+LIS3DH_Status_t LIS3DH_GetAccel(LIS3DH_Accel_t *accel);
 
 #ifdef __cplusplus
 }

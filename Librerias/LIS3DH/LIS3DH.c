@@ -122,3 +122,76 @@ LIS3DH_Status_t LIS3DH_DeInit(void)
     
     return LIS3DH_OK;
 }
+
+/**
+ * @brief Lee los valores del acelerómetro y los convierte a unidades 'g'.
+ *
+ * @param[out] accel Puntero a la estructura donde se almacenarán los valores de aceleración en 'g'.
+ *
+ * @return LIS3DH_Status_t Estado de la operación
+ *
+ * @details
+ * - Lee CTRL_REG1..CTRL_REG4 para conocer el modo (LPen, HR) y la escala (FS).
+ * - Lee 6 bytes desde OUT_X_L con auto-incremento (bit 7 de la subdirección).
+ * - Los datos son little-endian y justificados a la izquierda; se escalan según
+ *   la sensibilidad del datasheet (tabla 4) para el modo y la escala actuales.
+ */
+LIS3DH_Status_t LIS3DH_GetAccel(LIS3DH_Accel_t *accel)
+{
+    // Sensibilidad en mg/dígito [modo][FS] (datasheet LIS3DH, tabla 4)
+    static const uint8_t sens_mg[3][4] = {
+        {  1,  2,  4,  12 },    // Alta resolución (12 bits)
+        {  4,  8, 16,  48 },    // Normal (10 bits)
+        { 16, 32, 64, 192 }     // Bajo consumo (8 bits)
+    };
+    static const uint8_t shift[3] = { 4, 6, 8 }; // Bits sin usar a la derecha
+
+    HAL_StatusTypeDef hal_status;
+    uint8_t ctrl[4], Rec_Data[6];
+    uint8_t mode, fs;
+    float scale;
+
+    // Verificación de inicialización
+    if(LIS3DH_Initialized == 0) { return LIS3DH_NOT_INITIALIZED; }
+
+    // Validar puntero de salida
+    if(accel == NULL) { return LIS3DH_INVALID_PARAM; }
+
+    // Leer CTRL_REG1..CTRL_REG4 (auto-incremento)
+    hal_status = HAL_I2C_Mem_Read(LIS3DH_hi2c, LIS3DH_ADDRESS, CTRL_REG1 | LIS3DH_AUTO_INC, 1, ctrl, 4, 1000);
+    if(hal_status == HAL_OK)
+    {
+        // Leer 6 bytes de datos del acelerómetro (auto-incremento)
+        hal_status = HAL_I2C_Mem_Read(LIS3DH_hi2c, LIS3DH_ADDRESS, OUT_X_L_REG | LIS3DH_AUTO_INC, 1, Rec_Data, 6, 1000);
+    }
+
+    if(hal_status == HAL_TIMEOUT)
+    {
+        return LIS3DH_TIMEOUT;
+    }
+    else if (hal_status != HAL_OK)
+    {
+        return LIS3DH_ERROR;
+    }
+
+    // Modo: LPen (CTRL_REG1 bit 3) / HR (CTRL_REG4 bit 3); escala: FS (CTRL_REG4 bits 5:4)
+    if(ctrl[0] & 0x08)      { mode = 2; }
+    else if(ctrl[3] & 0x08) { mode = 0; }
+    else                    { mode = 1; }
+    fs = (ctrl[3] >> 4) & 0x03;
+
+    // g por cuenta del valor de 16 bits justificado a la izquierda
+    scale = sens_mg[mode][fs] / (1000.0f * (1U << shift[mode]));
+
+    // Convertir datos RAW (little-endian) a valores enteros de 16 bits
+    Accel_X_RAW = (int16_t)(Rec_Data[1] << 8 | Rec_Data[0]);
+    Accel_Y_RAW = (int16_t)(Rec_Data[3] << 8 | Rec_Data[2]);
+    Accel_Z_RAW = (int16_t)(Rec_Data[5] << 8 | Rec_Data[4]);
+
+    // Convertir valores RAW a aceleración en 'g'
+    accel->x = Accel_X_RAW * scale;
+    accel->y = Accel_Y_RAW * scale;
+    accel->z = Accel_Z_RAW * scale;
+
+    return LIS3DH_OK;
+}
