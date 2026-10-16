@@ -362,3 +362,29 @@ LIS3DH_Status_t LIS3DH_GetDataRate(LIS3DH_DataRate_t *dataRate)
 
     return LIS3DH_OK;
 }
+
+/**
+ * @brief Lee los valores del acelerómetro y los convierte a m/s².
+ *
+ * @param[out] accel Puntero a la estructura donde se almacenarán los valores de aceleración en m/s².
+ *
+ * @return LIS3DH_Status_t Estado de la operación
+ *
+ * @details
+ * - Reutiliza LIS3DH_GetAccel (valores en 'g') y multiplica por LIS3DH_GRAVITY_STANDARD.
+ */
+LIS3DH_Status_t LIS3DH_GetEvent(LIS3DH_Accel_t *accel)
+{
+    LIS3DH_Status_t status;
+
+    // Leer aceleración en 'g' (valida inicialización y puntero)
+    status = LIS3DH_GetAccel(accel);
+    if(status != LIS3DH_OK) { return status; }
+
+    // Convertir 'g' a m/s²
+    accel->x *= LIS3DH_GRAVITY_STANDARD;
+    accel->y *= LIS3DH_GRAVITY_STANDARD;
+    accel->z *= LIS3DH_GRAVITY_STANDARD;
+
+    return LIS3DH_OK;
+}

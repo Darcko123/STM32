@@ -28,6 +28,7 @@
 
 #define LIS3DH_ADDRESS          (0x18 << 1) /**< Dirección I2C (SA0 = GND). Usar (0x19 << 1) si SA0 = VDD. */
 #define LIS3DH_WHO_AM_I_CONTENT 0x33        /**< Valor esperado del registro WHO_AM_I. */
+#define LIS3DH_GRAVITY_STANDARD 9.80665f    /**< Gravedad estándar (m/s²) para convertir 'g' a m/s². */
 
 #define TEMP_CFG_REG        0x1F    /**< Configuración del ADC auxiliar y sensor de temperatura. */
 #define WHO_AM_I_REG        0x0F    /**< Registro de identificación del dispositivo. */
@@ -158,6 +159,15 @@ LIS3DH_Status_t LIS3DH_SetDataRate(LIS3DH_DataRate_t dataRate);
  * @return LIS3DH_Status_t Estado de la operación
  */
 LIS3DH_Status_t LIS3DH_GetDataRate(LIS3DH_DataRate_t *dataRate);
+
+/**
+ * @brief Lee los valores del acelerómetro y los convierte a m/s².
+ *
+ * @param[out] accel Puntero a la estructura donde se almacenarán los valores de aceleración en m/s².
+ *
+ * @return LIS3DH_Status_t Estado de la operación
+ */
+LIS3DH_Status_t LIS3DH_GetEvent(LIS3DH_Accel_t *accel);
 
 #ifdef __cplusplus
 }
