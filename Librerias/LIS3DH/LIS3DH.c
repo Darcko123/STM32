@@ -242,3 +242,42 @@ LIS3DH_Status_t LIS3DH_SetRange(LIS3DH_Range_t range)
 
     return LIS3DH_OK;
 }
+
+/**
+ * @brief Obtiene la escala completa actual del acelerómetro.
+ *
+ * @param[out] range Puntero donde se almacenará la escala actual (±2g, ±4g, ±8g o ±16g).
+ *
+ * @return LIS3DH_Status_t Estado de la operación
+ *
+ * @details
+ * - Lee CTRL_REG4 y extrae FS[1:0] (bits 5:4).
+ */
+LIS3DH_Status_t LIS3DH_GetRange(LIS3DH_Range_t *range)
+{
+    HAL_StatusTypeDef hal_status;
+    uint8_t ctrl4;
+
+    // Verificación de inicialización
+    if(LIS3DH_Initialized == 0) { return LIS3DH_NOT_INITIALIZED; }
+
+    // Validar puntero de salida
+    if(range == NULL) { return LIS3DH_INVALID_PARAM; }
+
+    // Leer CTRL_REG4
+    hal_status = HAL_I2C_Mem_Read(LIS3DH_hi2c, LIS3DH_ADDRESS, CTRL_REG4, 1, &ctrl4, 1, 1000);
+
+    if(hal_status == HAL_TIMEOUT)
+    {
+        return LIS3DH_TIMEOUT;
+    }
+    else if (hal_status != HAL_OK)
+    {
+        return LIS3DH_ERROR;
+    }
+
+    // Extraer FS[1:0] (bits 5:4)
+    *range = (LIS3DH_Range_t)((ctrl4 >> 4) & 0x03);
+
+    return LIS3DH_OK;
+}

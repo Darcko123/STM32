@@ -116,6 +116,15 @@ LIS3DH_Status_t LIS3DH_GetAccel(LIS3DH_Accel_t *accel);
  */
 LIS3DH_Status_t LIS3DH_SetRange(LIS3DH_Range_t range);
 
+/**
+ * @brief Obtiene la escala completa del acelerómetro.
+ *
+ * @param[out] range Puntero donde se almacenará la escala actual.
+ *
+ * @return LIS3DH_Status_t Estado de la operación
+ */
+LIS3DH_Status_t LIS3DH_GetRange(LIS3DH_Range_t *range);
+
 #ifdef __cplusplus
 }
 #endif
