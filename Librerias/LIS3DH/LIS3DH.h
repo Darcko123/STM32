@@ -4,7 +4,7 @@
  * 
  * @details Esta librería proporciona funciones para inicializar y leer datos del 
  *  acelerómetro LIS3DH mediante la interfaz I2C en un microcontrolador STM32.
- *  Permite obtener valores de aceleración y giroscopio en los tres ejes (X, Y, Z).
+ *  Permite obtener valores de aceleración en los tres ejes (X, Y, Z).
  *  
  * @author   Daniel Ruiz
  * @date     Octubre 15, 2026
