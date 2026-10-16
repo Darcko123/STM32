@@ -72,6 +72,22 @@ typedef enum {
     LIS3DH_RANGE_16G = 3    /**< ±16g */
 } LIS3DH_Range_t;
 
+/**
+ * @brief Tasa de muestreo del acelerómetro (bits ODR[3:0] de CTRL_REG1).
+ */
+typedef enum {
+    LIS3DH_DATARATE_POWERDOWN       = 0,    /**< Modo apagado */
+    LIS3DH_DATARATE_1HZ             = 1,    /**< 1 Hz */
+    LIS3DH_DATARATE_10HZ            = 2,    /**< 10 Hz */
+    LIS3DH_DATARATE_25HZ            = 3,    /**< 25 Hz */
+    LIS3DH_DATARATE_50HZ            = 4,    /**< 50 Hz */
+    LIS3DH_DATARATE_100HZ           = 5,    /**< 100 Hz */
+    LIS3DH_DATARATE_200HZ           = 6,    /**< 200 Hz */
+    LIS3DH_DATARATE_400HZ           = 7,    /**< 400 Hz */
+    LIS3DH_DATARATE_LOWPOWER_1K6HZ  = 8,    /**< 1.6 kHz (solo modo bajo consumo) */
+    LIS3DH_DATARATE_1K344HZ_LP5K376 = 9     /**< 1.344 kHz (normal/HR) o 5.376 kHz (bajo consumo) */
+} LIS3DH_DataRate_t;
+
 // ============================================================================
 // PROTOTIPOS DE FUNCIONES PÚBLICAS
 // ============================================================================
@@ -124,6 +140,24 @@ LIS3DH_Status_t LIS3DH_SetRange(LIS3DH_Range_t range);
  * @return LIS3DH_Status_t Estado de la operación
  */
 LIS3DH_Status_t LIS3DH_GetRange(LIS3DH_Range_t *range);
+
+/**
+ * @brief Configura la tasa de muestreo del acelerómetro.
+ *
+ * @param[in] dataRate Tasa de muestreo deseada.
+ *
+ * @return LIS3DH_Status_t Estado de la operación
+ */
+LIS3DH_Status_t LIS3DH_SetDataRate(LIS3DH_DataRate_t dataRate);
+
+/**
+ * @brief Obtiene la tasa de muestreo del acelerómetro.
+ *
+ * @param[out] dataRate Puntero donde se almacenará la tasa de muestreo actual.
+ *
+ * @return LIS3DH_Status_t Estado de la operación
+ */
+LIS3DH_Status_t LIS3DH_GetDataRate(LIS3DH_DataRate_t *dataRate);
 
 #ifdef __cplusplus
 }

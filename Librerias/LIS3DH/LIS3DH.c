@@ -281,3 +281,84 @@ LIS3DH_Status_t LIS3DH_GetRange(LIS3DH_Range_t *range)
 
     return LIS3DH_OK;
 }
+
+/**
+ * @brief Configura la tasa de muestreo del acelerómetro.
+ *
+ * @param[in] dataRate Tasa de muestreo deseada (ODR).
+ *
+ * @return LIS3DH_Status_t Estado de la operación
+ *
+ * @details
+ * - Lectura-modificación-escritura de CTRL_REG1: solo cambia ODR[3:0] (bits 7:4),
+ *   conservando LPen y la habilitación de ejes.
+ */
+LIS3DH_Status_t LIS3DH_SetDataRate(LIS3DH_DataRate_t dataRate)
+{
+    HAL_StatusTypeDef hal_status;
+    uint8_t ctrl1;
+
+    // Verificación de inicialización
+    if(LIS3DH_Initialized == 0) { return LIS3DH_NOT_INITIALIZED; }
+
+    // Validar tasa de muestreo
+    if(dataRate > LIS3DH_DATARATE_1K344HZ_LP5K376) { return LIS3DH_INVALID_PARAM; }
+
+    // Leer CTRL_REG1, sustituir ODR[3:0] y escribir de vuelta
+    hal_status = HAL_I2C_Mem_Read(LIS3DH_hi2c, LIS3DH_ADDRESS, CTRL_REG1, 1, &ctrl1, 1, 1000);
+    if(hal_status == HAL_OK)
+    {
+        ctrl1 = (ctrl1 & ~0xF0) | ((uint8_t)dataRate << 4);
+        hal_status = HAL_I2C_Mem_Write(LIS3DH_hi2c, LIS3DH_ADDRESS, CTRL_REG1, 1, &ctrl1, 1, 1000);
+    }
+
+    if(hal_status == HAL_TIMEOUT)
+    {
+        return LIS3DH_TIMEOUT;
+    }
+    else if (hal_status != HAL_OK)
+    {
+        return LIS3DH_ERROR;
+    }
+
+    return LIS3DH_OK;
+}
+
+/**
+ * @brief Obtiene la tasa de muestreo actual del acelerómetro.
+ *
+ * @param[out] dataRate Puntero donde se almacenará la tasa de muestreo actual (ODR).
+ *
+ * @return LIS3DH_Status_t Estado de la operación
+ *
+ * @details
+ * - Lee CTRL_REG1 y extrae ODR[3:0] (bits 7:4).
+ */
+LIS3DH_Status_t LIS3DH_GetDataRate(LIS3DH_DataRate_t *dataRate)
+{
+    HAL_StatusTypeDef hal_status;
+    uint8_t ctrl1;
+
+    // Verificación de inicialización
+    if(LIS3DH_Initialized == 0) { return LIS3DH_NOT_INITIALIZED; }
+
+    // Validar puntero de salida
+    if(dataRate == NULL) { return LIS3DH_INVALID_PARAM; }
+
+    // Leer CTRL_REG1
+    hal_status = HAL_I2C_Mem_Read(LIS3DH_hi2c, LIS3DH_ADDRESS, CTRL_REG1, 1, &ctrl1, 1, 1000);
+
+    if(hal_status == HAL_TIMEOUT)
+    {
+        return LIS3DH_TIMEOUT;
+    }
+    else if (hal_status != HAL_OK)
+    {
+        return LIS3DH_ERROR;
+    }
+
+    // Extraer ODR[3:0] (bits 7:4)
+    *dataRate = (LIS3DH_DataRate_t)((ctrl1 >> 4) & 0x0F);
+
+    return LIS3DH_OK;
+}
