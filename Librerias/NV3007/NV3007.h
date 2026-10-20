@@ -17,6 +17,7 @@
 // ============================================================================
 
 #include "main.h"
+#include "lcd_fonts.h"
 #include <stdint.h>
 #include <stdbool.h>
 #include <math.h>
@@ -510,6 +511,25 @@ NV3007_Status_t NV3007_DrawFilledArc(int16_t x0, int16_t y0, int16_t r1, int16_t
 NV3007_Status_t NV3007_DrawRoundRect(int16_t x0, int16_t y0, int16_t w, int16_t h, int16_t radius, uint16_t color);
 NV3007_Status_t NV3007_DrawFilledRoundRect(int16_t x0, int16_t y0, int16_t w, int16_t h, int16_t radius, uint16_t color);
 NV3007_Status_t NV3007_DrawBitmap(int16_t x, int16_t y, const uint8_t bitmap[], int16_t w, int16_t h, uint16_t color);
+
+/**
+ * @brief Renderiza un carácter ASCII imprimible (32..126) en la pantalla.
+ *
+ * @details Si la celda no cabe en el ancho restante, salta al inicio de la
+ *          siguiente línea (x = 0, y += FontHeight). Tras dibujar, el cursor de
+ *          texto interno avanza FontWidth columnas.
+ *
+ * @param x Columna superior izquierda de la celda del carácter.
+ * @param y Fila superior izquierda de la celda del carácter.
+ * @param c Carácter a mostrar (fuera de 32..126 se ignora y devuelve NV3007_OK).
+ * @param font Puntero a la definición de la fuente (lcd_fonts.h).
+ * @param foreground Color del carácter en formato RGB565.
+ * @param background Color de fondo de la celda en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación (NV3007_INVALID_PARAM si la
+ *         fuente es NULL o la celda no cabe en pantalla).
+ */
+NV3007_Status_t NV3007_Putc(uint16_t x, uint16_t y, char c, LCD_FontDef_t* font, uint16_t foreground, uint16_t background);
 #ifdef __cplusplus
 }
 #endif

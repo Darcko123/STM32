@@ -28,6 +28,9 @@ static GPIO_TypeDef*        NV3007_RST_GPIO_Port    = NULL; /**< Puerto GPIO del
 static uint16_t             NV3007_RST_Pin          = 0;    /**< Pin GPIO del pin RST del NV3007    */
 static uint8_t              NV3007_Initialized      = 0U;   /**< Bandera para verificar si el módulo está inicializado */
 
+static uint16_t             NV3007_x                = 0U;   /**< Columna del cursor de texto activo                        */
+static uint16_t             NV3007_y                = 0U;   /**< Fila    del cursor de texto activo                        */
+
 static uint16_t             NV3007_CurrentW         = 0U;   /**< Ancho de la ventana de direccionamiento activa */
 static uint16_t             NV3007_CurrentH         = 0U;   /**< Alto de la ventana de direccionamiento activa  */
 static uint16_t             NV3007_CurrentX         = 0xFFFFU; /**< Columna de inicio cacheada (0xFFFF = inválida, fuerza primer envío) */
@@ -2268,5 +2271,88 @@ NV3007_Status_t NV3007_DrawBitmap(int16_t x, int16_t y, const uint8_t bitmap[], 
         }
     }
 
+    return status;
+}
+
+/**
+ * @brief Renderiza un carácter ASCII imprimible (32..126) en la pantalla.
+ *
+ * @details Abre una ventana del tamaño de la celda y vuelca el glifo fila a fila
+ *          dentro de una única transacción RAMWR (CS bajo), en lugar de un
+ *          NV3007_WritePixel() por píxel. Cada fila de la fuente es un uint16_t
+ *          con el píxel izquierdo en el bit 15, de ahí el límite de 16 px de ancho.
+ *
+ * @param x Columna superior izquierda de la celda del carácter.
+ * @param y Fila superior izquierda de la celda del carácter.
+ * @param c Carácter a mostrar (fuera de 32..126 se ignora y devuelve NV3007_OK).
+ * @param font Puntero a la definición de la fuente (lcd_fonts.h).
+ * @param foreground Color del carácter en formato RGB565.
+ * @param background Color de fondo de la celda en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación.
+ */
+NV3007_Status_t NV3007_Putc(uint16_t x, uint16_t y, char c, LCD_FontDef_t* font, uint16_t foreground, uint16_t background)
+{
+    NV3007_Status_t status;
+    uint8_t row[16U * 2U];
+    uint16_t color, b;
+    uint32_t i, j;
+
+    if (!NV3007_Initialized)
+    {
+        return NV3007_NOT_INITIALIZED;
+    }
+
+    if ((font == NULL) || (font->FontWidth == 0U) || (font->FontWidth > 16U) || (font->FontHeight == 0U))
+    {
+        return NV3007_INVALID_PARAM;
+    }
+
+    if (((uint8_t)c < 32U) || ((uint8_t)c > 126U))
+    {
+        return NV3007_OK;
+    }
+
+    NV3007_x = x;
+    NV3007_y = y;
+    if (((uint32_t)NV3007_x + font->FontWidth) > NV3007_Width)
+    {
+        NV3007_y += font->FontHeight;
+        NV3007_x  = 0U;
+    }
+
+    /* A diferencia del ILI9341, la GRAM es más ancha que el cristal: una celda
+     * fuera de pantalla podría aceptarse en WriteAddrWindow y pintarse fuera
+     * del área visible, así que se valida aquí contra la geometría lógica. */
+    if ((((uint32_t)NV3007_x + font->FontWidth) > NV3007_Width) ||
+        (((uint32_t)NV3007_y + font->FontHeight) > NV3007_Height))
+    {
+        return NV3007_INVALID_PARAM;
+    }
+
+    status = NV3007_WriteAddrWindow(NV3007_x, NV3007_y, font->FontWidth, font->FontHeight);
+    if (status != NV3007_OK)
+    {
+        return status; /* WriteAddrWindow ya liberó CS */
+    }
+
+    HAL_GPIO_WritePin(NV3007_DC_GPIO_Port, NV3007_DC_Pin, GPIO_PIN_SET);
+    for (i = 0U; (i < font->FontHeight) && (status == NV3007_OK); i++)
+    {
+        b = font->data[((uint32_t)((uint8_t)c - 32U) * font->FontHeight) + i];
+        for (j = 0U; j < font->FontWidth; j++)
+        {
+            color = ((b << j) & 0x8000U) ? foreground : background;
+            row[j * 2U]      = (uint8_t)(color >> 8);
+            row[j * 2U + 1U] = (uint8_t)(color & 0xFFU);
+        }
+        status = NV3007_SPI_Send(row, (uint16_t)(font->FontWidth * 2U));
+    }
+    NV3007_Unselect();
+
+    if (status == NV3007_OK)
+    {
+        NV3007_x += font->FontWidth;
+    }
     return status;
 }
