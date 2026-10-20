@@ -530,6 +530,24 @@ NV3007_Status_t NV3007_DrawBitmap(int16_t x, int16_t y, const uint8_t bitmap[], 
  *         fuente es NULL o la celda no cabe en pantalla).
  */
 NV3007_Status_t NV3007_Putc(uint16_t x, uint16_t y, char c, LCD_FontDef_t* font, uint16_t foreground, uint16_t background);
+
+/**
+ * @brief Renderiza una cadena terminada en nulo en la pantalla.
+ *
+ * @details '\n' baja una línea (FontHeight + 1 px) y vuelve a la columna @p x;
+ *          "\n\r" vuelve a la columna 0. Un '\r' suelto se ignora. El salto de
+ *          línea automático al llegar al borde lo hace NV3007_Putc().
+ *
+ * @param x Columna superior izquierda del primer carácter.
+ * @param y Fila superior izquierda del primer carácter.
+ * @param str Cadena terminada en nulo.
+ * @param font Puntero a la definición de la fuente (lcd_fonts.h).
+ * @param foreground Color del texto en formato RGB565.
+ * @param background Color de fondo de las celdas en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación (se detiene en el primer carácter que falle).
+ */
+NV3007_Status_t NV3007_Puts(uint16_t x, uint16_t y, const char* str, LCD_FontDef_t* font, uint16_t foreground, uint16_t background);
 #ifdef __cplusplus
 }
 #endif
