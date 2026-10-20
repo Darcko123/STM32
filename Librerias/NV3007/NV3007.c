@@ -9,8 +9,8 @@
  *          por lo que CASET/RASET se desplazan con los offsets de NV3007.h.
  *
  * @author Daniel Ruiz
- * @date Junio 23, 2026
- * @version 0.1.0
+ * @date Octubre 19, 2026
+ * @version 1.0.0
  */
 
 #include "NV3007.h"
@@ -28,6 +28,9 @@ static GPIO_TypeDef*        NV3007_RST_GPIO_Port    = NULL; /**< Puerto GPIO del
 static uint16_t             NV3007_RST_Pin          = 0;    /**< Pin GPIO del pin RST del NV3007    */
 static uint8_t              NV3007_Initialized      = 0U;   /**< Bandera para verificar si el módulo está inicializado */
 
+static uint16_t             NV3007_x                = 0U;   /**< Columna del cursor de texto activo                        */
+static uint16_t             NV3007_y                = 0U;   /**< Fila    del cursor de texto activo                        */
+
 static uint16_t             NV3007_CurrentW         = 0U;   /**< Ancho de la ventana de direccionamiento activa */
 static uint16_t             NV3007_CurrentH         = 0U;   /**< Alto de la ventana de direccionamiento activa  */
 static uint16_t             NV3007_CurrentX         = 0xFFFFU; /**< Columna de inicio cacheada (0xFFFF = inválida, fuerza primer envío) */
@@ -38,6 +41,9 @@ static uint16_t             NV3007_Height           = NV3007_HEIGHT; /**< Alto l
 
 static uint16_t             NV3007_XOffset          = NV3007_OFFSET_P1_X; /**< Offset de columna activo, sumado en CASET */
 static uint16_t             NV3007_YOffset          = NV3007_OFFSET_P1_Y; /**< Offset de fila activo, sumado en RASET    */
+
+/** 1 si MADCTL tiene MV=1 (los dos ejes del panel están intercambiados). */
+static uint8_t              NV3007_SwapAxes         = 0U;
 
 /** Offsets de GRAM por orientación. El índice coincide con NV3007_Orientation_t. */
 static const uint16_t NV3007_OffsetTable[4][2] = {
@@ -197,8 +203,7 @@ static NV3007_Status_t NV3007_FillColor(uint16_t color, uint32_t count)
  *          el fichero del fabricante "NV3006A1N/NV3007 + IVO2.66": 117 registros, 365 bytes.
  *
  *          Tener la secuencia como TABLA y no como cadena de llamadas permite reproducirla
- *          por un transporte alternativo (p.ej. el sondeo de 3 hilos / 9 bits de main.c)
- *          sin duplicarla, que es justo lo que hace falta para descartar el modo de bus.
+ *          por un transporte alternativo (p.ej. SPI de 3 hilos / 9 bits) sin duplicarla.
  *
  *          Difiere de la secuencia estándar de 168 columnas @c nv3007_init_operations en los
  *          ajustes de charge-pump (VGH/VGL), gamma y timing; con la estándar el panel 2.79"
@@ -345,7 +350,7 @@ const uint16_t NV3007_InitTableSize = (uint16_t)sizeof(NV3007_InitTable);
  *          igual que el BEGIN_WRITE/END_WRITE de la referencia.
  *
  *          Los retardos de SLPOUT/DISPON son los del fichero del fabricante (220/200 ms),
- *          no los 120/150 de Arduino_GFX: el charge-pump necesita ese tiempo para
+ *          no los 120/0 de nv3007_279_init_operations (Arduino_GFX): el charge-pump necesita ese tiempo para
  *          estabilizarse antes de habilitar la salida, y quedarse corto deja el panel en negro.
  */
 static NV3007_Status_t NV3007_RunInitSequence(void)
@@ -394,6 +399,56 @@ static NV3007_Status_t NV3007_WritePixelPreclipped(int16_t x, int16_t y, uint16_
 {
     NV3007_Status_t status = NV3007_WriteAddrWindow((uint16_t)x, (uint16_t)y, 1U, 1U);
     return (status == NV3007_OK) ? NV3007_SendColor(color) : status;
+}
+
+/**
+ * @brief Escribe un píxel con coordenadas de 32 bits, recortando contra los límites de la pantalla.
+ *
+ * @details NV3007_WritePixel() recibe coordenadas int16_t: convertir sin más una coordenada
+ *          de 32 bits fuera del rango [-32768, 32767] desbordaría y "reentraría" en pantalla,
+ *          pintando un píxel donde no toca. Esta variante recorta en 32 bits y solo entonces
+ *          convierte, de modo que el recorte de las primitivas con semiejes grandes es exacto.
+ */
+static NV3007_Status_t NV3007_WritePixelClipped(int32_t x, int32_t y, uint16_t color)
+{
+    if ((x < 0) || (y < 0) || (x >= (int32_t)NV3007_Width) || (y >= (int32_t)NV3007_Height))
+    {
+        return NV3007_OK; /* Fuera de los límites: se descarta silenciosamente */
+    }
+
+    return NV3007_WritePixel((int16_t)x, (int16_t)y, color);
+}
+
+/**
+ * @brief Rellena un tramo horizontal con coordenadas de 32 bits, recortando contra los límites
+ *        de la pantalla.
+ *
+ * @details El recorte previo en 32 bits evita dos problemas de las primitivas con semiejes
+ *          grandes: el desbordamiento de la longitud del tramo al convertirla a int16_t, y el
+ *          desbordamiento de la coordenada inicial (que, al desbordar, "reentraría" en la
+ *          pantalla y pintaría píxeles donde no toca).
+ *
+ *          El tramo ya recortado se delega en NV3007_DrawFastHLine(), que lo escribe con una
+ *          sola transacción SPI (ventana + ráfaga de datos).
+ */
+static NV3007_Status_t NV3007_DrawHSpanClipped(int32_t xL, int32_t xR, int32_t y, uint16_t color)
+{
+    int32_t tmp;
+
+    if ((y < 0) || (y >= (int32_t)NV3007_Height))
+    {
+        return NV3007_OK; /* Fuera de los límites: se descarta silenciosamente */
+    }
+
+    if (xL > xR) { tmp = xL; xL = xR; xR = tmp; }
+    if (xL < 0) { xL = 0; }
+    if (xR > (int32_t)NV3007_Width - 1) { xR = (int32_t)NV3007_Width - 1; }
+    if (xL > xR)
+    {
+        return NV3007_OK; /* El tramo queda completamente fuera de pantalla */
+    }
+
+    return NV3007_DrawFastHLine((int16_t)xL, (int16_t)y, (int16_t)(xR - xL + 1), color);
 }
 
 /**
@@ -483,6 +538,325 @@ static NV3007_Status_t NV3007_DrawCircleHelper(int16_t x0, int16_t y0, int16_t r
         {
             status = NV3007_WritePixel(x0 - y, y0 - x, color);
             status = (status == NV3007_OK) ? NV3007_WritePixel(x0 - x, y0 - y, color) : status;
+        }
+    }
+
+    return status;
+}
+
+/* ============================================================================
+ * ARCOS
+ * ========================================================================= */
+
+/**
+ * @brief Calcula el seno y el coseno de un ángulo expresado en grados.
+ *
+ * @details En los múltiplos de 90° se devuelven valores exactos: sinf()/cosf()
+ *          dejan un residuo del orden de 1e-7 que, al dividir por el seno para
+ *          obtener el borde del sector, desplaza el corte un píxel hacia un
+ *          lado. El redondeo a los valores exactos elimina ese desplazamiento.
+ *
+ * @param[in]  deg   Ángulo en grados (cualquier valor; se normaliza a [0,360)).
+ * @param[out] sin_t Seno del ángulo.
+ * @param[out] cos_t Coseno del ángulo.
+ */
+static void NV3007_ArcSinCos(float deg, float* sin_t, float* cos_t)
+{
+    float r = fmodf(deg, 360.0f);
+    if (r < 0.0f) { r += 360.0f; }
+
+    if      ((r < 0.001f)  || (r > 359.999f)) { *sin_t =  0.0f; *cos_t =  1.0f; }
+    else if ((r > 89.999f)  && (r < 90.001f))  { *sin_t =  1.0f; *cos_t =  0.0f; }
+    else if ((r > 179.999f) && (r < 180.001f)) { *sin_t =  0.0f; *cos_t = -1.0f; }
+    else if ((r > 269.999f) && (r < 270.001f)) { *sin_t = -1.0f; *cos_t =  0.0f; }
+    else
+    {
+        *sin_t = sinf(r * 0.0174532925f);
+        *cos_t = cosf(r * 0.0174532925f);
+    }
+}
+
+/**
+ * @brief Raíz cuadrada entera exacta: floor(sqrt(v)) para v >= 0.
+ *
+ * @param[in] v Valor del que se quiere la raíz cuadrada.
+ * @return La mayor raíz cuadrada entera cuyo cuadrado no supera @p v.
+ */
+static int32_t NV3007_Isqrt(int64_t v)
+{
+    int32_t r = (int32_t)sqrt((double)v);
+
+    /* Corrige el posible error de redondeo de la raíz en coma flotante. */
+    while (((int64_t)r * r) > v) { r--; }
+    while (((int64_t)(r + 1) * (r + 1)) <= v) { r++; }
+
+    return r;
+}
+
+/**
+ * @brief Tolerancia (en píxeles) de los tests de los semiplanos que delimitan un arco.
+ *
+ * @details El valor de cA*dy - sA*x es la distancia con signo al rayo, así que
+ *          una tolerancia de milésimas de píxel absorbe el error de redondeo de
+ *          sinf()/cosf() sin desplazar de forma apreciable el borde del sector.
+ */
+#define NV3007_ARC_EPS  1e-3f
+
+/**
+ * @brief Rellena el sector anular (banda de radios) comprendido entre los ángulos
+ *        @p a0 y @p a0 + @p sweep.
+ *
+ * @details Recorre el sector fila a fila. Para cada fila calcula:
+ *          -# el rango radial: los píxeles cuyo cuadrado de distancia al centro
+ *             está en [r_in²-r_in, r_out²+r_out), es decir, entre los radios
+ *             r_in-0.5 y r_out+0.5. Con r_in == r_out la banda resultante es de
+ *             un píxel de ancho, que es lo que se usa para trazar las curvas
+ *             de un arco.
+ *          -# el rango angular: la intersección de los dos semiplanos que
+ *             delimitan el sector, que se resuelve como una cota para X.
+ *
+ *          El barrido angular se trocea en trozos de 180° como máximo, porque
+ *          un sector de más de 180° no es convexo y no se puede describir con
+ *          dos semiplanos: la unión de dos sectores convexos consecutivos
+ *          cubre el mismo barrido.
+ *
+ * @param[in] cx     Columna del centro del arco.
+ * @param[in] cy     Fila del centro del arco.
+ * @param[in] r_out  Radio exterior de la banda.
+ * @param[in] r_in   Radio interior de la banda.
+ * @param[in] a0     Ángulo inicial en grados (0° = derecha, sentido horario).
+ * @param[in] sweep  Barrido angular en grados, en sentido horario.
+ * @param[in] color  Color de relleno en formato RGB565.
+ * @return NV3007_Status_t Estado de la operación.
+ */
+static NV3007_Status_t NV3007_FillArcBand(int32_t cx, int32_t cy,
+                                           int32_t r_out, int32_t r_in,
+                                           float a0, float sweep,
+                                           uint16_t color)
+{
+    NV3007_Status_t status = NV3007_OK;
+    int64_t         hi2, lo2;
+    float           a   = a0;
+    int32_t         dy;
+
+    if (r_in < 0) { r_in = 0; }
+
+    hi2 = ((int64_t)r_out * r_out) + r_out; /* d² < hi2  → radio < r_out+0.5 */
+    lo2 = ((int64_t)r_in  * r_in)  - r_in;  /* d² >= lo2 → radio >= r_in-0.5 */
+
+    while ((sweep > 0.001f) && (status == NV3007_OK))
+    {
+        float   chunk = (sweep > 180.0f) ? 180.0f : sweep; /* trozo convexo del sector */
+        float   sA, cA, sB, cB;
+
+        NV3007_ArcSinCos(a, &sA, &cA);
+        NV3007_ArcSinCos(a + chunk, &sB, &cB);
+
+        for (dy = -r_out; dy <= r_out; dy++)
+        {
+            int64_t rem  = hi2 - 1 - ((int64_t)dy * dy);   /* x² <= rem  → |x| <= x_max */
+            int64_t need = lo2 - ((int64_t)dy * dy);         /* x² >= need → |x| >= x_min */
+            int32_t x_max, x_min;
+            int32_t blo, bhi;
+            bool    empty = false;
+
+            if (rem < 0) { continue; }
+
+            x_max = NV3007_Isqrt(rem);
+            x_min = (need > 0) ? (NV3007_Isqrt(need - 1) + 1) : 0;
+            if (x_min > x_max) { continue; }
+
+            /* Cota angular: por defecto, toda la fila de la banda. */
+            blo = -x_max;
+            bhi =  x_max;
+
+            /* Límite del rayo inicial: sin(φ-A) >= 0  →  cA*dy - sA*x >= -eps. */
+            if (fabsf(sA) < 1e-6f)
+            {
+                if ((cA * (float)dy) < -NV3007_ARC_EPS) { empty = true; }
+            }
+            else if (sA > 0.0f)
+            {
+                int32_t v = (int32_t)floorf((cA * (float)dy + NV3007_ARC_EPS) / sA);
+                if (v < bhi) { bhi = v; }
+            }
+            else
+            {
+                int32_t v = (int32_t)ceilf((cA * (float)dy + NV3007_ARC_EPS) / sA);
+                if (v > blo) { blo = v; }
+            }
+
+            /* Límite del rayo final: sin(φ-B) <= 0  →  sB*x - cB*dy >= -eps. */
+            if (!empty)
+            {
+                if (fabsf(sB) < 1e-6f)
+                {
+                    if ((-cB * (float)dy) < -NV3007_ARC_EPS) { empty = true; }
+                }
+                else if (sB > 0.0f)
+                {
+                    int32_t v = (int32_t)ceilf((cB * (float)dy - NV3007_ARC_EPS) / sB);
+                    if (v > blo) { blo = v; }
+                }
+                else
+                {
+                    int32_t v = (int32_t)floorf((cB * (float)dy - NV3007_ARC_EPS) / sB);
+                    if (v < bhi) { bhi = v; }
+                }
+            }
+
+            if (empty || (blo > bhi)) { continue; }
+
+            /* La banda radial deja un tramo por fila si el hueco interior no
+             * llega a esa altura, o dos si la fila atraviesa el disco hueco.
+             * Cada tramo se recorta contra la cota angular y se dibuja. */
+            for (int32_t k = 0; k < 2; k++)
+            {
+                int32_t px0, px1;
+
+                if (x_min == 0)
+                {
+                    /* Sin hueco interior: toda la fila es un único tramo. */
+                    if (k != 0) { break; }
+                    px0 = -x_max;
+                    px1 =  x_max;
+                }
+                else
+                {
+                    px0 = (k == 0) ? -x_max : x_min;
+                    px1 = (k == 0) ? -x_min : x_max;
+                }
+
+                {
+                    int32_t sx0 = (px0 > blo) ? px0 : blo;
+                    int32_t sx1 = (px1 < bhi) ? px1 : bhi;
+
+                    if (sx0 > sx1) { continue; }
+
+                    status = NV3007_DrawHSpanClipped(cx + sx0, cx + sx1, cy + dy, color);
+                    if (status != NV3007_OK) { return status; }
+                }
+            }
+        }
+
+        a     += chunk;
+        sweep -= chunk;
+    }
+
+    return status;
+}
+
+/**
+ * @brief Normaliza el par de ángulos de un arco.
+ *
+ * @details Devuelve el ángulo inicial normalizado a [0,360) y el barrido en
+ *          sentido horario. Si los ángulos normalizados coinciden pero los
+ *          originales no (caso start=0, end=360, o start=90, end=450), el
+ *          barrido es de 360°: el arco completo.
+ *
+ * @param[in]  start Ángulo inicial en grados.
+ * @param[in]  end   Ángulo final en grados.
+ * @param[out] a0    Ángulo inicial normalizado en grados.
+ * @param[out] sweep Barrido angular en grados, en sentido horario.
+ */
+static void NV3007_ArcAngles(float start, float end, float* a0, float* sweep)
+{
+    float s = fmodf(start, 360.0f);
+    float e = fmodf(end, 360.0f);
+
+    if (s < 0.0f) { s += 360.0f; }
+    if (e < 0.0f) { e += 360.0f; }
+
+    *sweep = e - s;
+    if (*sweep < 0.0f) { *sweep += 360.0f; }
+    if ((*sweep <= 0.001f) && (fabsf(start - end) > 0.001f)) { *sweep = 360.0f; }
+
+    *a0 = s;
+}
+
+/**
+ * @brief Dibuja el radio recto (la "raya" que une el centro con el borde) de un
+ *        sector anular, en el ángulo indicado.
+ *
+ * @details Recorre la arista por su eje dominante (columnas si la arista es más
+ *          horizontal que vertical, filas en caso contrario) y calcula en cada
+ *          paso la coordenada exacta sobre la semirrecta. Así la arista queda
+ *          alineada con la circunferencia en sus dos extremos, cosa que no
+ *          ocurre con un Bresenham sobre las coordenadas redondeadas de los
+ *          extremos.
+ *
+ *          En el recorrido por columnas los píxeles que caen en la misma fila se
+ *          agrupan en un único tramo horizontal, lo que reduce el número de
+ *          transacciones SPI.
+ *
+ * @param[in] cx     Columna del centro del arco.
+ * @param[in] cy     Fila del centro del arco.
+ * @param[in] r_in   Radio interior (origen de la raya).
+ * @param[in] r_out  Radio exterior (fin de la raya).
+ * @param[in] ang    Ángulo de la raya en grados (0° = derecha, sentido horario).
+ * @param[in] color  Color de la raya en formato RGB565.
+ * @return NV3007_Status_t Estado de la operación.
+ */
+static NV3007_Status_t NV3007_DrawArcRadius(int32_t cx, int32_t cy,
+                                            int32_t r_in, int32_t r_out,
+                                            float ang, uint16_t color)
+{
+    NV3007_Status_t status = NV3007_OK;
+    float           s, c;
+    int32_t         i, from, to;
+
+    NV3007_ArcSinCos(ang, &s, &c);
+
+    if (fabsf(c) >= fabsf(s))
+    {
+        /* Arista más horizontal que vertical: se recorre por columnas agrupando
+         * las que caen en la misma fila. */
+        from = cx + (int32_t)lroundf((float)r_in  * c);
+        to   = cx + (int32_t)lroundf((float)r_out * c);
+        if (from > to) { int32_t tmp = from; from = to; to = tmp; }
+
+        {
+            int32_t run_x0 = 0, run_y = 0;
+            bool    run = false;
+
+            for (i = from; (i <= to) && (status == NV3007_OK); i++)
+            {
+                int32_t y = cy + (int32_t)lroundf((float)(i - cx) * s / c);
+
+                if (run && (y == run_y)) { continue; }  /* se alarga el tramo */
+
+                if (run)  /* se cierra el tramo anterior */
+                {
+                    status = NV3007_DrawFastHLine((int16_t)run_x0, (int16_t)run_y,
+                                                  (int16_t)(i - run_x0), color);
+                    if (status != NV3007_OK) { return status; }
+                }
+                run_x0 = i;
+                run_y  = y;
+                run    = true;
+            }
+
+            if (run && (status == NV3007_OK))
+            {
+                status = NV3007_DrawFastHLine((int16_t)run_x0, (int16_t)run_y,
+                                              (int16_t)(to - run_x0 + 1), color);
+            }
+        }
+    }
+    else
+    {
+        /* Arista más vertical que horizontal: se recorre por filas. */
+        from = cy + (int32_t)lroundf((float)r_in  * s);
+        to   = cy + (int32_t)lroundf((float)r_out * s);
+        if (from > to) { int32_t tmp = from; from = to; to = tmp; }
+
+        for (i = from; (i <= to) && (status == NV3007_OK); i++)
+        {
+            int32_t x = cx + (int32_t)lroundf((float)(i - cy) * c / s);
+            /* Recorte explícito en int32_t: el cast a int16_t truncaría y
+             * NV3007_WritePixel() no podría detectar el desbordamiento. */
+            if ((x < 0) || (x >= (int32_t)NV3007_Width) || (i < 0) || (i >= (int32_t)NV3007_Height)) { continue; }
+            status = NV3007_WritePixel((int16_t)x, (int16_t)i, color);
         }
     }
 
@@ -633,11 +1007,23 @@ NV3007_Status_t NV3007_Init(SPI_HandleTypeDef* hspi,
     /* MADCTL explícito, vía NV3007_Rotate() para que ancho/alto lógicos y offsets de
      * GRAM queden coherentes con el registro que se acaba de escribir. La secuencia
      * del fabricante no incluye 0x36: sin esto el panel se queda con la orientación y
-     * el orden de color por defecto del reset. */
-    status = NV3007_Rotate(NV3007_Orientation_Portrait_1);
+     * el orden de color por defecto del reset.
+     *
+     * Landscape_1 (MX|MV|RGB, 428x142) es la orientación con la que Arduino_NV3007
+     * se validó en hardware sobre este mismo módulo (rotation=1), y la que usa
+     * STM32_Lib_TFT_NV3007 para el 2.79" (con MADCTL = 0xA0, el equivalente
+     * girado 180°).
+     *
+     * Portrait_1 (0x00, 142x428) es la orientación NATIVA del cristal: el panel se
+     * direcciona como 168 columnas x 428 filas y el cristal recorta 142 de las 168
+     * columnas. Es la que usa la demo del fabricante para este panel. Cambiar a
+     * esta orientación con NV3007_Rotate(NV3007_Orientation_Portrait_1) si se
+     * prefiere que el contenido no salga girado 90° respecto del cristal. */
+    status = NV3007_Rotate(NV3007_Orientation_Landscape_1);
     if (status != NV3007_OK) { NV3007_Initialized = 0U; return status; }
 
-    /* Con NV3007_IPS=1 esto envía INVON, que es lo que exige este panel IPS. */
+    /* Con NV3007_IPS=0 (valor por defecto) esto envía INVOFF, que es lo que
+     * requiere este panel con la secuencia de inicialización de la cabecera. */
     status = NV3007_InvertDisplay(false);
     if (status != NV3007_OK) { NV3007_Initialized = 0U; return status; }
 
@@ -685,6 +1071,12 @@ NV3007_Status_t NV3007_DeInit(void)
 NV3007_Status_t NV3007_WriteAddrWindow(uint16_t x, uint16_t y, uint16_t w, uint16_t h)
 {
     NV3007_Status_t status = NV3007_OK;
+    /* Límites de la ventana en la GRAM. Con MV=1 el controlador intercambia los
+     * ejes: el eje rápido (X lógico, 428 px) se direcciona con ROWSET y el
+     * lento (Y lógico, 142 px) con COLSET, de modo que los límites de COLSET
+     * y ROWSET se intercambian también. */
+    const uint16_t col_max = NV3007_SwapAxes ? NV3007_GRAM_HEIGHT : NV3007_GRAM_WIDTH;
+    const uint16_t row_max = NV3007_SwapAxes ? NV3007_GRAM_WIDTH  : NV3007_GRAM_HEIGHT;
 
     if (!NV3007_Initialized)
     {
@@ -701,6 +1093,14 @@ NV3007_Status_t NV3007_WriteAddrWindow(uint16_t x, uint16_t y, uint16_t w, uint1
         uint16_t xe = x + w - 1U + NV3007_XOffset;
         uint16_t ys = y + NV3007_YOffset;
         uint16_t ye = y + h - 1U + NV3007_YOffset;
+
+        /* Una ventana fuera de la GRAM no se dibuja: el controlador daría la vuelta
+         * por los contadores de dirección y la imagen aparecería troceada. */
+        if ((xe > col_max) || (ye > row_max))
+        {
+            NV3007_Unselect();
+            return NV3007_INVALID_PARAM;
+        }
 
         status = NV3007_WriteCommandRaw(NV3007_CMD_CASET);
         status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(xs >> 8)) : status;
@@ -786,6 +1186,12 @@ NV3007_Status_t NV3007_Rotate(NV3007_Orientation_t orientation)
 
     status = NV3007_WriteCmdData8(NV3007_CMD_MADCTL, madctl);
     if (status != NV3007_OK) { return status; }
+
+    /* Con MV=1 el controlador intercambia los dos ejes de direccionamiento: el
+     * eje rápido (X lógico) pasa a direccionarse con ROWSET y el lento (Y
+     * lógico) con COLSET. Se recuerda para validar las ventanas contra la GRAM
+     * y para colocar los offsets en el eje correcto. */
+    NV3007_SwapAxes = ((madctl & NV3007_MADCTL_MV) != 0U) ? 1U : 0U;
 
     /* Intercambiar ancho/alto lógicos cuando la orientación intercambia los ejes (MV) */
     if ((madctl & NV3007_MADCTL_MV) != 0U)
@@ -1411,6 +1817,344 @@ NV3007_Status_t NV3007_DrawFilledTriangle(int16_t x0, int16_t y0, int16_t x1, in
 }
 
 /**
+ * @brief Dibuja el contorno de una elipse mediante el algoritmo de punto medio de Zingl.
+ *
+ * @details Traza la elipse de semiejes @p rx y @p ry centrada en (@p x0, @p y0) aprovechando
+ *          la simetría de la figura: en cada paso se dibujan los cuatro puntos simétricos
+ *          (los dos extremos superiores y los dos inferiores), por lo que el número de
+ *          iteraciones es la mitad del número de píxeles del contorno.
+ *
+ *          Es el mismo algoritmo (variante entera de Zingl) que usa ILI9341_DrawEllipse(),
+ *          de modo que ambas librerías dibujan la elipse con idéntica geometría.
+ *
+ *          Los píxeles que caen fuera de la pantalla se descartan silenciosamente
+ *          (NV3007_WritePixelClipped()), igual que en el resto de primitivas del driver.
+ *          Los casos degenerados (rx == 0 o ry == 0) se delegan en las líneas rápida
+ *          vertical/horizontal, que además recorren el tramo con una sola transacción SPI.
+ *
+ * @param x0 Columna del centro.
+ * @param y0 Fila del centro.
+ * @param rx Semieje horizontal en píxeles (no negativo).
+ * @param ry Semieje vertical en píxeles (no negativo).
+ * @param color Color en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación.
+ */
+NV3007_Status_t NV3007_DrawEllipse(int16_t x0, int16_t y0, int16_t rx, int16_t ry, uint16_t color)
+{
+    NV3007_Status_t status = NV3007_OK;
+    int32_t xa, xb, ya, yb;
+    int32_t a, b, b1;
+    int32_t dx, dy, err, e2;
+
+    if (!NV3007_Initialized)
+    {
+        return NV3007_NOT_INITIALIZED;
+    }
+    if ((rx < 0) || (ry < 0))
+    {
+        return NV3007_INVALID_PARAM;
+    }
+
+    /* Casos degenerados: elipse degenerada en una línea. Se delega en las primitivas
+     * rápidas, que recortan el tramo contra los límites de la pantalla. */
+    if (rx == 0)
+    {
+        int32_t ytop = (int32_t)y0 - (int32_t)ry;
+        int32_t h    = (int32_t)2 * (int32_t)ry + 1;
+
+        if (ytop < -32768) { ytop = -32768; }
+        if (ytop >  32767) { ytop =  32767; }
+        if (h    >  32767) { h    =  32767; }
+
+        return NV3007_DrawFastVLine(x0, (int16_t)ytop, (int16_t)h, color);
+    }
+    if (ry == 0)
+    {
+        int32_t xleft = (int32_t)x0 - (int32_t)rx;
+        int32_t w     = (int32_t)2 * (int32_t)rx + 1;
+
+        if (xleft < -32768) { xleft = -32768; }
+        if (xleft >  32767) { xleft =  32767; }
+        if (w     >  32767) { w     =  32767; }
+
+        return NV3007_DrawFastHLine((int16_t)xleft, y0, (int16_t)w, color);
+    }
+
+    xa = (int32_t)x0 - (int32_t)rx;
+    xb = (int32_t)x0 + (int32_t)rx;
+    ya = (int32_t)y0 - (int32_t)ry;
+    yb = (int32_t)y0 + (int32_t)ry;
+
+    a  = xb - xa;
+    b  = yb - ya;
+    b1 = b & 1;
+
+    dx  = 4 * (1 - a) * b * b;
+    dy  = 4 * (b1 + 1) * a * a;
+    err = dx + dy + b1 * a * a;
+
+    ya += (b + 1) / 2;
+    yb  = ya - b1;
+    a  *= 8 * a;
+    b1  = 8 * b * b;
+
+    do
+    {
+        status = NV3007_WritePixelClipped(xb, ya, color);
+        status = (status == NV3007_OK) ? NV3007_WritePixelClipped(xa, ya, color) : status;
+        status = (status == NV3007_OK) ? NV3007_WritePixelClipped(xa, yb, color) : status;
+        status = (status == NV3007_OK) ? NV3007_WritePixelClipped(xb, yb, color) : status;
+        if (status != NV3007_OK) { return status; }
+
+        e2 = 2 * err;
+        if (e2 <= dy) { ya++; yb--; dy += a; err += dy; }
+        if (e2 >= dx || 2 * err > dy) { xa++; xb--; dx += b1; err += dx; }
+    } while (xa <= xb);
+
+    /* Remate de puntas para elipses muy achatadas (a == 0 en algún eje). */
+    while (ya - yb < b)
+    {
+        status = NV3007_WritePixelClipped(xa - 1, ya, color);
+        status = (status == NV3007_OK) ? NV3007_WritePixelClipped(xb + 1, ya, color) : status;
+        ya++;
+        status = (status == NV3007_OK) ? NV3007_WritePixelClipped(xa - 1, yb, color) : status;
+        status = (status == NV3007_OK) ? NV3007_WritePixelClipped(xb + 1, yb, color) : status;
+        yb--;
+        if (status != NV3007_OK) { return status; }
+    }
+
+    return NV3007_OK;
+}
+
+/**
+ * @brief Dibuja una elipse rellena de color.
+ *
+ * @details Recorre la elipse con el mismo algoritmo de punto medio de Zingl que
+ *          NV3007_DrawEllipse(), pero en lugar de graficar los cuatro puntos simétricos de
+ *          cada paso, rellena cada fila visitada con un tramo horizontal completo.
+ *
+ *          Aprovecha la simetría de la figura para trazar solo un cuadrante: en cada paso
+ *          se rellenan las dos filas (ya y yb) con el mismo intervalo de columnas (xa…xb),
+ *          que es exactamente la extensión horizontal de la elipse en esas filas.
+ *
+ *          Cada fila se escribe con una única transacción SPI (ventana + ráfaga de datos),
+ *          por lo que el coste es de ~2 × ry transacciones, muy por debajo del de pintar
+ *          píxel a píxel. Las filas visitadas son contiguas: el algoritmo avanza como
+ *          máximo un paso por fila, así que no queda ninguna sin rellenar.
+ *
+ *          Los casos degenerados (rx == 0 o ry == 0) se delegan en las líneas rápida
+ *          vertical/horizontal.
+ *
+ * @param x0 Columna del centro.
+ * @param y0 Fila del centro.
+ * @param rx Semieje horizontal en píxeles (no negativo).
+ * @param ry Semieje vertical en píxeles (no negativo).
+ * @param color Color de relleno en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación.
+ */
+NV3007_Status_t NV3007_DrawFilledEllipse(int16_t x0, int16_t y0, int16_t rx, int16_t ry, uint16_t color)
+{
+    NV3007_Status_t status = NV3007_OK;
+    int32_t xa, xb, ya, yb;
+    int32_t a, b, b1;
+    int32_t dx, dy, err, e2;
+
+    if (!NV3007_Initialized)
+    {
+        return NV3007_NOT_INITIALIZED;
+    }
+    if ((rx < 0) || (ry < 0))
+    {
+        return NV3007_INVALID_PARAM;
+    }
+
+    /* Casos degenerados: la elipse se reduce a una línea. */
+    if (rx == 0)
+    {
+        int32_t ytop = (int32_t)y0 - (int32_t)ry;
+        int32_t h    = (int32_t)2 * (int32_t)ry + 1;
+
+        if (ytop < -32768) { ytop = -32768; }
+        if (ytop >  32767) { ytop =  32767; }
+        if (h    >  32767) { h    =  32767; }
+
+        return NV3007_DrawFastVLine(x0, (int16_t)ytop, (int16_t)h, color);
+    }
+    if (ry == 0)
+    {
+        return NV3007_DrawHSpanClipped((int32_t)x0 - (int32_t)rx,
+                                       (int32_t)x0 + (int32_t)rx,
+                                       (int32_t)y0, color);
+    }
+
+    xa = (int32_t)x0 - (int32_t)rx;
+    xb = (int32_t)x0 + (int32_t)rx;
+    ya = (int32_t)y0 - (int32_t)ry;
+    yb = (int32_t)y0 + (int32_t)ry;
+
+    a  = xb - xa;
+    b  = yb - ya;
+    b1 = b & 1;
+
+    dx  = 4 * (1 - a) * b * b;
+    dy  = 4 * (b1 + 1) * a * a;
+    err = dx + dy + b1 * a * a;
+
+    ya += (b + 1) / 2;
+    yb  = ya - b1;
+    a  *= 8 * a;
+    b1  = 8 * b * b;
+
+    do
+    {
+        status = NV3007_DrawHSpanClipped(xa, xb, ya, color);
+        status = (status == NV3007_OK) ? NV3007_DrawHSpanClipped(xa, xb, yb, color) : status;
+        if (status != NV3007_OK) { return status; }
+
+        e2 = 2 * err;
+        if (e2 <= dy) { ya++; yb--; dy += a; err += dy; }
+        if (e2 >= dx || 2 * err > dy) { xa++; xb--; dx += b1; err += dx; }
+    } while (xa <= xb);
+
+    /* Remate de puntas para elipses muy achatadas (a == 0 en algún eje). */
+    while (ya - yb < b)
+    {
+        ya++;
+        yb--;
+        status = NV3007_DrawHSpanClipped(xa - 1, xb + 1, ya, color);
+        status = (status == NV3007_OK) ? NV3007_DrawHSpanClipped(xa - 1, xb + 1, yb, color) : status;
+        if (status != NV3007_OK) { return status; }
+    }
+
+    return NV3007_OK;
+}
+
+/**
+ * @brief Dibuja el contorno de un arco (sector de anillo) entre dos ángulos.
+ *
+ * @details Traza las cuatro aristas que delimitan el sector: las dos curvas
+ *          (exterior de radio @p r1 e interior de radio @p r2) y las dos rectas
+ *          radiales en los ángulos inicial y final. Es el equivalente del
+ *          ILI9341_DrawArc() de la librería ILI9341_Disc1.
+ *
+ *          Los ángulos van en grados, con 0° en la derecha y creciendo en sentido
+ *          horario (hacia abajo), igual que en el driver ILI9341.
+ *
+ *          Casos límite del barrido:
+ *          -# start == end (p. ej. 45° y 45°): el sector degenera y solo se
+ *             traza la arista radial que une los radios interior y exterior.
+ *          -# start y end que coinciden tras normalizar pero difieren en los
+ *             valores originales (p. ej. 0° y 360°, o 90° y 450°): barrido
+ *             completo, se dibuja el anillo entero.
+ *
+ * @param x0 Columna del centro del arco.
+ * @param y0 Fila del centro del arco.
+ * @param r1 Radio exterior del arco.
+ * @param r2 Radio interior del arco.
+ * @param start Ángulo inicial en grados (0° = derecha, sentido horario).
+ * @param end Ángulo final en grados.
+ * @param color Color en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación.
+ */
+NV3007_Status_t NV3007_DrawArc(int16_t x0, int16_t y0, int16_t r1, int16_t r2, float start, float end, uint16_t color)
+{
+    NV3007_Status_t status;
+    float           a0, sweep;
+    int16_t         tmp;
+
+    if (!NV3007_Initialized)
+    {
+        return NV3007_NOT_INITIALIZED;
+    }
+    if ((r1 < 0) || (r2 < 0))
+    {
+        return NV3007_INVALID_PARAM;
+    }
+
+    /* r1 es el radio exterior y r2 el interior, como en el driver ILI9341. */
+    if (r1 < r2) { tmp = r1; r1 = r2; r2 = tmp; }
+    if (r1 < 1) { r1 = 1; }
+    if (r2 < 1) { r2 = 1; }
+
+    NV3007_ArcAngles(start, end, &a0, &sweep);
+
+    /* Curva exterior (banda de 1 px en el radio r1). */
+    status = NV3007_FillArcBand(x0, y0, r1, r1, a0, sweep, color);
+    if (status != NV3007_OK) { return status; }
+
+    /* Curva interior (banda de 1 px en el radio r2). */
+    status = NV3007_FillArcBand(x0, y0, r2, r2, a0, sweep, color);
+    if (status != NV3007_OK) { return status; }
+
+    /* Aristas rectas radiales en los dos extremos del barrido. En el barrido
+     * completo ambos extremos coinciden, así que solo se traza una. */
+    status = NV3007_DrawArcRadius(x0, y0, r2, r1, a0, color);
+    if ((status == NV3007_OK) && (sweep < 359.999f))
+    {
+        status = NV3007_DrawArcRadius(x0, y0, r2, r1, a0 + sweep, color);
+    }
+
+    return status;
+}
+
+/**
+ * @brief Dibuja un arco relleno (sector de anillo) entre dos ángulos.
+ *
+ * @details Rellena el sector completo, del radio @p r2 al @p r1, entre los
+ *          ángulos inicial y final. Es el equivalente del ILI9341_DrawFilledArc()
+ *          de la librería ILI9341_Disc1.
+ *
+ *          Casos límite del barrido:
+ *          -# start == end (p. ej. 45° y 45°): el sector degenera y solo se
+ *             rellena la arista radial que une los radios interior y exterior.
+ *          -# start y end que coinciden tras normalizar pero difieren en los
+ *             valores originales (p. ej. 0° y 360°): barrido completo, se
+ *             rellena el anillo entero.
+ *
+ * @param x0 Columna del centro del arco.
+ * @param y0 Fila del centro del arco.
+ * @param r1 Radio exterior del arco.
+ * @param r2 Radio interior del arco.
+ * @param start Ángulo inicial en grados (0° = derecha, sentido horario).
+ * @param end Ángulo final en grados.
+ * @param color Color en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación.
+ */
+NV3007_Status_t NV3007_DrawFilledArc(int16_t x0, int16_t y0, int16_t r1, int16_t r2, float start, float end, uint16_t color)
+{
+    float   a0, sweep;
+    int16_t tmp;
+
+    if (!NV3007_Initialized)
+    {
+        return NV3007_NOT_INITIALIZED;
+    }
+    if ((r1 < 0) || (r2 < 0))
+    {
+        return NV3007_INVALID_PARAM;
+    }
+
+    if (r1 < r2) { tmp = r1; r1 = r2; r2 = tmp; }
+    if (r1 < 1) { r1 = 1; }
+    if (r2 < 1) { r2 = 1; }
+
+    NV3007_ArcAngles(start, end, &a0, &sweep);
+
+    /* Barrido nulo (start == end): el sector degenera en la arista radial
+     * que une los radios interior y exterior, igual que en el driver ILI9341. */
+    if (sweep <= 0.001f)
+    {
+        return NV3007_DrawArcRadius(x0, y0, r2, r1, a0, color);
+    }
+
+    return NV3007_FillArcBand(x0, y0, r1, r2, a0, sweep, color);
+}
+
+/**
  * @brief Dibuja un rectángulo de esquinas redondeadas sin relleno, combinando los lados rectos
  *        con cuatro cuadrantes de círculo en las esquinas (equivalente a Arduino_GFX::drawRoundRect()).
  *
@@ -1528,4 +2272,171 @@ NV3007_Status_t NV3007_DrawBitmap(int16_t x, int16_t y, const uint8_t bitmap[], 
     }
 
     return status;
+}
+
+/**
+ * @brief Renderiza un carácter ASCII imprimible (32..126) en la pantalla.
+ *
+ * @details Abre una ventana del tamaño de la celda y vuelca el glifo fila a fila
+ *          dentro de una única transacción RAMWR (CS bajo), en lugar de un
+ *          NV3007_WritePixel() por píxel. Cada fila de la fuente es un uint16_t
+ *          con el píxel izquierdo en el bit 15, de ahí el límite de 16 px de ancho.
+ *
+ * @param x Columna superior izquierda de la celda del carácter.
+ * @param y Fila superior izquierda de la celda del carácter.
+ * @param c Carácter a mostrar (fuera de 32..126 se ignora y devuelve NV3007_OK).
+ * @param font Puntero a la definición de la fuente (lcd_fonts.h).
+ * @param foreground Color del carácter en formato RGB565.
+ * @param background Color de fondo de la celda en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación.
+ */
+NV3007_Status_t NV3007_Putc(uint16_t x, uint16_t y, char c, LCD_FontDef_t* font, uint16_t foreground, uint16_t background)
+{
+    NV3007_Status_t status;
+    uint8_t row[16U * 2U];
+    uint16_t color, b;
+    uint32_t i, j;
+
+    if (!NV3007_Initialized)
+    {
+        return NV3007_NOT_INITIALIZED;
+    }
+
+    if ((font == NULL) || (font->data == NULL) ||
+        (font->FontWidth == 0U) || (font->FontWidth > 16U) || (font->FontHeight == 0U))
+    {
+        return NV3007_INVALID_PARAM;
+    }
+
+    if (((uint8_t)c < 32U) || ((uint8_t)c > 126U))
+    {
+        return NV3007_OK;
+    }
+
+    NV3007_x = x;
+    NV3007_y = y;
+    if (((uint32_t)NV3007_x + font->FontWidth) > NV3007_Width)
+    {
+        NV3007_y += font->FontHeight;
+        NV3007_x  = 0U;
+    }
+
+    /* A diferencia del ILI9341, la GRAM es más ancha que el cristal: una celda
+     * fuera de pantalla podría aceptarse en WriteAddrWindow y pintarse fuera
+     * del área visible, así que se valida aquí contra la geometría lógica. */
+    if ((((uint32_t)NV3007_x + font->FontWidth) > NV3007_Width) ||
+        (((uint32_t)NV3007_y + font->FontHeight) > NV3007_Height))
+    {
+        return NV3007_INVALID_PARAM;
+    }
+
+    status = NV3007_WriteAddrWindow(NV3007_x, NV3007_y, font->FontWidth, font->FontHeight);
+    if (status != NV3007_OK)
+    {
+        return status; /* WriteAddrWindow ya liberó CS */
+    }
+
+    HAL_GPIO_WritePin(NV3007_DC_GPIO_Port, NV3007_DC_Pin, GPIO_PIN_SET);
+    for (i = 0U; (i < font->FontHeight) && (status == NV3007_OK); i++)
+    {
+        b = font->data[((uint32_t)((uint8_t)c - 32U) * font->FontHeight) + i];
+        for (j = 0U; j < font->FontWidth; j++)
+        {
+            color = ((b << j) & 0x8000U) ? foreground : background;
+            row[j * 2U]      = (uint8_t)(color >> 8);
+            row[j * 2U + 1U] = (uint8_t)(color & 0xFFU);
+        }
+        status = NV3007_SPI_Send(row, (uint16_t)(font->FontWidth * 2U));
+    }
+    NV3007_Unselect();
+
+    if (status == NV3007_OK)
+    {
+        NV3007_x += font->FontWidth;
+    }
+    return status;
+}
+
+/**
+ * @brief Renderiza una cadena terminada en nulo en la pantalla.
+ *
+ * @details '\n' baja una línea (FontHeight + 1 px) y vuelve a la columna @p x;
+ *          "\n\r" vuelve a la columna 0. Un '\r' suelto se ignora. El salto de
+ *          línea automático al llegar al borde lo hace NV3007_Putc().
+ *
+ * @param x Columna superior izquierda del primer carácter.
+ * @param y Fila superior izquierda del primer carácter.
+ * @param str Cadena terminada en nulo.
+ * @param font Puntero a la definición de la fuente (lcd_fonts.h).
+ * @param foreground Color del texto en formato RGB565.
+ * @param background Color de fondo de las celdas en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación (se detiene en el primer carácter que falle).
+ */
+NV3007_Status_t NV3007_Puts(uint16_t x, uint16_t y, const char* str, LCD_FontDef_t* font, uint16_t foreground, uint16_t background)
+{
+    NV3007_Status_t status;
+
+    if (!NV3007_Initialized)
+    {
+        return NV3007_NOT_INITIALIZED;
+    }
+
+    if ((str == NULL) || (font == NULL))
+    {
+        return NV3007_INVALID_PARAM;
+    }
+
+    NV3007_x = x;
+    NV3007_y = y;
+
+    while (*str != '\0')
+    {
+        if (*str == '\n')
+        {
+            NV3007_y += font->FontHeight + 1U;
+            if (*(str + 1) == '\r')
+            {
+                NV3007_x = 0U;
+                str++;
+            }
+            else
+            {
+                NV3007_x = x;
+            }
+            str++;
+            continue;
+        }
+        else if (*str == '\r')
+        {
+            str++;
+            continue;
+        }
+
+        status = NV3007_Putc(NV3007_x, NV3007_y, *str++, font, foreground, background);
+        if (status != NV3007_OK)
+        {
+            return status;
+        }
+    }
+
+    return NV3007_OK;
+}
+
+/**
+ * @brief Calcula el bounding-box en píxeles de una cadena para una fuente dada.
+ *
+ * @param[in]  str    Puntero a la cadena terminada en nulo.
+ * @param[in]  font   Puntero a la definición de la fuente.
+ * @param[out] width  Ancho total en píxeles.
+ * @param[out] height Alto total en píxeles.
+ */
+void NV3007_GetStringSize(char* str, LCD_FontDef_t* font, uint16_t* width, uint16_t* height)
+{
+    uint16_t w = 0U;
+    if (str == NULL || font == NULL || width == NULL || height == NULL) { return; }
+    *height = font->FontHeight;
+    while (*str++) { w += font->FontWidth; }
+    *width = w;
 }

@@ -1,12 +1,14 @@
 /**
  * @file NV3007.h
- * @brief 
+ * @brief Driver del controlador LCD NV3007 sobre interfaz SPI, panel Estardyn 2.79" 142x428.
  *
- * @details 
+ * @details API pública del driver: inicialización, orientación, offsets de GRAM,
+ *          primitivas de dibujo (líneas, rectángulos, círculos, triángulos,
+ *          elipses, arcos, bitmaps) y texto con las fuentes de lcd_fonts.h.
  *
  * @author Daniel Ruiz
- * @date Junio 23, 2026
- * @version 0.1.0
+ * @date Octubre 19, 2026
+ * @version 1.0.0
  */
 
 #ifndef NV3007_H
@@ -17,8 +19,11 @@
 // ============================================================================
 
 #include "main.h"
+#include "lcd_fonts.h"
 #include <stdint.h>
 #include <stdbool.h>
+#include <math.h>
+#include <float.h>
 
 // ============================================================================
 // MACROS Y CONSTANTES NV3007
@@ -38,42 +43,60 @@
 
 /* -- Origen del área visible dentro de la GRAM --
  *
- * El offset cambia con la orientación, porque los bits MX/MY/MV de MADCTL remapean
- * el direccionamiento sobre la GRAM completa.
+ * El cristal de este panel solo expone 142 de las 168 columnas de la GRAM: el
+ * área visible está recortada 26 columnas dentro de la GRAM (12 por un lado y
+ * 14 por el otro). Por eso CASET/RASET necesitan un desplazamiento. Con el
+ * offset a 0 la imagen se dibuja corrida: 12 columnas de la GRAM que quedan
+ * fuera del cristal se pintan, y otras 12 columnas del cristal (las que están
+ * dentro del área visible) NO se pintan nunca, así que se quedan con el
+ * contenido anterior de la GRAM. De ahí las "franjas" sin color al borde.
  *
- * El valor X=12 de Portrait_1 está confirmado por dos implementaciones independientes
- * validadas en hardware sobre este mismo panel 142x428:
- *   - TFT_eSPI, issue #3851 ("test ok"): TFT_COLUMN_OFFSET 12
- *   - ESP-IDF-TFT-NV3007-LVGL, lcd_init.h: LCD_X_OFFSET 0x0C, LCD_Y_OFFSET 0x00
+ * El offset se aplica SIEMPRE sobre el eje de 142 px, que es:
+ *   - el eje X lógico en las orientaciones Portrait (MV = 0),
+ *   - el eje Y lógico en las orientaciones Landscape (MV = 1),
+ * porque con MV el controlador intercambia los ejes: el eje rápido (X lógico,
+ * 428 px) se direcciona con ROWSET y el lento (Y lógico, 142 px) con COLSET.
  *
- * Los offsets de las otras tres orientaciones se derivan de la geometría
- * (168 - 142 - 12 = 14 columnas al otro lado) y NO están verificados en hardware:
- * calibrarlos con NV3007_SetOffset() antes de darlos por buenos. */
-#define NV3007_OFFSET_P1_X  12U   /**< Portrait_1  (0°)   - offset X (confirmado) */
-#define NV3007_OFFSET_P1_Y   0U   /**< Portrait_1  (0°)   - offset Y (confirmado) */
-#define NV3007_OFFSET_P2_X  14U   /**< Portrait_2  (180°) - offset X (derivado)   */
-#define NV3007_OFFSET_P2_Y   0U   /**< Portrait_2  (180°) - offset Y (derivado)   */
-#define NV3007_OFFSET_L1_X   0U   /**< Landscape_1 (90°)  - offset X (derivado)   */
-#define NV3007_OFFSET_L1_Y  14U   /**< Landscape_1 (90°)  - offset Y (derivado)   */
-#define NV3007_OFFSET_L2_X   0U   /**< Landscape_2 (270°) - offset X (derivado)   */
-#define NV3007_OFFSET_L2_Y  12U   /**< Landscape_2 (270°) - offset Y (derivado)   */
+ *   12 -> margen en el lado natural del eje de 142 px.
+ *   14 -> margen en el lado opuesto (orientaciones con ese eje espejado).
+ *
+ * Confirmados en hardware sobre este mismo panel por tres implementaciones
+ * independientes: la demo del fabricante para el 2.79" (x_offset = 12), la
+ * librería STM32_Lib_TFT_NV3007 (12/14 según la orientación) y el port de
+ * ESP-IDF esp_lcd_nv3007 (12 en Portrait, 14 en Landscape).
+ *
+ * Si alguna vez hay que recalibrar, usar NV3007_SetOffset() en tiempo de ejecución
+ * y trasladar después el valor probado a estas constantes. */
+#define NV3007_OFFSET_P1_X   12U  /**< Portrait_1  (0°)   - offset del eje de 142 px */
+#define NV3007_OFFSET_P1_Y   0U   /**< Portrait_1  (0°)   - offset del eje de 428 px */
+#define NV3007_OFFSET_P2_X   14U  /**< Portrait_2  (180°) - offset del eje de 142 px */
+#define NV3007_OFFSET_P2_Y   0U   /**< Portrait_2  (180°) - offset del eje de 428 px */
+#define NV3007_OFFSET_L1_X   0U   /**< Landscape_1 (90°)  - offset del eje de 428 px */
+#define NV3007_OFFSET_L1_Y   12U  /**< Landscape_1 (90°)  - offset del eje de 142 px */
+#define NV3007_OFFSET_L2_X   0U   /**< Landscape_2 (270°) - offset del eje de 428 px */
+#define NV3007_OFFSET_L2_Y   14U  /**< Landscape_2 (270°) - offset del eje de 142 px */
 
 /* -- Tipo de panel --
  *
  * Este módulo monta un panel IPS, cuya polaridad de inversión va al revés que la de
- * un TN. La configuración validada en TFT_eSPI para el 2.79" 142x428 usa
- * TFT_INVERSION_ON; con la inversión al revés todos los colores salen en negativo
- * (un fondo negro se ve blanco). Poner a 0 si el panel resulta ser TN. */
+ * un TN. Con la inversión al revés todos los colores salen en negativo (un fondo
+ * negro se ve blanco).
+ *
+ * Valor validado en hardware sobre ESTE módulo con la secuencia de
+ * inicialización de la cabecera: con NV3007_IPS = 0 (INVOFF) los colores salen
+ * correctos (rojo/verde/azul/negro). Ponerlo a 1 (INVON) solo si el panel
+ * resulta ser TN o si se cambia la secuencia de inicialización. */
 #ifndef NV3007_IPS
-#define NV3007_IPS          1
+#define NV3007_IPS          0
 #endif
 
 /* -- Retardos de la secuencia de inicialización (ms) --
  *
  * SLPOUT/DISPON siguen los tiempos del fichero de inicialización del fabricante
  * (NV3006A1N/NV3007 + IVO 2.66): Delay(220) tras 0x11 y Delay(200) tras 0x29.
- * Son notablemente más largos que los 120/150 de Arduino_GFX; el charge-pump
- * necesita ese tiempo para estabilizarse antes de habilitar la salida del panel. */
+ * Son más largos que los de nv3007_279_init_operations en Arduino_GFX (120 ms tras
+ * SLPOUT y ninguno tras DISPON); el charge-pump necesita ese tiempo para
+ * estabilizarse antes de habilitar la salida del panel. */
 #define NV3007_RST_DELAY    120U  /**< Espera tras el reset por hardware   */
 #define NV3007_SLPIN_DELAY  120U  /**< Espera tras entrar en modo Sleep    */
 #define NV3007_SLPOUT_DELAY 220U  /**< Espera tras salir del modo Sleep    */
@@ -297,7 +320,7 @@ extern "C" {
  *          que necesitan retardos y los emite el driver.
  *
  *          Se expone para poder reproducir exactamente la misma secuencia por un transporte
- *          alternativo (p.ej. un sondeo de 3 hilos / 9 bits) sin duplicarla. Ver NV3007.c.
+ *          alternativo (p.ej. SPI de 3 hilos / 9 bits) sin duplicarla. Ver NV3007.c.
  */
 extern const uint8_t  NV3007_InitTable[];
 extern const uint16_t NV3007_InitTableSize;
@@ -374,8 +397,19 @@ NV3007_Status_t NV3007_Rotate(NV3007_Orientation_t orientation);
  *          que la imagen encaja con el borde físico y luego se trasladan a las constantes
  *          NV3007_OFFSET_*.
  *
- * @param x_offset Desplazamiento de columna aplicado a CASET.
- * @param y_offset Desplazamiento de fila aplicado a RASET.
+ *          Los offsets se expresan en el marco LÓGICO del driver: x_offset afecta al
+ *          eje X de la pantalla (el de 428 px en Landscape, el de 142 px en Portrait)
+ *          e y_offset al eje Y. El offset que hay que mover es el del eje de 142 px,
+ *          porque es el único recortado dentro de la GRAM de 168 columnas.
+ *
+ *          Procedimiento: rellenar la pantalla de un color y dibujar un marco
+ *          blanco de 1 px con NV3007_DrawRectangle(0, 0, NV3007_GetWidth(),
+ *          NV3007_GetHeight()). El marco debe verse completo y pegado al borde
+ *          físico del cristal; si queda una franja sin pintar de 12-14 px, esa es
+ *          la medida del offset que falta.
+ *
+ * @param x_offset Desplazamiento aplicado al eje X lógico (sumado en CASET).
+ * @param y_offset Desplazamiento aplicado al eje Y lógico (sumado en RASET).
  *
  * @return NV3007_Status_t Estado de la operación.
  */
@@ -423,9 +457,109 @@ NV3007_Status_t NV3007_DrawCircle(int16_t x0, int16_t y0, int16_t r, uint16_t co
 NV3007_Status_t NV3007_DrawFilledCircle(int16_t x0, int16_t y0, int16_t r, uint16_t color);
 NV3007_Status_t NV3007_DrawTriangle(int16_t x0, int16_t y0, int16_t x1, int16_t y1, int16_t x2, int16_t y2, uint16_t color);
 NV3007_Status_t NV3007_DrawFilledTriangle(int16_t x0, int16_t y0, int16_t x1, int16_t y1, int16_t x2, int16_t y2, uint16_t color);
+NV3007_Status_t NV3007_DrawEllipse(int16_t x0, int16_t y0, int16_t rx, int16_t ry, uint16_t color);
+NV3007_Status_t NV3007_DrawFilledEllipse(int16_t x0, int16_t y0, int16_t rx, int16_t ry, uint16_t color);
+
+/**
+ * @brief Dibuja el contorno de un arco (sector de anillo) entre dos ángulos.
+ *
+ * @details Traza las cuatro aristas que delimitan el sector: las dos curvas
+ *          (exterior de radio @p r1 e interior de radio @p r2) y las dos rectas
+ *          radiales en los ángulos inicial y final.
+ *
+ *          Los ángulos van en grados, con 0° en la derecha y creciendo en sentido
+ *          horario (hacia abajo).
+ *
+ *          Si start == end (p. ej. 45° y 45°) el sector degenera y solo se
+ *          traza la arista radial. Si start y end coinciden tras normalizar pero
+ *          difieren en los valores originales (p. ej. 0° y 360°), el barrido es
+ *          completo y se dibuja el anillo entero.
+ *
+ * @param x0 Columna del centro del arco.
+ * @param y0 Fila del centro del arco.
+ * @param r1 Radio exterior del arco.
+ * @param r2 Radio interior del arco.
+ * @param start Ángulo inicial en grados (0° = derecha, sentido horario).
+ * @param end Ángulo final en grados.
+ * @param color Color en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación.
+ */
+NV3007_Status_t NV3007_DrawArc(int16_t x0, int16_t y0, int16_t r1, int16_t r2, float start, float end, uint16_t color);
+
+/**
+ * @brief Dibuja un arco relleno (sector de anillo) entre dos ángulos.
+ *
+ * @details Rellena el sector completo, del radio @p r2 al @p r1, entre los
+ *          ángulos inicial y final.
+ *
+ *          Si start == end (p. ej. 45° y 45°) el sector degenera y solo se
+ *          rellena la arista radial. Si start y end coinciden tras normalizar
+ *          pero difieren en los valores originales (p. ej. 0° y 360°), el
+ *          barrido es completo y se rellena el anillo entero.
+ *
+ * @param x0 Columna del centro del arco.
+ * @param y0 Fila del centro del arco.
+ * @param r1 Radio exterior del arco.
+ * @param r2 Radio interior del arco.
+ * @param start Ángulo inicial en grados (0° = derecha, sentido horario).
+ * @param end Ángulo final en grados.
+ * @param color Color en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación.
+ */
+NV3007_Status_t NV3007_DrawFilledArc(int16_t x0, int16_t y0, int16_t r1, int16_t r2, float start, float end, uint16_t color);
+
 NV3007_Status_t NV3007_DrawRoundRect(int16_t x0, int16_t y0, int16_t w, int16_t h, int16_t radius, uint16_t color);
 NV3007_Status_t NV3007_DrawFilledRoundRect(int16_t x0, int16_t y0, int16_t w, int16_t h, int16_t radius, uint16_t color);
 NV3007_Status_t NV3007_DrawBitmap(int16_t x, int16_t y, const uint8_t bitmap[], int16_t w, int16_t h, uint16_t color);
+
+/**
+ * @brief Renderiza un carácter ASCII imprimible (32..126) en la pantalla.
+ *
+ * @details Si la celda no cabe en el ancho restante, salta al inicio de la
+ *          siguiente línea (x = 0, y += FontHeight). Tras dibujar, el cursor de
+ *          texto interno avanza FontWidth columnas.
+ *
+ * @param x Columna superior izquierda de la celda del carácter.
+ * @param y Fila superior izquierda de la celda del carácter.
+ * @param c Carácter a mostrar (fuera de 32..126 se ignora y devuelve NV3007_OK).
+ * @param font Puntero a la definición de la fuente (lcd_fonts.h).
+ * @param foreground Color del carácter en formato RGB565.
+ * @param background Color de fondo de la celda en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación (NV3007_INVALID_PARAM si la
+ *         fuente es NULL o la celda no cabe en pantalla).
+ */
+NV3007_Status_t NV3007_Putc(uint16_t x, uint16_t y, char c, LCD_FontDef_t* font, uint16_t foreground, uint16_t background);
+
+/**
+ * @brief Renderiza una cadena terminada en nulo en la pantalla.
+ *
+ * @details '\n' baja una línea (FontHeight + 1 px) y vuelve a la columna @p x;
+ *          "\n\r" vuelve a la columna 0. Un '\r' suelto se ignora. El salto de
+ *          línea automático al llegar al borde lo hace NV3007_Putc().
+ *
+ * @param x Columna superior izquierda del primer carácter.
+ * @param y Fila superior izquierda del primer carácter.
+ * @param str Cadena terminada en nulo.
+ * @param font Puntero a la definición de la fuente (lcd_fonts.h).
+ * @param foreground Color del texto en formato RGB565.
+ * @param background Color de fondo de las celdas en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación (se detiene en el primer carácter que falle).
+ */
+NV3007_Status_t NV3007_Puts(uint16_t x, uint16_t y, const char* str, LCD_FontDef_t* font, uint16_t foreground, uint16_t background);
+
+/**
+ * @brief Calcula el bounding-box en píxeles de una cadena para una fuente dada.
+ *
+ * @param[in]  str    Puntero a la cadena terminada en nulo.
+ * @param[in]  font   Puntero a la definición de la fuente.
+ * @param[out] width  Ancho total en píxeles.
+ * @param[out] height Alto total en píxeles.
+ */
+void NV3007_GetStringSize(char* str, LCD_FontDef_t* font, uint16_t* width, uint16_t* height);
 #ifdef __cplusplus
 }
 #endif
