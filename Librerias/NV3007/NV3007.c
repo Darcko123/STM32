@@ -9,8 +9,8 @@
  *          por lo que CASET/RASET se desplazan con los offsets de NV3007.h.
  *
  * @author Daniel Ruiz
- * @date Junio 23, 2026
- * @version 0.1.0
+ * @date Octubre 19, 2026
+ * @version 1.0.0
  */
 
 #include "NV3007.h"
@@ -917,95 +917,6 @@ static NV3007_Status_t NV3007_FillCircleHelper(int16_t x0, int16_t y0, int16_t r
             py = y;
         }
         px = x;
-    }
-
-    return status;
-}
-
-/**
- * @brief Dibuja el glifo de un carácter de una fuente monocroma, con fondo opaco.
- *
- * @details Cada fila del glifo se descompone en tramos horizontales de color
- *          constante (primer plano o fondo) y cada tramo se dibuja con
- *          NV3007_DrawFastHLine().
- *
- *          Se ha elegido deliberadamente el desglose en tramos en lugar de
- *          escribir la celda entera en una única transacción (que es lo que hace
- *          ILI9341_Putc()). El motivo es el orden de recorrido de la ventana de
- *          direccionamiento: el NV3007 recorre el rango CASET en el sentido que
- *          marque MADCTL, y con los bits de espejo activos (MX/MY, que el driver
- *          usa en tres de las cuatro orientaciones) los píxeles de la celda se
- *          escribirían en orden inverso al esperado y el glifo saldría
- *          espejado. Al escribir cada tramo por separado, el color es el mismo
- *          en todos los píxeles de la ventana y el resultado es el correcto en
- *          cualquier orientación.
- *
- * @param[in] x          Columna de la esquina superior izquierda de la celda.
- * @param[in] y          Fila de la esquina superior izquierda de la celda.
- * @param[in] c          Carácter a renderizar (ASCII 32..126).
- * @param[in] font       Definición de la fuente (debe tener FontWidth <= 16).
- * @param[in] foreground Color del trazo en formato RGB565.
- * @param[in] background Color de fondo de la celda en formato RGB565.
- * @return NV3007_Status_t Estado de la operación.
- */
-static NV3007_Status_t NV3007_DrawGlyph(uint16_t x, uint16_t y, char c,
-                                         const LCD_FontDef_t* font,
-                                         uint16_t foreground, uint16_t background)
-{
-    NV3007_Status_t status = NV3007_OK;
-    uint8_t  i;
-    uint16_t bits;
-    int32_t  j;
-    int32_t  run_end;
-    bool     run_fg;
-
-    /* La fuente almacena una palabra de 16 bits por fila: el píxel j de la
-     * fila vive en el bit (15 - j), es decir, el primero de la fila es el bit
-     * más significativo. Mismo criterio que usa ILI9341_Putc(). */
-    if ((font->FontWidth == 0U) || (font->FontHeight == 0U) || (font->FontWidth > 16U))
-    {
-        return NV3007_INVALID_PARAM;
-    }
-
-    for (i = 0U; i < font->FontHeight; i++)
-    {
-        int32_t screen_y = (int32_t)y + (int32_t)i;
-
-        /* Fila fuera de la pantalla: no hay nada que dibujar. */
-        if ((screen_y < 0) || (screen_y >= (int32_t)NV3007_Height))
-        {
-            continue;
-        }
-
-        bits = font->data[((uint8_t)c - 32U) * (uint16_t)font->FontHeight + i];
-
-        /* Descompone la fila en tramos horizontales de color constante. */
-        j = 0;
-        while (j < (int32_t)font->FontWidth)
-        {
-            run_fg  = (((bits >> (15 - j)) & 1U) != 0U);
-            run_end = j + 1;
-            while ((run_end < (int32_t)font->FontWidth) &&
-                   ((((bits >> (15 - run_end)) & 1U) != 0U) == run_fg))
-            {
-                run_end++;
-            }
-
-            /* Recorte del tramo contra el borde derecho de la pantalla. */
-            {
-                int32_t rx = (int32_t)x + j;
-                int32_t rw = run_end - j;
-                if ((rx + rw) > (int32_t)NV3007_Width) { rw = (int32_t)NV3007_Width - rx; }
-                if (rw > 0)
-                {
-                    status = NV3007_DrawFastHLine((int16_t)rx, (int16_t)screen_y, (int16_t)rw,
-                                                  run_fg ? foreground : background);
-                    if (status != NV3007_OK) { return status; }
-                }
-            }
-
-            j = run_end;
-        }
     }
 
     return status;
@@ -2392,7 +2303,8 @@ NV3007_Status_t NV3007_Putc(uint16_t x, uint16_t y, char c, LCD_FontDef_t* font,
         return NV3007_NOT_INITIALIZED;
     }
 
-    if ((font == NULL) || (font->FontWidth == 0U) || (font->FontWidth > 16U) || (font->FontHeight == 0U))
+    if ((font == NULL) || (font->data == NULL) ||
+        (font->FontWidth == 0U) || (font->FontWidth > 16U) || (font->FontHeight == 0U))
     {
         return NV3007_INVALID_PARAM;
     }
@@ -2510,4 +2422,21 @@ NV3007_Status_t NV3007_Puts(uint16_t x, uint16_t y, const char* str, LCD_FontDef
     }
 
     return NV3007_OK;
+}
+
+/**
+ * @brief Calcula el bounding-box en píxeles de una cadena para una fuente dada.
+ *
+ * @param[in]  str    Puntero a la cadena terminada en nulo.
+ * @param[in]  font   Puntero a la definición de la fuente.
+ * @param[out] width  Ancho total en píxeles.
+ * @param[out] height Alto total en píxeles.
+ */
+void NV3007_GetStringSize(char* str, LCD_FontDef_t* font, uint16_t* width, uint16_t* height)
+{
+    uint16_t w = 0U;
+    if (str == NULL || font == NULL || width == NULL || height == NULL) { return; }
+    *height = font->FontHeight;
+    while (*str++) { w += font->FontWidth; }
+    *width = w;
 }

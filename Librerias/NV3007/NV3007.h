@@ -1,12 +1,14 @@
 /**
  * @file NV3007.h
- * @brief 
+ * @brief Driver del controlador LCD NV3007 sobre interfaz SPI, panel Estardyn 2.79" 142x428.
  *
- * @details 
+ * @details API pública del driver: inicialización, orientación, offsets de GRAM,
+ *          primitivas de dibujo (líneas, rectángulos, círculos, triángulos,
+ *          elipses, arcos, bitmaps) y texto con las fuentes de lcd_fonts.h.
  *
  * @author Daniel Ruiz
- * @date Junio 23, 2026
- * @version 0.1.0
+ * @date Octubre 19, 2026
+ * @version 1.0.0
  */
 
 #ifndef NV3007_H
@@ -548,6 +550,16 @@ NV3007_Status_t NV3007_Putc(uint16_t x, uint16_t y, char c, LCD_FontDef_t* font,
  * @return NV3007_Status_t Estado de la operación (se detiene en el primer carácter que falle).
  */
 NV3007_Status_t NV3007_Puts(uint16_t x, uint16_t y, const char* str, LCD_FontDef_t* font, uint16_t foreground, uint16_t background);
+
+/**
+ * @brief Calcula el bounding-box en píxeles de una cadena para una fuente dada.
+ *
+ * @param[in]  str    Puntero a la cadena terminada en nulo.
+ * @param[in]  font   Puntero a la definición de la fuente.
+ * @param[out] width  Ancho total en píxeles.
+ * @param[out] height Alto total en píxeles.
+ */
+void NV3007_GetStringSize(char* str, LCD_FontDef_t* font, uint16_t* width, uint16_t* height);
 #ifdef __cplusplus
 }
 #endif
