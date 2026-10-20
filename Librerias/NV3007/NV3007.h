@@ -19,6 +19,8 @@
 #include "main.h"
 #include <stdint.h>
 #include <stdbool.h>
+#include <math.h>
+#include <float.h>
 
 // ============================================================================
 // MACROS Y CONSTANTES NV3007
@@ -454,6 +456,48 @@ NV3007_Status_t NV3007_DrawTriangle(int16_t x0, int16_t y0, int16_t x1, int16_t 
 NV3007_Status_t NV3007_DrawFilledTriangle(int16_t x0, int16_t y0, int16_t x1, int16_t y1, int16_t x2, int16_t y2, uint16_t color);
 NV3007_Status_t NV3007_DrawEllipse(int16_t x0, int16_t y0, int16_t rx, int16_t ry, uint16_t color);
 NV3007_Status_t NV3007_DrawFilledEllipse(int16_t x0, int16_t y0, int16_t rx, int16_t ry, uint16_t color);
+
+/**
+ * @brief Dibuja el contorno de un arco (sector de anillo) entre dos ángulos.
+ *
+ * @details Traza las cuatro aristas que delimitan el sector: las dos curvas
+ *          (exterior de radio @p r1 e interior de radio @p r2) y las dos rectas
+ *          radiales en los ángulos inicial y final.
+ *
+ *          Los ángulos van en grados, con 0° en la derecha y creciendo en sentido
+ *          horario (hacia abajo). Un barrido de 360° (start == end tras
+ *          normalizar, p. ej. start=0 y end=360) dibuja el anillo completo.
+ *
+ * @param x0 Columna del centro del arco.
+ * @param y0 Fila del centro del arco.
+ * @param r1 Radio exterior del arco.
+ * @param r2 Radio interior del arco.
+ * @param start Ángulo inicial en grados (0° = derecha, sentido horario).
+ * @param end Ángulo final en grados.
+ * @param color Color en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación.
+ */
+NV3007_Status_t NV3007_DrawArc(int16_t x0, int16_t y0, int16_t r1, int16_t r2, float start, float end, uint16_t color);
+
+/**
+ * @brief Dibuja un arco relleno (sector de anillo) entre dos ángulos.
+ *
+ * @details Rellena el sector completo, del radio @p r2 al @p r1, entre los
+ *          ángulos inicial y final.
+ *
+ * @param x0 Columna del centro del arco.
+ * @param y0 Fila del centro del arco.
+ * @param r1 Radio exterior del arco.
+ * @param r2 Radio interior del arco.
+ * @param start Ángulo inicial en grados (0° = derecha, sentido horario).
+ * @param end Ángulo final en grados.
+ * @param color Color en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación.
+ */
+NV3007_Status_t NV3007_DrawFilledArc(int16_t x0, int16_t y0, int16_t r1, int16_t r2, float start, float end, uint16_t color);
+
 NV3007_Status_t NV3007_DrawRoundRect(int16_t x0, int16_t y0, int16_t w, int16_t h, int16_t radius, uint16_t color);
 NV3007_Status_t NV3007_DrawFilledRoundRect(int16_t x0, int16_t y0, int16_t w, int16_t h, int16_t radius, uint16_t color);
 NV3007_Status_t NV3007_DrawBitmap(int16_t x, int16_t y, const uint8_t bitmap[], int16_t w, int16_t h, uint16_t color);

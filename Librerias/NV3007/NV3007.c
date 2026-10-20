@@ -541,6 +541,325 @@ static NV3007_Status_t NV3007_DrawCircleHelper(int16_t x0, int16_t y0, int16_t r
     return status;
 }
 
+/* ============================================================================
+ * ARCOS
+ * ========================================================================= */
+
+/**
+ * @brief Calcula el seno y el coseno de un ángulo expresado en grados.
+ *
+ * @details En los múltiplos de 90° se devuelven valores exactos: sinf()/cosf()
+ *          dejan un residuo del orden de 1e-7 que, al dividir por el seno para
+ *          obtener el borde del sector, desplaza el corte un píxel hacia un
+ *          lado. El redondeo a los valores exactos elimina ese desplazamiento.
+ *
+ * @param[in]  deg   Ángulo en grados (cualquier valor; se normaliza a [0,360)).
+ * @param[out] sin_t Seno del ángulo.
+ * @param[out] cos_t Coseno del ángulo.
+ */
+static void NV3007_ArcSinCos(float deg, float* sin_t, float* cos_t)
+{
+    float r = fmodf(deg, 360.0f);
+    if (r < 0.0f) { r += 360.0f; }
+
+    if      ((r < 0.001f)  || (r > 359.999f)) { *sin_t =  0.0f; *cos_t =  1.0f; }
+    else if ((r > 89.999f)  && (r < 90.001f))  { *sin_t =  1.0f; *cos_t =  0.0f; }
+    else if ((r > 179.999f) && (r < 180.001f)) { *sin_t =  0.0f; *cos_t = -1.0f; }
+    else if ((r > 269.999f) && (r < 270.001f)) { *sin_t = -1.0f; *cos_t =  0.0f; }
+    else
+    {
+        *sin_t = sinf(r * 0.0174532925f);
+        *cos_t = cosf(r * 0.0174532925f);
+    }
+}
+
+/**
+ * @brief Raíz cuadrada entera exacta: floor(sqrt(v)) para v >= 0.
+ *
+ * @param[in] v Valor del que se quiere la raíz cuadrada.
+ * @return La mayor raíz cuadrada entera cuyo cuadrado no supera @p v.
+ */
+static int32_t NV3007_Isqrt(int64_t v)
+{
+    int32_t r = (int32_t)sqrt((double)v);
+
+    /* Corrige el posible error de redondeo de la raíz en coma flotante. */
+    while (((int64_t)r * r) > v) { r--; }
+    while (((int64_t)(r + 1) * (r + 1)) <= v) { r++; }
+
+    return r;
+}
+
+/**
+ * @brief Tolerancia (en píxeles) de los tests de los semiplanos que delimitan un arco.
+ *
+ * @details El valor de cA*dy - sA*x es la distancia con signo al rayo, así que
+ *          una tolerancia de milésimas de píxel absorbe el error de redondeo de
+ *          sinf()/cosf() sin desplazar de forma apreciable el borde del sector.
+ */
+#define NV3007_ARC_EPS  1e-3f
+
+/**
+ * @brief Rellena el sector anular (banda de radios) comprendido entre los ángulos
+ *        @p a0 y @p a0 + @p sweep.
+ *
+ * @details Recorre el sector fila a fila. Para cada fila calcula:
+ *          -# el rango radial: los píxeles cuyo cuadrado de distancia al centro
+ *             está en [r_in²-r_in, r_out²+r_out), es decir, entre los radios
+ *             r_in-0.5 y r_out+0.5. Con r_in == r_out la banda resultante es de
+ *             un píxel de ancho, que es lo que se usa para trazar las curvas
+ *             de un arco.
+ *          -# el rango angular: la intersección de los dos semiplanos que
+ *             delimitan el sector, que se resuelve como una cota para X.
+ *
+ *          El barrido angular se trocea en trozos de 180° como máximo, porque
+ *          un sector de más de 180° no es convexo y no se puede describir con
+ *          dos semiplanos: la unión de dos sectores convexos consecutivos
+ *          cubre el mismo barrido.
+ *
+ * @param[in] cx     Columna del centro del arco.
+ * @param[in] cy     Fila del centro del arco.
+ * @param[in] r_out  Radio exterior de la banda.
+ * @param[in] r_in   Radio interior de la banda.
+ * @param[in] a0     Ángulo inicial en grados (0° = derecha, sentido horario).
+ * @param[in] sweep  Barrido angular en grados, en sentido horario.
+ * @param[in] color  Color de relleno en formato RGB565.
+ * @return NV3007_Status_t Estado de la operación.
+ */
+static NV3007_Status_t NV3007_FillArcBand(int32_t cx, int32_t cy,
+                                           int32_t r_out, int32_t r_in,
+                                           float a0, float sweep,
+                                           uint16_t color)
+{
+    NV3007_Status_t status = NV3007_OK;
+    int64_t         hi2, lo2;
+    float           a   = a0;
+    int32_t         dy;
+
+    if (r_in < 0) { r_in = 0; }
+
+    hi2 = ((int64_t)r_out * r_out) + r_out; /* d² < hi2  → radio < r_out+0.5 */
+    lo2 = ((int64_t)r_in  * r_in)  - r_in;  /* d² >= lo2 → radio >= r_in-0.5 */
+
+    while ((sweep > 0.001f) && (status == NV3007_OK))
+    {
+        float   chunk = (sweep > 180.0f) ? 180.0f : sweep; /* trozo convexo del sector */
+        float   sA, cA, sB, cB;
+
+        NV3007_ArcSinCos(a, &sA, &cA);
+        NV3007_ArcSinCos(a + chunk, &sB, &cB);
+
+        for (dy = -r_out; dy <= r_out; dy++)
+        {
+            int64_t rem  = hi2 - 1 - ((int64_t)dy * dy);   /* x² <= rem  → |x| <= x_max */
+            int64_t need = lo2 - ((int64_t)dy * dy);         /* x² >= need → |x| >= x_min */
+            int32_t x_max, x_min;
+            int32_t blo, bhi;
+            bool    empty = false;
+
+            if (rem < 0) { continue; }
+
+            x_max = NV3007_Isqrt(rem);
+            x_min = (need > 0) ? (NV3007_Isqrt(need - 1) + 1) : 0;
+            if (x_min > x_max) { continue; }
+
+            /* Cota angular: por defecto, toda la fila de la banda. */
+            blo = -x_max;
+            bhi =  x_max;
+
+            /* Límite del rayo inicial: sin(φ-A) >= 0  →  cA*dy - sA*x >= -eps. */
+            if (fabsf(sA) < 1e-6f)
+            {
+                if ((cA * (float)dy) < -NV3007_ARC_EPS) { empty = true; }
+            }
+            else if (sA > 0.0f)
+            {
+                int32_t v = (int32_t)floorf((cA * (float)dy + NV3007_ARC_EPS) / sA);
+                if (v < bhi) { bhi = v; }
+            }
+            else
+            {
+                int32_t v = (int32_t)ceilf((cA * (float)dy + NV3007_ARC_EPS) / sA);
+                if (v > blo) { blo = v; }
+            }
+
+            /* Límite del rayo final: sin(φ-B) <= 0  →  sB*x - cB*dy >= -eps. */
+            if (!empty)
+            {
+                if (fabsf(sB) < 1e-6f)
+                {
+                    if ((-cB * (float)dy) < -NV3007_ARC_EPS) { empty = true; }
+                }
+                else if (sB > 0.0f)
+                {
+                    int32_t v = (int32_t)ceilf((cB * (float)dy - NV3007_ARC_EPS) / sB);
+                    if (v > blo) { blo = v; }
+                }
+                else
+                {
+                    int32_t v = (int32_t)floorf((cB * (float)dy - NV3007_ARC_EPS) / sB);
+                    if (v < bhi) { bhi = v; }
+                }
+            }
+
+            if (empty || (blo > bhi)) { continue; }
+
+            /* La banda radial deja un tramo por fila si el hueco interior no
+             * llega a esa altura, o dos si la fila atraviesa el disco hueco.
+             * Cada tramo se recorta contra la cota angular y se dibuja. */
+            for (int32_t k = 0; k < 2; k++)
+            {
+                int32_t px0, px1;
+
+                if (x_min == 0)
+                {
+                    /* Sin hueco interior: toda la fila es un único tramo. */
+                    if (k != 0) { break; }
+                    px0 = -x_max;
+                    px1 =  x_max;
+                }
+                else
+                {
+                    px0 = (k == 0) ? -x_max : x_min;
+                    px1 = (k == 0) ? -x_min : x_max;
+                }
+
+                {
+                    int32_t sx0 = (px0 > blo) ? px0 : blo;
+                    int32_t sx1 = (px1 < bhi) ? px1 : bhi;
+
+                    if (sx0 > sx1) { continue; }
+
+                    status = NV3007_DrawHSpanClipped(cx + sx0, cx + sx1, cy + dy, color);
+                    if (status != NV3007_OK) { return status; }
+                }
+            }
+        }
+
+        a     += chunk;
+        sweep -= chunk;
+    }
+
+    return status;
+}
+
+/**
+ * @brief Normaliza el par de ángulos de un arco.
+ *
+ * @details Devuelve el ángulo inicial normalizado a [0,360) y el barrido en
+ *          sentido horario. Si los ángulos normalizados coinciden pero los
+ *          originales no (caso start=0, end=360, o start=90, end=450), el
+ *          barrido es de 360°: el arco completo.
+ *
+ * @param[in]  start Ángulo inicial en grados.
+ * @param[in]  end   Ángulo final en grados.
+ * @param[out] a0    Ángulo inicial normalizado en grados.
+ * @param[out] sweep Barrido angular en grados, en sentido horario.
+ */
+static void NV3007_ArcAngles(float start, float end, float* a0, float* sweep)
+{
+    float s = fmodf(start, 360.0f);
+    float e = fmodf(end, 360.0f);
+
+    if (s < 0.0f) { s += 360.0f; }
+    if (e < 0.0f) { e += 360.0f; }
+
+    *sweep = e - s;
+    if (*sweep < 0.0f) { *sweep += 360.0f; }
+    if ((*sweep <= 0.001f) && (fabsf(start - end) > 0.001f)) { *sweep = 360.0f; }
+
+    *a0 = s;
+}
+
+/**
+ * @brief Dibuja el radio recto (la "raya" que une el centro con el borde) de un
+ *        sector anular, en el ángulo indicado.
+ *
+ * @details Recorre la arista por su eje dominante (columnas si la arista es más
+ *          horizontal que vertical, filas en caso contrario) y calcula en cada
+ *          paso la coordenada exacta sobre la semirrecta. Así la arista queda
+ *          alineada con la circunferencia en sus dos extremos, cosa que no
+ *          ocurre con un Bresenham sobre las coordenadas redondeadas de los
+ *          extremos.
+ *
+ *          En el recorrido por columnas los píxeles que caen en la misma fila se
+ *          agrupan en un único tramo horizontal, lo que reduce el número de
+ *          transacciones SPI.
+ *
+ * @param[in] cx     Columna del centro del arco.
+ * @param[in] cy     Fila del centro del arco.
+ * @param[in] r_in   Radio interior (origen de la raya).
+ * @param[in] r_out  Radio exterior (fin de la raya).
+ * @param[in] ang    Ángulo de la raya en grados (0° = derecha, sentido horario).
+ * @param[in] color  Color de la raya en formato RGB565.
+ * @return NV3007_Status_t Estado de la operación.
+ */
+static NV3007_Status_t NV3007_DrawArcRadius(int32_t cx, int32_t cy,
+                                            int32_t r_in, int32_t r_out,
+                                            float ang, uint16_t color)
+{
+    NV3007_Status_t status = NV3007_OK;
+    float           s, c;
+    int32_t         i, from, to;
+
+    NV3007_ArcSinCos(ang, &s, &c);
+
+    if (fabsf(c) >= fabsf(s))
+    {
+        /* Arista más horizontal que vertical: se recorre por columnas agrupando
+         * las que caen en la misma fila. */
+        from = cx + (int32_t)lroundf((float)r_in  * c);
+        to   = cx + (int32_t)lroundf((float)r_out * c);
+        if (from > to) { int32_t tmp = from; from = to; to = tmp; }
+
+        {
+            int32_t run_x0 = 0, run_y = 0;
+            bool    run = false;
+
+            for (i = from; (i <= to) && (status == NV3007_OK); i++)
+            {
+                int32_t y = cy + (int32_t)lroundf((float)(i - cx) * s / c);
+
+                if (run && (y == run_y)) { continue; }  /* se alarga el tramo */
+
+                if (run)  /* se cierra el tramo anterior */
+                {
+                    status = NV3007_DrawFastHLine((int16_t)run_x0, (int16_t)run_y,
+                                                  (int16_t)(i - run_x0), color);
+                    if (status != NV3007_OK) { return status; }
+                }
+                run_x0 = i;
+                run_y  = y;
+                run    = true;
+            }
+
+            if (run && (status == NV3007_OK))
+            {
+                status = NV3007_DrawFastHLine((int16_t)run_x0, (int16_t)run_y,
+                                              (int16_t)(to - run_x0 + 1), color);
+            }
+        }
+    }
+    else
+    {
+        /* Arista más vertical que horizontal: se recorre por filas. */
+        from = cy + (int32_t)lroundf((float)r_in  * s);
+        to   = cy + (int32_t)lroundf((float)r_out * s);
+        if (from > to) { int32_t tmp = from; from = to; to = tmp; }
+
+        for (i = from; (i <= to) && (status == NV3007_OK); i++)
+        {
+            int32_t x = cx + (int32_t)lroundf((float)(i - cy) * c / s);
+            /* Recorte explícito en int32_t: el cast a int16_t truncaría y
+             * NV3007_WritePixel() no podría detectar el desbordamiento. */
+            if ((x < 0) || (x >= (int32_t)NV3007_Width) || (i < 0) || (i >= (int32_t)NV3007_Height)) { continue; }
+            status = NV3007_WritePixel((int16_t)x, (int16_t)i, color);
+        }
+    }
+
+    return status;
+}
+
 /**
  * @brief Rellena uno o más cuadrantes de un círculo mediante franjas verticales, usado por
  *        NV3007_DrawFilledRoundRect() para las cuatro esquinas (equivalente a
@@ -1707,6 +2026,116 @@ NV3007_Status_t NV3007_DrawFilledEllipse(int16_t x0, int16_t y0, int16_t rx, int
     }
 
     return NV3007_OK;
+}
+
+/**
+ * @brief Dibuja el contorno de un arco (sector de anillo) entre dos ángulos.
+ *
+ * @details Traza las cuatro aristas que delimitan el sector: las dos curvas
+ *          (exterior de radio @p r1 e interior de radio @p r2) y las dos rectas
+ *          radiales en los ángulos inicial y final. Es el equivalente del
+ *          ILI9341_DrawArc() de la librería ILI9341_Disc1.
+ *
+ *          Los ángulos van en grados, con 0° en la derecha y creciendo en sentido
+ *          horario (hacia abajo), igual que en el driver ILI9341. Un barrido
+ *          de 360° (start == end) dibuja el anillo completo.
+ *
+ * @param x0 Columna del centro del arco.
+ * @param y0 Fila del centro del arco.
+ * @param r1 Radio exterior del arco.
+ * @param r2 Radio interior del arco.
+ * @param start Ángulo inicial en grados (0° = derecha, sentido horario).
+ * @param end Ángulo final en grados.
+ * @param color Color en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación.
+ */
+NV3007_Status_t NV3007_DrawArc(int16_t x0, int16_t y0, int16_t r1, int16_t r2, float start, float end, uint16_t color)
+{
+    NV3007_Status_t status;
+    float           a0, sweep;
+    int16_t         tmp;
+
+    if (!NV3007_Initialized)
+    {
+        return NV3007_NOT_INITIALIZED;
+    }
+    if ((r1 < 0) || (r2 < 0))
+    {
+        return NV3007_INVALID_PARAM;
+    }
+
+    /* r1 es el radio exterior y r2 el interior, como en el driver ILI9341. */
+    if (r1 < r2) { tmp = r1; r1 = r2; r2 = tmp; }
+    if (r1 < 1) { r1 = 1; }
+    if (r2 < 1) { r2 = 1; }
+
+    NV3007_ArcAngles(start, end, &a0, &sweep);
+
+    /* Curva exterior (banda de 1 px en el radio r1). */
+    status = NV3007_FillArcBand(x0, y0, r1, r1, a0, sweep, color);
+    if (status != NV3007_OK) { return status; }
+
+    /* Curva interior (banda de 1 px en el radio r2). */
+    status = NV3007_FillArcBand(x0, y0, r2, r2, a0, sweep, color);
+    if (status != NV3007_OK) { return status; }
+
+    /* Aristas rectas radiales en los dos extremos del barrido. En el barrido
+     * completo ambos extremos coinciden, así que solo se traza una. */
+    status = NV3007_DrawArcRadius(x0, y0, r2, r1, a0, color);
+    if ((status == NV3007_OK) && (sweep < 359.999f))
+    {
+        status = NV3007_DrawArcRadius(x0, y0, r2, r1, a0 + sweep, color);
+    }
+
+    return status;
+}
+
+/**
+ * @brief Dibuja un arco relleno (sector de anillo) entre dos ángulos.
+ *
+ * @details Rellena el sector completo, del radio @p r2 al @p r1, entre los
+ *          ángulos inicial y final. Es el equivalente del ILI9341_DrawFilledArc()
+ *          de la librería ILI9341_Disc1.
+ *
+ * @param x0 Columna del centro del arco.
+ * @param y0 Fila del centro del arco.
+ * @param r1 Radio exterior del arco.
+ * @param r2 Radio interior del arco.
+ * @param start Ángulo inicial en grados (0° = derecha, sentido horario).
+ * @param end Ángulo final en grados.
+ * @param color Color en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación.
+ */
+NV3007_Status_t NV3007_DrawFilledArc(int16_t x0, int16_t y0, int16_t r1, int16_t r2, float start, float end, uint16_t color)
+{
+    float   a0, sweep;
+    int16_t tmp;
+
+    if (!NV3007_Initialized)
+    {
+        return NV3007_NOT_INITIALIZED;
+    }
+    if ((r1 < 0) || (r2 < 0))
+    {
+        return NV3007_INVALID_PARAM;
+    }
+
+    if (r1 < r2) { tmp = r1; r1 = r2; r2 = tmp; }
+    if (r1 < 1) { r1 = 1; }
+    if (r2 < 1) { r2 = 1; }
+
+    NV3007_ArcAngles(start, end, &a0, &sweep);
+
+    /* Barrido nulo (start == end): el sector degenera en la arista radial
+     * que une los radios interior y exterior, igual que en el driver ILI9341. */
+    if (sweep <= 0.001f)
+    {
+        return NV3007_DrawArcRadius(x0, y0, r2, r1, a0, color);
+    }
+
+    return NV3007_FillArcBand(x0, y0, r1, r2, a0, sweep, color);
 }
 
 /**
