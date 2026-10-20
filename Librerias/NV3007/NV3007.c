@@ -399,6 +399,24 @@ static NV3007_Status_t NV3007_WritePixelPreclipped(int16_t x, int16_t y, uint16_
 }
 
 /**
+ * @brief Escribe un píxel con coordenadas de 32 bits, recortando contra los límites de la pantalla.
+ *
+ * @details NV3007_WritePixel() recibe coordenadas int16_t: convertir sin más una coordenada
+ *          de 32 bits fuera del rango [-32768, 32767] desbordaría y "reentraría" en pantalla,
+ *          pintando un píxel donde no toca. Esta variante recorta en 32 bits y solo entonces
+ *          convierte, de modo que el recorte de las primitivas con semiejes grandes es exacto.
+ */
+static NV3007_Status_t NV3007_WritePixelClipped(int32_t x, int32_t y, uint16_t color)
+{
+    if ((x < 0) || (y < 0) || (x >= (int32_t)NV3007_Width) || (y >= (int32_t)NV3007_Height))
+    {
+        return NV3007_OK; /* Fuera de los límites: se descarta silenciosamente */
+    }
+
+    return NV3007_WritePixel((int16_t)x, (int16_t)y, color);
+}
+
+/**
  * @brief Dibuja una línea diagonal mediante el algoritmo de Bresenham, píxel a píxel.
  *
  * @details Traducción de Arduino_GFX::writeSlashLine(), usado internamente por
@@ -1442,6 +1460,117 @@ NV3007_Status_t NV3007_DrawFilledTriangle(int16_t x0, int16_t y0, int16_t x1, in
     }
 
     return status;
+}
+
+/**
+ * @brief Dibuja el contorno de una elipse mediante el algoritmo de punto medio de Zingl.
+ *
+ * @details Traza la elipse de semiejes @p rx y @p ry centrada en (@p x0, @p y0) aprovechando
+ *          la simetría de la figura: en cada paso se dibujan los cuatro puntos simétricos
+ *          (los dos extremos superiores y los dos inferiores), por lo que el número de
+ *          iteraciones es la mitad del número de píxeles del contorno.
+ *
+ *          Es el mismo algoritmo (variante entera de Zingl) que usa ILI9341_DrawEllipse(),
+ *          de modo que ambas librerías dibujan la elipse con idéntica geometría.
+ *
+ *          Los píxeles que caen fuera de la pantalla se descartan silenciosamente
+ *          (NV3007_WritePixelClipped()), igual que en el resto de primitivas del driver.
+ *          Los casos degenerados (rx == 0 o ry == 0) se delegan en las líneas rápida
+ *          vertical/horizontal, que además recorren el tramo con una sola transacción SPI.
+ *
+ * @param x0 Columna del centro.
+ * @param y0 Fila del centro.
+ * @param rx Semieje horizontal en píxeles (no negativo).
+ * @param ry Semieje vertical en píxeles (no negativo).
+ * @param color Color en formato RGB565.
+ *
+ * @return NV3007_Status_t Estado de la operación.
+ */
+NV3007_Status_t NV3007_DrawEllipse(int16_t x0, int16_t y0, int16_t rx, int16_t ry, uint16_t color)
+{
+    NV3007_Status_t status = NV3007_OK;
+    int32_t xa, xb, ya, yb;
+    int32_t a, b, b1;
+    int32_t dx, dy, err, e2;
+
+    if (!NV3007_Initialized)
+    {
+        return NV3007_NOT_INITIALIZED;
+    }
+    if ((rx < 0) || (ry < 0))
+    {
+        return NV3007_INVALID_PARAM;
+    }
+
+    /* Casos degenerados: elipse degenerada en una línea. Se delega en las primitivas
+     * rápidas, que recortan el tramo contra los límites de la pantalla. */
+    if (rx == 0)
+    {
+        int32_t ytop = (int32_t)y0 - (int32_t)ry;
+        int32_t h    = (int32_t)2 * (int32_t)ry + 1;
+
+        if (ytop < -32768) { ytop = -32768; }
+        if (ytop >  32767) { ytop =  32767; }
+        if (h    >  32767) { h    =  32767; }
+
+        return NV3007_DrawFastVLine(x0, (int16_t)ytop, (int16_t)h, color);
+    }
+    if (ry == 0)
+    {
+        int32_t xleft = (int32_t)x0 - (int32_t)rx;
+        int32_t w     = (int32_t)2 * (int32_t)rx + 1;
+
+        if (xleft < -32768) { xleft = -32768; }
+        if (xleft >  32767) { xleft =  32767; }
+        if (w     >  32767) { w     =  32767; }
+
+        return NV3007_DrawFastHLine((int16_t)xleft, y0, (int16_t)w, color);
+    }
+
+    xa = (int32_t)x0 - (int32_t)rx;
+    xb = (int32_t)x0 + (int32_t)rx;
+    ya = (int32_t)y0 - (int32_t)ry;
+    yb = (int32_t)y0 + (int32_t)ry;
+
+    a  = xb - xa;
+    b  = yb - ya;
+    b1 = b & 1;
+
+    dx  = 4 * (1 - a) * b * b;
+    dy  = 4 * (b1 + 1) * a * a;
+    err = dx + dy + b1 * a * a;
+
+    ya += (b + 1) / 2;
+    yb  = ya - b1;
+    a  *= 8 * a;
+    b1  = 8 * b * b;
+
+    do
+    {
+        status = NV3007_WritePixelClipped(xb, ya, color);
+        status = (status == NV3007_OK) ? NV3007_WritePixelClipped(xa, ya, color) : status;
+        status = (status == NV3007_OK) ? NV3007_WritePixelClipped(xa, yb, color) : status;
+        status = (status == NV3007_OK) ? NV3007_WritePixelClipped(xb, yb, color) : status;
+        if (status != NV3007_OK) { return status; }
+
+        e2 = 2 * err;
+        if (e2 <= dy) { ya++; yb--; dy += a; err += dy; }
+        if (e2 >= dx || 2 * err > dy) { xa++; xb--; dx += b1; err += dx; }
+    } while (xa <= xb);
+
+    /* Remate de puntas para elipses muy achatadas (a == 0 en algún eje). */
+    while (ya - yb < b)
+    {
+        status = NV3007_WritePixelClipped(xa - 1, ya, color);
+        status = (status == NV3007_OK) ? NV3007_WritePixelClipped(xb + 1, ya, color) : status;
+        ya++;
+        status = (status == NV3007_OK) ? NV3007_WritePixelClipped(xa - 1, yb, color) : status;
+        status = (status == NV3007_OK) ? NV3007_WritePixelClipped(xb + 1, yb, color) : status;
+        yb--;
+        if (status != NV3007_OK) { return status; }
+    }
+
+    return NV3007_OK;
 }
 
 /**
