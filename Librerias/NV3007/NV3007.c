@@ -39,6 +39,9 @@ static uint16_t             NV3007_Height           = NV3007_HEIGHT; /**< Alto l
 static uint16_t             NV3007_XOffset          = NV3007_OFFSET_P1_X; /**< Offset de columna activo, sumado en CASET */
 static uint16_t             NV3007_YOffset          = NV3007_OFFSET_P1_Y; /**< Offset de fila activo, sumado en RASET    */
 
+/** 1 si MADCTL tiene MV=1 (los dos ejes del panel están intercambiados). */
+static uint8_t              NV3007_SwapAxes         = 0U;
+
 /** Offsets de GRAM por orientación. El índice coincide con NV3007_Orientation_t. */
 static const uint16_t NV3007_OffsetTable[4][2] = {
     { NV3007_OFFSET_P1_X, NV3007_OFFSET_P1_Y },  /* NV3007_Orientation_Portrait_1  */
@@ -197,8 +200,7 @@ static NV3007_Status_t NV3007_FillColor(uint16_t color, uint32_t count)
  *          el fichero del fabricante "NV3006A1N/NV3007 + IVO2.66": 117 registros, 365 bytes.
  *
  *          Tener la secuencia como TABLA y no como cadena de llamadas permite reproducirla
- *          por un transporte alternativo (p.ej. el sondeo de 3 hilos / 9 bits de main.c)
- *          sin duplicarla, que es justo lo que hace falta para descartar el modo de bus.
+ *          por un transporte alternativo (p.ej. SPI de 3 hilos / 9 bits) sin duplicarla.
  *
  *          Difiere de la secuencia estándar de 168 columnas @c nv3007_init_operations en los
  *          ajustes de charge-pump (VGH/VGL), gamma y timing; con la estándar el panel 2.79"
@@ -345,7 +347,7 @@ const uint16_t NV3007_InitTableSize = (uint16_t)sizeof(NV3007_InitTable);
  *          igual que el BEGIN_WRITE/END_WRITE de la referencia.
  *
  *          Los retardos de SLPOUT/DISPON son los del fichero del fabricante (220/200 ms),
- *          no los 120/150 de Arduino_GFX: el charge-pump necesita ese tiempo para
+ *          no los 120/0 de nv3007_279_init_operations (Arduino_GFX): el charge-pump necesita ese tiempo para
  *          estabilizarse antes de habilitar la salida, y quedarse corto deja el panel en negro.
  */
 static NV3007_Status_t NV3007_RunInitSequence(void)
@@ -633,11 +635,23 @@ NV3007_Status_t NV3007_Init(SPI_HandleTypeDef* hspi,
     /* MADCTL explícito, vía NV3007_Rotate() para que ancho/alto lógicos y offsets de
      * GRAM queden coherentes con el registro que se acaba de escribir. La secuencia
      * del fabricante no incluye 0x36: sin esto el panel se queda con la orientación y
-     * el orden de color por defecto del reset. */
-    status = NV3007_Rotate(NV3007_Orientation_Portrait_1);
+     * el orden de color por defecto del reset.
+     *
+     * Landscape_1 (MX|MV|RGB, 428x142) es la orientación con la que Arduino_NV3007
+     * se validó en hardware sobre este mismo módulo (rotation=1), y la que usa
+     * STM32_Lib_TFT_NV3007 para el 2.79" (con MADCTL = 0xA0, el equivalente
+     * girado 180°).
+     *
+     * Portrait_1 (0x00, 142x428) es la orientación NATIVA del cristal: el panel se
+     * direcciona como 168 columnas x 428 filas y el cristal recorta 142 de las 168
+     * columnas. Es la que usa la demo del fabricante para este panel. Cambiar a
+     * esta orientación con NV3007_Rotate(NV3007_Orientation_Portrait_1) si se
+     * prefiere que el contenido no salga girado 90° respecto del cristal. */
+    status = NV3007_Rotate(NV3007_Orientation_Landscape_1);
     if (status != NV3007_OK) { NV3007_Initialized = 0U; return status; }
 
-    /* Con NV3007_IPS=1 esto envía INVON, que es lo que exige este panel IPS. */
+    /* Con NV3007_IPS=0 (valor por defecto) esto envía INVOFF, que es lo que
+     * requiere este panel con la secuencia de inicialización de la cabecera. */
     status = NV3007_InvertDisplay(false);
     if (status != NV3007_OK) { NV3007_Initialized = 0U; return status; }
 
@@ -685,6 +699,12 @@ NV3007_Status_t NV3007_DeInit(void)
 NV3007_Status_t NV3007_WriteAddrWindow(uint16_t x, uint16_t y, uint16_t w, uint16_t h)
 {
     NV3007_Status_t status = NV3007_OK;
+    /* Límites de la ventana en la GRAM. Con MV=1 el controlador intercambia los
+     * ejes: el eje rápido (X lógico, 428 px) se direcciona con ROWSET y el
+     * lento (Y lógico, 142 px) con COLSET, de modo que los límites de COLSET
+     * y ROWSET se intercambian también. */
+    const uint16_t col_max = NV3007_SwapAxes ? NV3007_GRAM_HEIGHT : NV3007_GRAM_WIDTH;
+    const uint16_t row_max = NV3007_SwapAxes ? NV3007_GRAM_WIDTH  : NV3007_GRAM_HEIGHT;
 
     if (!NV3007_Initialized)
     {
@@ -701,6 +721,14 @@ NV3007_Status_t NV3007_WriteAddrWindow(uint16_t x, uint16_t y, uint16_t w, uint1
         uint16_t xe = x + w - 1U + NV3007_XOffset;
         uint16_t ys = y + NV3007_YOffset;
         uint16_t ye = y + h - 1U + NV3007_YOffset;
+
+        /* Una ventana fuera de la GRAM no se dibuja: el controlador daría la vuelta
+         * por los contadores de dirección y la imagen aparecería troceada. */
+        if ((xe > col_max) || (ye > row_max))
+        {
+            NV3007_Unselect();
+            return NV3007_INVALID_PARAM;
+        }
 
         status = NV3007_WriteCommandRaw(NV3007_CMD_CASET);
         status = (status == NV3007_OK) ? NV3007_WriteDataRaw((uint8_t)(xs >> 8)) : status;
@@ -786,6 +814,12 @@ NV3007_Status_t NV3007_Rotate(NV3007_Orientation_t orientation)
 
     status = NV3007_WriteCmdData8(NV3007_CMD_MADCTL, madctl);
     if (status != NV3007_OK) { return status; }
+
+    /* Con MV=1 el controlador intercambia los dos ejes de direccionamiento: el
+     * eje rápido (X lógico) pasa a direccionarse con ROWSET y el lento (Y
+     * lógico) con COLSET. Se recuerda para validar las ventanas contra la GRAM
+     * y para colocar los offsets en el eje correcto. */
+    NV3007_SwapAxes = ((madctl & NV3007_MADCTL_MV) != 0U) ? 1U : 0U;
 
     /* Intercambiar ancho/alto lógicos cuando la orientación intercambia los ejes (MV) */
     if ((madctl & NV3007_MADCTL_MV) != 0U)
