@@ -465,8 +465,12 @@ NV3007_Status_t NV3007_DrawFilledEllipse(int16_t x0, int16_t y0, int16_t rx, int
  *          radiales en los ángulos inicial y final.
  *
  *          Los ángulos van en grados, con 0° en la derecha y creciendo en sentido
- *          horario (hacia abajo). Un barrido de 360° (start == end tras
- *          normalizar, p. ej. start=0 y end=360) dibuja el anillo completo.
+ *          horario (hacia abajo).
+ *
+ *          Si start == end (p. ej. 45° y 45°) el sector degenera y solo se
+ *          traza la arista radial. Si start y end coinciden tras normalizar pero
+ *          difieren en los valores originales (p. ej. 0° y 360°), el barrido es
+ *          completo y se dibuja el anillo entero.
  *
  * @param x0 Columna del centro del arco.
  * @param y0 Fila del centro del arco.
@@ -485,6 +489,11 @@ NV3007_Status_t NV3007_DrawArc(int16_t x0, int16_t y0, int16_t r1, int16_t r2, f
  *
  * @details Rellena el sector completo, del radio @p r2 al @p r1, entre los
  *          ángulos inicial y final.
+ *
+ *          Si start == end (p. ej. 45° y 45°) el sector degenera y solo se
+ *          rellena la arista radial. Si start y end coinciden tras normalizar
+ *          pero difieren en los valores originales (p. ej. 0° y 360°), el
+ *          barrido es completo y se rellena el anillo entero.
  *
  * @param x0 Columna del centro del arco.
  * @param y0 Fila del centro del arco.

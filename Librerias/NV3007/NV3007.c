@@ -2037,8 +2037,14 @@ NV3007_Status_t NV3007_DrawFilledEllipse(int16_t x0, int16_t y0, int16_t rx, int
  *          ILI9341_DrawArc() de la librería ILI9341_Disc1.
  *
  *          Los ángulos van en grados, con 0° en la derecha y creciendo en sentido
- *          horario (hacia abajo), igual que en el driver ILI9341. Un barrido
- *          de 360° (start == end) dibuja el anillo completo.
+ *          horario (hacia abajo), igual que en el driver ILI9341.
+ *
+ *          Casos límite del barrido:
+ *          -# start == end (p. ej. 45° y 45°): el sector degenera y solo se
+ *             traza la arista radial que une los radios interior y exterior.
+ *          -# start y end que coinciden tras normalizar pero difieren en los
+ *             valores originales (p. ej. 0° y 360°, o 90° y 450°): barrido
+ *             completo, se dibuja el anillo entero.
  *
  * @param x0 Columna del centro del arco.
  * @param y0 Fila del centro del arco.
@@ -2097,6 +2103,13 @@ NV3007_Status_t NV3007_DrawArc(int16_t x0, int16_t y0, int16_t r1, int16_t r2, f
  * @details Rellena el sector completo, del radio @p r2 al @p r1, entre los
  *          ángulos inicial y final. Es el equivalente del ILI9341_DrawFilledArc()
  *          de la librería ILI9341_Disc1.
+ *
+ *          Casos límite del barrido:
+ *          -# start == end (p. ej. 45° y 45°): el sector degenera y solo se
+ *             rellena la arista radial que une los radios interior y exterior.
+ *          -# start y end que coinciden tras normalizar pero difieren en los
+ *             valores originales (p. ej. 0° y 360°): barrido completo, se
+ *             rellena el anillo entero.
  *
  * @param x0 Columna del centro del arco.
  * @param y0 Fila del centro del arco.
