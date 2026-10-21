@@ -914,19 +914,29 @@ ILI9341_Status_t ILI9341_PutsAligned(uint16_t x0, uint16_t x1, uint16_t y, ILI93
  */
 ILI9341_Status_t ILI9341_PrintfAligned(uint16_t x0, uint16_t x1, uint16_t y, ILI9341_TextAlign_t align, LCD_FontDef_t* font, uint16_t foreground, uint16_t background, const char* fmt, ...);
 
-/* --- Imagen completa ------------------------------------------------------ */
+/* --- Imágenes ------------------------------------------------------------- */
 
 /**
- * @brief Transfiere un frame buffer RGB565 de pantalla completa a la LCD mediante SPI optimizado.
+ * @brief Dibuja una imagen o ícono RGB565 de tamaño arbitrario directamente en la LCD por SPI DMA.
  *
- * @param[in] image Arreglo de IMG_TOTAL_BUF32 palabras uint32_t (dos píxeles RGB565 por palabra).
+ * @details No requiere frame buffer. Para volcar un frame buffer completo en retrato:
+ *          ILI9341_DisplayImage(0, 0, ILI9341_WIDTH, ILI9341_HEIGHT, fb).
+ *          La parte que sale por la derecha o por abajo de la pantalla se recorta.
+ *
+ * @param[in] x     Coordenada X de la esquina superior izquierda.
+ * @param[in] y     Coordenada Y de la esquina superior izquierda.
+ * @param[in] w     Ancho de la imagen en píxeles.
+ * @param[in] h     Alto de la imagen en píxeles.
+ * @param[in] image w*h píxeles RGB565 por filas: uint16_t[] o uint32_t[] empaquetado
+ *                  (píxel par en [15:0]); no puede estar en CCM RAM (el DMA no la ve).
  * @return ILI9341_Status_t
- *         - ILI9341_OK              si todos los píxeles fueron enviados.
+ *         - ILI9341_OK              si todos los píxeles fueron enviados (o la imagen queda fuera de pantalla).
  *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p image es NULL.
  *         - ILI9341_TIMEOUT         si el bus SPI se bloqueó.
  *         - ILI9341_ERROR           si el periférico SPI estaba ocupado.
  */
-ILI9341_Status_t ILI9341_DisplayImage(uint32_t image[IMG_TOTAL_BUF32]);
+ILI9341_Status_t ILI9341_DisplayImage(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const void* image);
 
 /* --- Frame buffer (escritura fuera de pantalla) --------------------------- */
 

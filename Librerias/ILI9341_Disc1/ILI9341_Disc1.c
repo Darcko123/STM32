@@ -175,142 +175,314 @@ static ILI9341_Status_t SPI_ILI9341_WaitTXE(void)
 }
 
 /**
- * @brief Rellena un segmento angular (arco) entre dos ángulos y dos radios.
+ * @brief Tolerancia (en píxeles) de los tests de los semiplanos que delimitan un arco.
  *
- * @details Recorre el cuadro delimitador del arco fila por fila y dibuja,
- *          en cada una, los segmentos horizontales que caen dentro de la
- *          corona circular [iradius, oradius] y del sector angular
- *          [start, end]. Usado por ILI9341_DrawArc tanto para los bordes
- *          rectos del arco como para sus bordes curvos.
+ * @details El valor de cA*dy - sA*x es la distancia con signo al rayo, así que
+ *          una tolerancia de milésimas de píxel absorbe el error de redondeo de
+ *          sinf()/cosf() sin desplazar de forma apreciable el borde del sector.
+ */
+#define ILI9341_ARC_EPS  1e-3f
+
+/**
+ * @brief Dibuja un tramo horizontal de un arco en la pantalla o en el frame buffer.
  *
- * @param cx      Coordenada X del centro.
- * @param cy      Coordenada Y del centro.
- * @param oradius Radio exterior del arco.
- * @param iradius Radio interior del arco.
- * @param start   Ángulo inicial en grados (0 a 360).
- * @param end     Ángulo final en grados (0 a 360).
- * @param color   Color a utilizar.
+ * @details Recorta en int32_t antes de pasar a int16_t: el cast truncaría
+ *          coordenadas fuera de rango y el recorte posterior no lo detectaría.
  *
+ * @param xL    Extremo izquierdo del tramo.
+ * @param xR    Extremo derecho del tramo.
+ * @param y     Fila del tramo.
+ * @param color Color en formato RGB565.
+ * @param image Frame buffer destino, o NULL para dibujar directamente en la pantalla.
  * @return ILI9341_Status_t Estado de la operación.
  */
-static ILI9341_Status_t ILI9341_FillArcHelper(int16_t cx, int16_t cy, int16_t oradius, int16_t iradius, float start, float end, uint16_t color, uint32_t* image)
+static ILI9341_Status_t ILI9341_ArcSpan(int32_t xL, int32_t xR, int32_t y, uint16_t color, uint32_t* image)
 {
-    ILI9341_Status_t st;
-    float s_cos, e_cos, sslope, eslope, swidth, ewidth;
-    int32_t ir2, or2, xs, y, ye, xe;
-    bool start180, end180, reversed;
+    if ((y < 0) || (y > INT16_MAX) || (xR < 0) || (xL > INT16_MAX)) { return ILI9341_OK; }
+    if (xL < 0)         { xL = 0; }
+    if (xR > INT16_MAX) { xR = INT16_MAX; }
 
-    if ((start == 0.0f) || (start == 90.0f) || (start == 180.0f) || (start == 270.0f) || (start == 360.0f))
+    if (image != NULL)
     {
-        start += 0.1f;
+#ifdef HAL_SDRAM_MODULE_ENABLED
+        return DrawHSpanClipped_ImageBuffer((int16_t)xL, (int16_t)xR, (int16_t)y, color, image);
+#else
+        return ILI9341_OK;
+#endif
     }
-    if ((end == 0.0f) || (end == 90.0f) || (end == 180.0f) || (end == 270.0f) || (end == 360.0f))
+    return DrawHSpanClipped((int16_t)xL, (int16_t)xR, (int16_t)y, color);
+}
+
+/**
+ * @brief Calcula el seno y el coseno de un ángulo expresado en grados.
+ *
+ * @details En los múltiplos de 90° se devuelven valores exactos: sinf()/cosf()
+ *          dejan un residuo del orden de 1e-7 que, al dividir por el seno para
+ *          obtener el borde del sector, desplaza el corte un píxel hacia un
+ *          lado. El redondeo a los valores exactos elimina ese desplazamiento.
+ *
+ * @param[in]  deg   Ángulo en grados (cualquier valor; se normaliza a [0,360)).
+ * @param[out] sin_t Seno del ángulo.
+ * @param[out] cos_t Coseno del ángulo.
+ */
+static void ILI9341_ArcSinCos(float deg, float* sin_t, float* cos_t)
+{
+    float r = fmodf(deg, 360.0f);
+    if (r < 0.0f) { r += 360.0f; }
+
+    if      ((r < 0.001f)  || (r > 359.999f)) { *sin_t =  0.0f; *cos_t =  1.0f; }
+    else if ((r > 89.999f)  && (r < 90.001f))  { *sin_t =  1.0f; *cos_t =  0.0f; }
+    else if ((r > 179.999f) && (r < 180.001f)) { *sin_t =  0.0f; *cos_t = -1.0f; }
+    else if ((r > 269.999f) && (r < 270.001f)) { *sin_t = -1.0f; *cos_t =  0.0f; }
+    else
     {
-        end += 0.1f;
+        *sin_t = sinf(r * 0.0174532925f);
+        *cos_t = cosf(r * 0.0174532925f);
     }
+}
 
-    s_cos  = cosf(start * 0.0174532925f);
-    e_cos  = cosf(end * 0.0174532925f);
-    sslope = s_cos / sinf(start * 0.0174532925f);
-    eslope = e_cos / sinf(end * 0.0174532925f);
-    swidth = 0.5f / s_cos;
-    ewidth = -0.5f / e_cos;
-    --iradius;
-    ir2 = (int32_t)iradius * iradius + iradius;
-    or2 = (int32_t)oradius * oradius + oradius;
+/**
+ * @brief Raíz cuadrada entera exacta: floor(sqrt(v)) para v >= 0.
+ *
+ * @param[in] v Valor del que se quiere la raíz cuadrada.
+ * @return La mayor raíz cuadrada entera cuyo cuadrado no supera @p v.
+ */
+static int32_t ILI9341_Isqrt(int64_t v)
+{
+    int32_t r = (int32_t)sqrt((double)v);
 
-    start180 = !(start < 180.0f);
-    end180   = end < 180.0f;
-    reversed = (start + 180.0f < end) || (end < start && start < end + 180.0f);
+    /* Corrige el posible error de redondeo de la raíz en coma flotante. */
+    while (((int64_t)r * r) > v) { r--; }
+    while (((int64_t)(r + 1) * (r + 1)) <= v) { r++; }
 
-    xs = -oradius;
-    y  = -oradius;
-    ye = oradius;
-    xe = oradius + 1;
-    if (!reversed)
+    return r;
+}
+
+/**
+ * @brief Normaliza el par de ángulos de un arco.
+ *
+ * @details Devuelve el ángulo inicial normalizado a [0,360) y el barrido en
+ *          sentido horario. Si los ángulos normalizados coinciden pero los
+ *          originales no (caso start=0, end=360, o start=90, end=450), el
+ *          barrido es de 360°: el arco completo.
+ *
+ * @param[in]  start Ángulo inicial en grados.
+ * @param[in]  end   Ángulo final en grados.
+ * @param[out] a0    Ángulo inicial normalizado en grados.
+ * @param[out] sweep Barrido angular en grados, en sentido horario.
+ */
+static void ILI9341_ArcAngles(float start, float end, float* a0, float* sweep)
+{
+    float s = fmodf(start, 360.0f);
+    float e = fmodf(end, 360.0f);
+
+    if (s < 0.0f) { s += 360.0f; }
+    if (e < 0.0f) { e += 360.0f; }
+
+    *sweep = e - s;
+    if (*sweep < 0.0f) { *sweep += 360.0f; }
+    if ((*sweep <= 0.001f) && (fabsf(start - end) > 0.001f)) { *sweep = 360.0f; }
+
+    *a0 = s;
+}
+
+/**
+ * @brief Rellena el sector anular (banda de radios) comprendido entre los ángulos
+ *        @p a0 y @p a0 + @p sweep.
+ *
+ * @details Recorre el sector fila a fila. Para cada fila calcula:
+ *          -# el rango radial: los píxeles cuyo cuadrado de distancia al centro
+ *             está en [r_in²-r_in, r_out²+r_out), es decir, entre los radios
+ *             r_in-0.5 y r_out+0.5. Con r_in == r_out la banda resultante es de
+ *             un píxel de ancho, que es lo que se usa para trazar las curvas
+ *             de un arco.
+ *          -# el rango angular: la intersección de los dos semiplanos que
+ *             delimitan el sector, que se resuelve como una cota para X.
+ *
+ *          El barrido angular se trocea en trozos de 180° como máximo, porque
+ *          un sector de más de 180° no es convexo y no se puede describir con
+ *          dos semiplanos: la unión de dos sectores convexos consecutivos
+ *          cubre el mismo barrido.
+ *
+ * @param[in] cx     Columna del centro del arco.
+ * @param[in] cy     Fila del centro del arco.
+ * @param[in] r_out  Radio exterior de la banda.
+ * @param[in] r_in   Radio interior de la banda.
+ * @param[in] a0     Ángulo inicial en grados (0° = derecha, sentido horario).
+ * @param[in] sweep  Barrido angular en grados, en sentido horario.
+ * @param[in] color  Color de relleno en formato RGB565.
+ * @param[in] image  Frame buffer destino, o NULL para dibujar en la pantalla.
+ * @return ILI9341_Status_t Estado de la operación.
+ */
+static ILI9341_Status_t ILI9341_FillArcHelper(int32_t cx, int32_t cy, int32_t r_out, int32_t r_in, float a0, float sweep, uint16_t color, uint32_t* image)
+{
+    ILI9341_Status_t st = ILI9341_OK;
+    int64_t hi2, lo2;
+    float   a = a0;
+    int32_t dy;
+
+    if (r_in < 0) { r_in = 0; }
+
+    hi2 = ((int64_t)r_out * r_out) + r_out; /* d² < hi2  → radio < r_out+0.5 */
+    lo2 = ((int64_t)r_in  * r_in)  - r_in;  /* d² >= lo2 → radio >= r_in-0.5 */
+
+    while (sweep > 0.001f)
     {
-        if ((end >= 270.0f || end < 90.0f) && (start >= 270.0f || start < 90.0f))
-        {
-            xs = 0;
-        }
-        else if (end < 270.0f && end >= 90.0f && start < 270.0f && start >= 90.0f)
-        {
-            xe = 1;
-        }
-        if (end >= 180.0f && start >= 180.0f)
-        {
-            ye = 0;
-        }
-        else if (end < 180.0f && start < 180.0f)
-        {
-            y = 0;
-        }
-    }
+        float chunk = (sweep > 180.0f) ? 180.0f : sweep; /* trozo convexo del sector */
+        float sA, cA, sB, cB;
 
-    do
-    {
-        int32_t y2 = y * y;
-        int32_t x  = xs;
-        int32_t len = 0;
-        float ysslope, yeslope;
+        ILI9341_ArcSinCos(a, &sA, &cA);
+        ILI9341_ArcSinCos(a + chunk, &sB, &cB);
 
-        if (x < 0)
+        for (dy = -r_out; dy <= r_out; dy++)
         {
-            while (x * x + y2 >= or2)
+            int64_t rem  = hi2 - 1 - ((int64_t)dy * dy);   /* x² <= rem  → |x| <= x_max */
+            int64_t need = lo2 - ((int64_t)dy * dy);       /* x² >= need → |x| >= x_min */
+            int32_t x_max, x_min, blo, bhi, k;
+            bool    empty = false;
+
+            if (rem < 0) { continue; }
+
+            x_max = ILI9341_Isqrt(rem);
+            x_min = (need > 0) ? (ILI9341_Isqrt(need - 1) + 1) : 0;
+            if (x_min > x_max) { continue; }
+
+            /* Cota angular: por defecto, toda la fila de la banda. */
+            blo = -x_max;
+            bhi =  x_max;
+
+            /* Límite del rayo inicial: sin(φ-A) >= 0  →  cA*dy - sA*x >= -eps. */
+            if (fabsf(sA) < 1e-6f)
             {
-                ++x;
+                if ((cA * (float)dy) < -ILI9341_ARC_EPS) { empty = true; }
             }
-            if (xe != 1)
+            else if (sA > 0.0f)
             {
-                xe = 1 - x;
-            }
-        }
-
-        ysslope = ((float)y + swidth) * sslope;
-        yeslope = ((float)y + ewidth) * eslope;
-
-        do
-        {
-            bool flg1 = start180 != (x <= ysslope);
-            bool flg2 = end180 != (x <= yeslope);
-            int32_t distance = x * x + y2;
-
-            if (distance >= ir2 && ((flg1 && flg2) || (reversed && (flg1 || flg2))) && x != xe && distance < or2)
-            {
-                ++len;
+                int32_t v = (int32_t)floorf((cA * (float)dy + ILI9341_ARC_EPS) / sA);
+                if (v < bhi) { bhi = v; }
             }
             else
             {
-                if (len)
+                int32_t v = (int32_t)ceilf((cA * (float)dy + ILI9341_ARC_EPS) / sA);
+                if (v > blo) { blo = v; }
+            }
+
+            /* Límite del rayo final: sin(φ-B) <= 0  →  sB*x - cB*dy >= -eps. */
+            if (!empty)
+            {
+                if (fabsf(sB) < 1e-6f)
                 {
-                    if (image != NULL)
-                    {
-#ifdef HAL_SDRAM_MODULE_ENABLED
-                        st = DrawHSpanClipped_ImageBuffer(cx + x - len, cx + x - 1, cy + y, color, image);
-#else
-                        st = ILI9341_OK;
-#endif
-                    }
-                    else
-                    {
-                        st = DrawHSpanClipped(cx + x - len, cx + x - 1, cy + y, color);
-                    }
-                    if (st != ILI9341_OK) { return st; }
-                    len = 0;
+                    if ((-cB * (float)dy) < -ILI9341_ARC_EPS) { empty = true; }
                 }
-                if (distance >= or2)
+                else if (sB > 0.0f)
                 {
-                    break;
+                    int32_t v = (int32_t)ceilf((cB * (float)dy - ILI9341_ARC_EPS) / sB);
+                    if (v > blo) { blo = v; }
                 }
-                if (x < 0 && distance < ir2)
+                else
                 {
-                    x = -x;
+                    int32_t v = (int32_t)floorf((cB * (float)dy - ILI9341_ARC_EPS) / sB);
+                    if (v < bhi) { bhi = v; }
                 }
             }
-        } while (++x <= xe);
-    } while (++y <= ye);
 
-    return ILI9341_OK;
+            if (empty || (blo > bhi)) { continue; }
+
+            /* La banda radial deja un tramo por fila si el hueco interior no
+             * llega a esa altura, o dos si la fila atraviesa el disco hueco.
+             * Cada tramo se recorta contra la cota angular y se dibuja. */
+            for (k = 0; k < ((x_min == 0) ? 1 : 2); k++)
+            {
+                int32_t px0 = (x_min == 0) ? -x_max : ((k == 0) ? -x_max : x_min);
+                int32_t px1 = (x_min == 0) ?  x_max : ((k == 0) ? -x_min : x_max);
+                int32_t sx0 = (px0 > blo) ? px0 : blo;
+                int32_t sx1 = (px1 < bhi) ? px1 : bhi;
+
+                if (sx0 > sx1) { continue; }
+
+                st = ILI9341_ArcSpan(cx + sx0, cx + sx1, cy + dy, color, image);
+                if (st != ILI9341_OK) { return st; }
+            }
+        }
+
+        a     += chunk;
+        sweep -= chunk;
+    }
+
+    return st;
+}
+
+/**
+ * @brief Dibuja el radio recto (la "raya" que une el centro con el borde) de un
+ *        sector anular, en el ángulo indicado.
+ *
+ * @details Recorre la arista por su eje dominante (columnas si la arista es más
+ *          horizontal que vertical, filas en caso contrario) y calcula en cada
+ *          paso la coordenada exacta sobre la semirrecta. Así la arista queda
+ *          alineada con la circunferencia en sus dos extremos. En el recorrido
+ *          por columnas los píxeles de la misma fila se agrupan en un único tramo.
+ *
+ * @param[in] cx     Columna del centro del arco.
+ * @param[in] cy     Fila del centro del arco.
+ * @param[in] r_in   Radio interior (origen de la raya).
+ * @param[in] r_out  Radio exterior (fin de la raya).
+ * @param[in] ang    Ángulo de la raya en grados (0° = derecha, sentido horario).
+ * @param[in] color  Color de la raya en formato RGB565.
+ * @param[in] image  Frame buffer destino, o NULL para dibujar en la pantalla.
+ * @return ILI9341_Status_t Estado de la operación.
+ */
+static ILI9341_Status_t ILI9341_DrawArcRadius(int32_t cx, int32_t cy, int32_t r_in, int32_t r_out, float ang, uint16_t color, uint32_t* image)
+{
+    ILI9341_Status_t st = ILI9341_OK;
+    float   s, c;
+    int32_t i, from, to, tmp;
+
+    ILI9341_ArcSinCos(ang, &s, &c);
+
+    if (fabsf(c) >= fabsf(s))
+    {
+        /* Arista más horizontal que vertical: se recorre por columnas agrupando
+         * las que caen en la misma fila. */
+        int32_t run_x0 = 0, run_y = 0;
+        bool    run = false;
+
+        from = cx + (int32_t)lroundf((float)r_in  * c);
+        to   = cx + (int32_t)lroundf((float)r_out * c);
+        if (from > to) { tmp = from; from = to; to = tmp; }
+
+        for (i = from; i <= to; i++)
+        {
+            int32_t y = cy + (int32_t)lroundf((float)(i - cx) * s / c);
+
+            if (run && (y == run_y)) { continue; }  /* se alarga el tramo */
+
+            if (run)  /* se cierra el tramo anterior */
+            {
+                st = ILI9341_ArcSpan(run_x0, i - 1, run_y, color, image);
+                if (st != ILI9341_OK) { return st; }
+            }
+            run_x0 = i;
+            run_y  = y;
+            run    = true;
+        }
+
+        if (run) { st = ILI9341_ArcSpan(run_x0, to, run_y, color, image); }
+    }
+    else
+    {
+        /* Arista más vertical que horizontal: se recorre por filas. */
+        from = cy + (int32_t)lroundf((float)r_in  * s);
+        to   = cy + (int32_t)lroundf((float)r_out * s);
+        if (from > to) { tmp = from; from = to; to = tmp; }
+
+        for (i = from; (i <= to) && (st == ILI9341_OK); i++)
+        {
+            int32_t x = cx + (int32_t)lroundf((float)(i - cy) * c / s);
+            st = ILI9341_ArcSpan(x, x, i, color, image);
+        }
+    }
+
+    return st;
 }
 
 #ifdef HAL_SDRAM_MODULE_ENABLED
@@ -805,7 +977,7 @@ static ILI9341_Status_t ILI9341_SPI_WaitDMAdone(uint32_t timeout_ms)
  * @details Llamado desde el ISR de DMA2_Stream6 cuando SPI5 termina un tramo DMA.
  *          En modo pipelining (ILI9341_FlushAsync): si acaba el primer tramo encadena
  *          automáticamente el segundo; al terminar el segundo señaliza con spi_dma_done.
- *          En modo bloqueante (ILI9341_DisplayImage): dma_state es 0 en ambos tramos,
+ *          En modo bloqueante (ILI9341_DisplayImage): dma_state es 0 en todos los tramos,
  *          por lo que el comportamiento es idéntico al original (señaliza spi_dma_done).
  *
  * @param[in] hspi Handle SPI que completó la transferencia.
@@ -2118,7 +2290,7 @@ ILI9341_Status_t ILI9341_DrawFilledEllipse(int16_t x0, int16_t y0, int16_t rx, i
 ILI9341_Status_t ILI9341_DrawArc(int16_t x0, int16_t y0, int16_t r1, int16_t r2, float start, float end, uint16_t color)
 {
     ILI9341_Status_t st;
-    bool equal;
+    float a0, sweep;
     int16_t tmp;
 
     if (ILI9341_Initialized != 1U) { return ILI9341_NOT_INITIALIZED; }
@@ -2128,26 +2300,18 @@ ILI9341_Status_t ILI9341_DrawArc(int16_t x0, int16_t y0, int16_t r1, int16_t r2,
     if (r1 < 1)  { r1 = 1; }
     if (r2 < 1)  { r2 = 1; }
 
-    equal = fabsf(start - end) < FLT_EPSILON;
-    start = fmodf(start, 360.0f);
-    end   = fmodf(end, 360.0f);
-    if (start < 0) { start += 360.0f; }
-    if (end < 0)   { end   += 360.0f; }
+    ILI9341_ArcAngles(start, end, &a0, &sweep);
 
-    /* Bordes rectos del arco (en start y en end) */
-    st  = ILI9341_FillArcHelper(x0, y0, r1, r2, start, start, color, NULL);
-    st  = st ? st : ILI9341_FillArcHelper(x0, y0, r1, r2, end, end, color, NULL);
-    if (st != ILI9341_OK) { return st; }
+    /* Bordes curvos del arco (bandas de 1 px en el radio exterior e interior) */
+    st  = ILI9341_FillArcHelper(x0, y0, r1, r1, a0, sweep, color, NULL);
+    st  = st ? st : ILI9341_FillArcHelper(x0, y0, r2, r2, a0, sweep, color, NULL);
 
-    if (!equal && (fabsf(start - end) <= 0.0001f))
+    /* Bordes rectos del arco. En el barrido completo ambos extremos coinciden. */
+    st  = st ? st : ILI9341_DrawArcRadius(x0, y0, r2, r1, a0, color, NULL);
+    if ((st == ILI9341_OK) && (sweep < 359.999f))
     {
-        start = 0.0f;
-        end   = 360.0f;
+        st = ILI9341_DrawArcRadius(x0, y0, r2, r1, a0 + sweep, color, NULL);
     }
-
-    /* Bordes curvos del arco (radio exterior e interior) */
-    st  = ILI9341_FillArcHelper(x0, y0, r1, r1, start, end, color, NULL);
-    st  = st ? st : ILI9341_FillArcHelper(x0, y0, r2, r2, start, end, color, NULL);
 
     return st;
 }
@@ -2170,7 +2334,7 @@ ILI9341_Status_t ILI9341_DrawArc(int16_t x0, int16_t y0, int16_t r1, int16_t r2,
  */
 ILI9341_Status_t ILI9341_DrawFilledArc(int16_t x0, int16_t y0, int16_t r1, int16_t r2, float start, float end, uint16_t color)
 {
-    bool equal;
+    float a0, sweep;
     int16_t tmp;
 
     if (ILI9341_Initialized != 1U) { return ILI9341_NOT_INITIALIZED; }
@@ -2180,19 +2344,12 @@ ILI9341_Status_t ILI9341_DrawFilledArc(int16_t x0, int16_t y0, int16_t r1, int16
     if (r1 < 1)  { r1 = 1; }
     if (r2 < 1)  { r2 = 1; }
 
-    equal = fabsf(start - end) < FLT_EPSILON;
-    start = fmodf(start, 360.0f);
-    end   = fmodf(end, 360.0f);
-    if (start < 0) { start += 360.0f; }
-    if (end < 0)   { end   += 360.0f; }
+    ILI9341_ArcAngles(start, end, &a0, &sweep);
 
-    if (!equal && (fabsf(start - end) <= 0.0001f))
-    {
-        start = 0.0f;
-        end   = 360.0f;
-    }
+    /* Barrido nulo (start == end): el sector degenera en la arista radial. */
+    if (sweep <= 0.001f) { return ILI9341_DrawArcRadius(x0, y0, r2, r1, a0, color, NULL); }
 
-    return ILI9341_FillArcHelper(x0, y0, r1, r2, start, end, color, NULL);
+    return ILI9341_FillArcHelper(x0, y0, r1, r2, a0, sweep, color, NULL);
 }
 
 /**
@@ -2540,30 +2697,48 @@ ILI9341_Status_t ILI9341_PrintfAligned(uint16_t x0, uint16_t x1, uint16_t y, ILI
 }
 
 /**
- * @brief Transfiere un frame buffer RGB565 de pantalla completa a la LCD mediante SPI optimizado.
+ * @brief Dibuja una imagen o ícono RGB565 de tamaño arbitrario directamente en la LCD por SPI DMA.
  *
- * @param[in] image Arreglo de IMG_TOTAL_BUF32 palabras uint32_t (dos píxeles RGB565 por palabra).
+ * @details No requiere frame buffer: los píxeles se transfieren desde @p image (flash o RAM)
+ *          a la ventana [x, x+w-1] × [y, y+h-1] de la GRAM. La parte que sale por la derecha
+ *          o por abajo de la pantalla se recorta.
+ *
+ * @param[in] x     Coordenada X de la esquina superior izquierda.
+ * @param[in] y     Coordenada Y de la esquina superior izquierda.
+ * @param[in] w     Ancho de la imagen en píxeles.
+ * @param[in] h     Alto de la imagen en píxeles.
+ * @param[in] image w*h píxeles RGB565 por filas: uint16_t[] o uint32_t[] empaquetado
+ *                  (píxel par en [15:0]); no puede estar en CCM RAM (el DMA no la ve).
  * @return ILI9341_Status_t
- *         - ILI9341_OK              si todos los píxeles fueron enviados.
+ *         - ILI9341_OK              si todos los píxeles fueron enviados (o la imagen queda fuera de pantalla).
  *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p image es NULL.
  *         - ILI9341_TIMEOUT         si el bus SPI se bloqueó.
  *         - ILI9341_ERROR           si el periférico SPI estaba ocupado.
  */
-ILI9341_Status_t ILI9341_DisplayImage(uint32_t image[IMG_TOTAL_BUF32])
+ILI9341_Status_t ILI9341_DisplayImage(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const void* image)
 {
-    /* El frame buffer almacena píxeles como uint16_t en little-endian ([lo, hi] en bytes).
+    /* La imagen almacena píxeles como uint16_t en little-endian ([lo, hi] en bytes).
      * Con SPI en modo 16 bits el periférico lee cada halfword y lo envía MSB-first,
-     * produciendo automáticamente el orden big-endian ([hi, lo]) que espera el ILI9341.
-     * El transfer se divide en dos tramos de 38 400 píxeles para respetar el límite de
-     * 65 535 items del registro NDTR del DMA. */
-    ILI9341_Status_t  st;
-    uint16_t* const   px   = (uint16_t*)image;
-    const uint16_t    half = ILI9341_PIXEL / 2U;   /* 38 400 px — cabe en uint16_t */
+     * produciendo automáticamente el orden big-endian ([hi, lo]) que espera el ILI9341. */
+    ILI9341_Status_t      st;
+    const uint16_t* const px = (const uint16_t*)image;
+    uint16_t              vis_w, vis_h, rows, r;
 
     if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
+    if (image == NULL)        { return ILI9341_INVALID_PARAM; }
+    if ((w == 0U) || (h == 0U) || (x >= ILI9341_Opts.width) || (y >= ILI9341_Opts.height)) { return ILI9341_OK; }
+
+    vis_w = ((uint32_t)x + w > ILI9341_Opts.width)  ? (uint16_t)(ILI9341_Opts.width  - x) : w;
+    vis_h = ((uint32_t)y + h > ILI9341_Opts.height) ? (uint16_t)(ILI9341_Opts.height - y) : h;
+
+    /* Sin recorte horizontal las filas son contiguas en memoria y se agrupan en tramos de
+     * hasta 65 535 píxeles (límite del registro NDTR del DMA); con recorte se envía fila
+     * por fila saltando los píxeles ocultos de cada una. */
+    rows = (vis_w == w) ? (uint16_t)(0xFFFFU / vis_w) : 1U;
 
     /* Ventana + comando GRAM en modo 8 bits (normal) */
-    ILI9341_SetCursorPosition(0U, 0U, ILI9341_Opts.width - 1U, ILI9341_Opts.height - 1U);
+    ILI9341_SetCursorPosition(x, y, x + vis_w - 1U, y + vis_h - 1U);
     ILI9341_SendCommand(ILI9341_GRAM);
 
     ILI9341_WRX_SET;
@@ -2571,49 +2746,26 @@ ILI9341_Status_t ILI9341_DisplayImage(uint32_t image[IMG_TOTAL_BUF32])
 
     /* Cambiar SPI a 16 bits antes del DMA */
     st = ILI9341_SPI_SetDataSize(SPI_DATASIZE_16BIT);
-    if (st != ILI9341_OK)
-    {
-        ILI9341_CS_SET; ILI9341_WRX_RESET;
-        return st;
-    }
 
-    /* — Primer tramo: píxeles [0 … 38 399] — */
-    ILI9341_spi_dma_done = 0U;
-    if (HAL_SPI_Transmit_DMA(ILI9341_hspi, (uint8_t*)px, half) != HAL_OK)
+    for (r = 0U; (st == ILI9341_OK) && (r < vis_h); r += rows)
     {
-        ILI9341_SPI_SetDataSize(SPI_DATASIZE_8BIT);
-        ILI9341_CS_SET; ILI9341_WRX_RESET;
-        return ILI9341_ERROR;
-    }
-    st = ILI9341_SPI_WaitDMAdone(5000U);
-    if (st != ILI9341_OK)
-    {
-        ILI9341_SPI_SetDataSize(SPI_DATASIZE_8BIT);
-        ILI9341_CS_SET; ILI9341_WRX_RESET;
-        return st;
-    }
-
-    /* — Segundo tramo: píxeles [38 400 … 76 799] — */
-    ILI9341_spi_dma_done = 0U;
-    if (HAL_SPI_Transmit_DMA(ILI9341_hspi, (uint8_t*)(px + half), half) != HAL_OK)
-    {
-        ILI9341_SPI_SetDataSize(SPI_DATASIZE_8BIT);
-        ILI9341_CS_SET; ILI9341_WRX_RESET;
-        return ILI9341_ERROR;
-    }
-    st = ILI9341_SPI_WaitDMAdone(5000U);
-    if (st != ILI9341_OK)
-    {
-        ILI9341_SPI_SetDataSize(SPI_DATASIZE_8BIT);
-        ILI9341_CS_SET; ILI9341_WRX_RESET;
-        return st;
+        if (rows > vis_h - r) { rows = vis_h - r; }
+        ILI9341_spi_dma_done = 0U;
+        if (HAL_SPI_Transmit_DMA(ILI9341_hspi, (uint8_t*)(px + (uint32_t)r * w), (uint16_t)(rows * vis_w)) != HAL_OK)
+        {
+            st = ILI9341_ERROR;
+        }
+        else
+        {
+            st = ILI9341_SPI_WaitDMAdone(5000U);
+        }
     }
 
     /* Restaurar SPI a 8 bits para el resto de las operaciones del driver */
     ILI9341_SPI_SetDataSize(SPI_DATASIZE_8BIT);
     ILI9341_CS_SET;
     ILI9341_WRX_RESET;
-    return ILI9341_OK;
+    return st;
 }
 
 #ifdef HAL_SDRAM_MODULE_ENABLED
@@ -3600,7 +3752,7 @@ ILI9341_Status_t ILI9341_DrawFilledEllipse_ImageBuffer(int16_t x0, int16_t y0, i
 ILI9341_Status_t ILI9341_DrawArc_ImageBuffer(int16_t x, int16_t y, int16_t r1, int16_t r2, float start, float end, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
 {
     ILI9341_Status_t st;
-    bool equal;
+    float a0, sweep;
     int16_t tmp;
 
     if (ILI9341_Initialized != 1U) { return ILI9341_NOT_INITIALIZED; }
@@ -3611,26 +3763,18 @@ ILI9341_Status_t ILI9341_DrawArc_ImageBuffer(int16_t x, int16_t y, int16_t r1, i
     if (r1 < 1)  { r1 = 1; }
     if (r2 < 1)  { r2 = 1; }
 
-    equal = fabsf(start - end) < FLT_EPSILON;
-    start = fmodf(start, 360.0f);
-    end   = fmodf(end, 360.0f);
-    if (start < 0) { start += 360.0f; }
-    if (end < 0)   { end   += 360.0f; }
+    ILI9341_ArcAngles(start, end, &a0, &sweep);
 
-    /* Bordes rectos del arco (en start y en end) */
-    st  = ILI9341_FillArcHelper(x, y, r1, r2, start, start, color, image);
-    st  = st ? st : ILI9341_FillArcHelper(x, y, r1, r2, end, end, color, image);
-    if (st != ILI9341_OK) { return st; }
+    /* Bordes curvos del arco (bandas de 1 px en el radio exterior e interior) */
+    st  = ILI9341_FillArcHelper(x, y, r1, r1, a0, sweep, color, image);
+    st  = st ? st : ILI9341_FillArcHelper(x, y, r2, r2, a0, sweep, color, image);
 
-    if (!equal && (fabsf(start - end) <= 0.0001f))
+    /* Bordes rectos del arco. En el barrido completo ambos extremos coinciden. */
+    st  = st ? st : ILI9341_DrawArcRadius(x, y, r2, r1, a0, color, image);
+    if ((st == ILI9341_OK) && (sweep < 359.999f))
     {
-        start = 0.0f;
-        end   = 360.0f;
+        st = ILI9341_DrawArcRadius(x, y, r2, r1, a0 + sweep, color, image);
     }
-
-    /* Bordes curvos del arco (radio exterior e interior) */
-    st  = ILI9341_FillArcHelper(x, y, r1, r1, start, end, color, image);
-    st  = st ? st : ILI9341_FillArcHelper(x, y, r2, r2, start, end, color, image);
 
     return st;
 }
@@ -3654,7 +3798,7 @@ ILI9341_Status_t ILI9341_DrawArc_ImageBuffer(int16_t x, int16_t y, int16_t r1, i
  */
 ILI9341_Status_t ILI9341_DrawFilledArc_ImageBuffer(int16_t x0, int16_t y0, int16_t r1, int16_t r2, float start, float end, uint16_t color, uint32_t image[IMG_TOTAL_BUF32])
 {
-    bool equal;
+    float a0, sweep;
     int16_t tmp;
 
     if (ILI9341_Initialized != 1U) { return ILI9341_NOT_INITIALIZED; }
@@ -3665,19 +3809,12 @@ ILI9341_Status_t ILI9341_DrawFilledArc_ImageBuffer(int16_t x0, int16_t y0, int16
     if (r1 < 1)  { r1 = 1; }
     if (r2 < 1)  { r2 = 1; }
 
-    equal = fabsf(start - end) < FLT_EPSILON;
-    start = fmodf(start, 360.0f);
-    end   = fmodf(end, 360.0f);
-    if (start < 0) { start += 360.0f; }
-    if (end < 0)   { end   += 360.0f; }
+    ILI9341_ArcAngles(start, end, &a0, &sweep);
 
-    if (!equal && (fabsf(start - end) <= 0.0001f))
-    {
-        start = 0.0f;
-        end   = 360.0f;
-    }
+    /* Barrido nulo (start == end): el sector degenera en la arista radial. */
+    if (sweep <= 0.001f) { return ILI9341_DrawArcRadius(x0, y0, r2, r1, a0, color, image); }
 
-    return ILI9341_FillArcHelper(x0, y0, r1, r2, start, end, color, image);
+    return ILI9341_FillArcHelper(x0, y0, r1, r2, a0, sweep, color, image);
 }
 
 #endif /* HAL_SDRAM_MODULE_ENABLED */
