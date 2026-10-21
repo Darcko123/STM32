@@ -2768,6 +2768,66 @@ ILI9341_Status_t ILI9341_DisplayImage(uint16_t x, uint16_t y, uint16_t w, uint16
     return st;
 }
 
+/**
+ * @brief Dibuja un bitmap monocromo (1 bit por píxel) directamente en la LCD.
+ *
+ * @details Cada fila de @p bits ocupa (w + 7) / 8 bytes, con el píxel izquierdo en el
+ *          bit 7 del primer byte (formato Adafruit_GFX). Los bits a 1 se pintan con
+ *          @p fg y los bits a 0 con @p bg. Se abre una única ventana GRAM y cada fila
+ *          se expande a RGB565 en un buffer local antes de enviarla por SPI.
+ *          La parte que sale por la derecha o por abajo de la pantalla se recorta.
+ *
+ * @param[in] x    Coordenada X de la esquina superior izquierda.
+ * @param[in] y    Coordenada Y de la esquina superior izquierda.
+ * @param[in] w    Ancho del bitmap en píxeles.
+ * @param[in] h    Alto del bitmap en píxeles.
+ * @param[in] bits h * ((w + 7) / 8) bytes del bitmap, por filas, MSB primero.
+ * @param[in] fg   Color de los bits a 1 en formato RGB565.
+ * @param[in] bg   Color de los bits a 0 en formato RGB565.
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK              si todos los píxeles fueron enviados (o el bitmap queda fuera de pantalla).
+ *         - ILI9341_NOT_INITIALIZED si el driver no ha sido inicializado.
+ *         - ILI9341_INVALID_PARAM   si @p bits es NULL.
+ *         - ILI9341_ERROR           si falla la transmisión SPI.
+ */
+ILI9341_Status_t ILI9341_DrawBitmap1bpp(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint8_t* bits, uint16_t fg, uint16_t bg)
+{
+    ILI9341_Status_t st     = ILI9341_OK;
+    uint8_t          row[ILI9341_HEIGHT * 2U]; /* Fila visible más larga posible (modo apaisado) */
+    const uint16_t   stride = (uint16_t)((w + 7U) / 8U);
+    uint16_t         vis_w, vis_h, r, c, color;
+
+    if (!ILI9341_Initialized) { return ILI9341_NOT_INITIALIZED; }
+    if (bits == NULL)         { return ILI9341_INVALID_PARAM; }
+    if ((w == 0U) || (h == 0U) || (x >= ILI9341_Opts.width) || (y >= ILI9341_Opts.height)) { return ILI9341_OK; }
+
+    vis_w = ((uint32_t)x + w > ILI9341_Opts.width)  ? (uint16_t)(ILI9341_Opts.width  - x) : w;
+    vis_h = ((uint32_t)y + h > ILI9341_Opts.height) ? (uint16_t)(ILI9341_Opts.height - y) : h;
+
+    ILI9341_SetCursorPosition(x, y, x + vis_w - 1U, y + vis_h - 1U);
+    ILI9341_SendCommand(ILI9341_GRAM);
+
+    ILI9341_WRX_SET;
+    ILI9341_CS_RESET;
+
+    for (r = 0U; (st == ILI9341_OK) && (r < vis_h); r++)
+    {
+        const uint8_t* src = bits + (uint32_t)r * stride;
+
+        for (c = 0U; c < vis_w; c++)
+        {
+            color = (src[c >> 3] & (0x80U >> (c & 7U))) ? fg : bg;
+            row[2U * c]      = (uint8_t)(color >> 8);
+            row[2U * c + 1U] = (uint8_t)(color & 0xFFU);
+        }
+        st = SPI_ILI9341_Send(row, (uint16_t)(vis_w * 2U));
+    }
+
+    ILI9341_CS_SET;
+    ILI9341_WRX_RESET;
+    return st;
+}
+
 #ifdef HAL_SDRAM_MODULE_ENABLED
 
 /**
