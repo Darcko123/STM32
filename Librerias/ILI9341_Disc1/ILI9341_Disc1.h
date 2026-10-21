@@ -1343,6 +1343,28 @@ ILI9341_Status_t ILI9341_DrawArc_ImageBuffer(int16_t x, int16_t y, int16_t r1, i
  */
 ILI9341_Status_t ILI9341_DrawFilledArc_ImageBuffer(int16_t x0, int16_t y0, int16_t r1, int16_t r2, float start, float end, uint16_t color, uint32_t image[IMG_TOTAL_BUF32]);
 
+/**
+ * @brief Dibuja un bitmap monocromo (1 bit por píxel) en un frame buffer fuera de pantalla.
+ *
+ * @details Mismo formato que ILI9341_DrawBitmap1bpp(): cada fila ocupa (w + 7) / 8 bytes,
+ *          con el píxel izquierdo en el bit 7 del primer byte. Los bits a 1 se escriben con
+ *          @p fg y los bits a 0 con @p bg. La parte que sale por la derecha o por abajo de
+ *          los límites fijos del panel se recorta.
+ *
+ * @param[in]     x     Coordenada X de la esquina superior izquierda.
+ * @param[in]     y     Coordenada Y de la esquina superior izquierda.
+ * @param[in]     w     Ancho del bitmap en píxeles.
+ * @param[in]     h     Alto del bitmap en píxeles.
+ * @param[in]     bits  h * ((w + 7) / 8) bytes del bitmap, por filas, MSB primero.
+ * @param[in]     fg    Color de los bits a 1 en formato RGB565.
+ * @param[in]     bg    Color de los bits a 0 en formato RGB565.
+ * @param[in,out] image Frame buffer (IMG_TOTAL_BUF32 palabras uint32_t).
+ * @return ILI9341_Status_t
+ *         - ILI9341_OK            en caso de éxito (incluye bitmap fuera de pantalla, que se ignora).
+ *         - ILI9341_INVALID_PARAM si @p bits o @p image son NULL.
+ */
+ILI9341_Status_t ILI9341_DrawBitmap1bpp_ImageBuffer(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint8_t* bits, uint16_t fg, uint16_t bg, uint32_t image[IMG_TOTAL_BUF32]);
+
 #endif /* HAL_SDRAM_MODULE_ENABLED */
 
 #ifdef HAL_DMA2D_MODULE_ENABLED
