@@ -63,7 +63,7 @@
       - [`ILI9341_Printf()` - Renderizar Texto Formateado](#ili9341_printf---renderizar-texto-formateado)
       - [`ILI9341_GetStringSize()` - Calcular Tamaño de Cadena](#ili9341_getstringsize---calcular-tamaño-de-cadena)
       - [`ILI9341_PutsAligned()` / `ILI9341_PrintfAligned()` - Texto Alineado Horizontalmente](#ili9341_putsaligned--ili9341_printfaligned---texto-alineado-horizontalmente)
-      - [`ILI9341_DisplayImage()` - Transferir Frame Buffer](#ili9341_displayimage---transferir-frame-buffer)
+      - [`ILI9341_DisplayImage()` - Dibujar Imagen o Frame Buffer](#ili9341_displayimage---dibujar-imagen-o-frame-buffer)
       - [Funciones de Frame Buffer fuera de Pantalla](#funciones-de-frame-buffer-fuera-de-pantalla)
       - [`ILI9341_Printf_ImageBuffer()` - Texto Formateado en Buffer](#ili9341_printf_imagebuffer---texto-formateado-en-buffer)
       - [`ILI9341_PutsAligned_ImageBuffer()` / `ILI9341_PrintfAligned_ImageBuffer()` - Texto Alineado en Buffer](#ili9341_putsaligned_imagebuffer--ili9341_printfaligned_imagebuffer---texto-alineado-en-buffer)
@@ -122,7 +122,7 @@ Diseñada para ser portable y robusta: toda función pública (incluidas las var
 
 - **Comunicación SPI optimizada**: Inicialización a 2 Mbit/s para la secuencia de configuración del chip; tras `ILI9341_Init()` el preescalador se eleva automáticamente a 45 Mbit/s para máxima velocidad de refresco.
 - **Escrituras SPI optimizadas mediante acceso directo al registro `DR`**: `ILI9341_Fill()`, `ILI9341_DrawFilledRectangle()` e `ILI9341_Putc()` acceden directamente al registro `DR` del SPI. El sondeo de TXE usa un contador de iteraciones (`SPI_ILI9341_WaitTXE`) en lugar de `HAL_GetTick()`, eliminando una llamada a función y una lectura de tick por byte en los bucles críticos de volcado.
-- **Volcado de frame buffer por DMA SPI**: `ILI9341_DisplayImage()` e `ILI9341_Flush()` transfieren los 76 800 píxeles del frame buffer a la pantalla usando **DMA2\_Stream6** vinculado a SPI5\_TX en modo 16 bits. El SPI en modo 16 bits serializa cada `uint16_t` MSB-first, produciendo automáticamente el orden big-endian esperado por el ILI9341 sin swap manual de bytes. La transferencia se divide en dos tramos de 38 400 píxeles para respetar el límite de 65 535 items del registro NDTR del DMA.
+- **Volcado de frame buffer por DMA SPI**: `ILI9341_DisplayImage()` (imágenes o íconos de cualquier tamaño, sin frame buffer) e `ILI9341_Flush()` (frame buffer completo) transfieren los píxeles a la pantalla usando **DMA2\_Stream6** vinculado a SPI5\_TX en modo 16 bits. El SPI en modo 16 bits serializa cada `uint16_t` MSB-first, produciendo automáticamente el orden big-endian esperado por el ILI9341 sin swap manual de bytes. La transferencia se divide en tramos de hasta 65 535 píxeles para respetar el límite del registro NDTR del DMA.
 - **Aceleración DMA2D** *(requiere `HAL_DMA2D_MODULE_ENABLED`)*: `ILI9341_Init()` acepta un `DMA2D_HandleTypeDef*` opcional; si no es NULL, configura el periférico DMA2D una sola vez y lo reutiliza en modo R2M (relleno) para `ILI9341_DrawFilledRectangle_ImageBuffer()` y en modo M2M (copia) para `ILI9341_BlitImage()`. Si se pasa NULL, ambas operaciones usan el camino CPU.
 - **Primitivas de dibujo completas**: Píxeles, líneas (algoritmo de Bresenham) con variantes rápidas horizontal/vertical (`ILI9341_DrawFastHLine`/`ILI9341_DrawFastVLine`) y con grosor configurable (`ILI9341_DrawThickLine`), rectángulos (contorno y relleno), círculos (contorno y relleno), triángulos (contorno y relleno por scanline), elipses (contorno y relleno, algoritmo de punto medio de Zingl) y arcos/sectores de anillo entre dos ángulos (contorno y relleno) directamente sobre la pantalla.
 - **Paleta de 147 colores predefinidos** en formato RGB565 basada en el estándar de nombres de color X11/CSS, generada con la macro pública `RGB565(r, g, b)`. Incluye también `RGB16TO24(c)` para expandir un color RGB565 de vuelta a RGB888, y la función `ILI9341_Color565(r, g, b)` para convertir componentes RGB888 calculadas en tiempo de ejecución.
@@ -497,7 +497,7 @@ ILI9341_Puts_ImageBuffer(10, 10, "Frame buffer",
                               ILI9341_COLOR_WHITE, fb);
 
 /* Volcar el buffer a la pantalla */
-ILI9341_DisplayImage(fb);
+ILI9341_DisplayImage(0, 0, ILI9341_WIDTH, ILI9341_HEIGHT, fb);
 ```
 
 > [!WARNING]
@@ -1153,24 +1153,34 @@ ILI9341_Status_t ILI9341_PrintfAligned(uint16_t x0, uint16_t x1, uint16_t y,
 
 ---
 
-#### `ILI9341_DisplayImage()` - Transferir Frame Buffer
+#### `ILI9341_DisplayImage()` - Dibujar Imagen o Frame Buffer
 
-Transfiere un frame buffer RGB565 de pantalla completa a la LCD mediante **DMA SPI en modo 16 bits** (dos tramos de 38 400 píxeles). El SPI se reconfigura temporalmente a 16 bits antes del DMA y se restaura a 8 bits al terminar; el resto de las funciones del driver no se ve afectado. El periférico serializa cada `uint16_t` MSB-first, produciendo el byte order big-endian esperado por el ILI9341 directamente desde el frame buffer sin reordenar bytes.
+Dibuja una imagen o ícono RGB565 de **tamaño arbitrario** en la posición `(x, y)` directamente en la LCD, sin frame buffer, mediante **DMA SPI en modo 16 bits**. La imagen puede residir en flash (`const`) o en RAM; la parte que sale por la derecha o por abajo de la pantalla se recorta. Sin recorte horizontal se envían tramos de hasta 65 535 píxeles; con recorte se envía fila por fila. El SPI se reconfigura temporalmente a 16 bits antes del DMA y se restaura a 8 bits al terminar; el resto de las funciones del driver no se ve afectado. El periférico serializa cada `uint16_t` MSB-first, produciendo el byte order big-endian esperado por el ILI9341 directamente desde el frame buffer sin reordenar bytes.
 
-Cada palabra `uint32_t` del buffer contiene **dos píxeles RGB565**: el píxel de índice par en los bits `[15:0]` (word bajo) y el de índice impar en los bits `[31:16]` (word alto).
+Acepta un arreglo `uint16_t` (un píxel por elemento) o `uint32_t` empaquetado como lo genera `image_to_bitmap.py` y las funciones `_ImageBuffer`: el píxel de índice par en los bits `[15:0]` y el de índice impar en los bits `[31:16]`. La imagen **no** puede estar en CCM RAM (el DMA no tiene acceso a ella).
 
 > [!NOTE]
 > Requiere que **DMA2\_Stream6** esté configurado para SPI5\_TX con ancho Half Word en CubeMX (ver [Configuración DMA SPI TX](#configuración-dma-spi-tx-para-displayimage-y-flush)).
 
 ```c
-ILI9341_Status_t ILI9341_DisplayImage(uint32_t image[IMG_TOTAL_BUF32]);
+ILI9341_Status_t ILI9341_DisplayImage(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const void* image);
 ```
 
 | Parámetro | Tipo | Descripción |
 |-----------|------|-------------|
-| `image` | `uint32_t[38400]` | Frame buffer con `IMG_TOTAL_BUF32` = 38 400 palabras (153 600 bytes) |
+| `x`, `y` | `uint16_t` | Esquina superior izquierda en pantalla |
+| `w`, `h` | `uint16_t` | Ancho y alto de la imagen en píxeles |
+| `image` | `const void*` | `w*h` píxeles RGB565 ordenados por filas |
 
-**Retorna**: `ILI9341_OK` si todos los píxeles se enviaron, `ILI9341_NOT_INITIALIZED`, `ILI9341_ERROR` si el DMA no pudo iniciarse, `ILI9341_TIMEOUT` si el bus se bloqueó durante la transferencia.
+```c
+#include "icono.h"   /* python3 image_to_bitmap.py icono.png --width 32 --height 32 --name icono */
+ILI9341_DisplayImage(10, 20, ICONO_WIDTH, ICONO_HEIGHT, icono);
+
+/* Frame buffer completo (modo retrato) */
+ILI9341_DisplayImage(0, 0, ILI9341_WIDTH, ILI9341_HEIGHT, fb);
+```
+
+**Retorna**: `ILI9341_OK` si todos los píxeles se enviaron (o la imagen queda fuera de pantalla), `ILI9341_NOT_INITIALIZED`, `ILI9341_INVALID_PARAM` si `image` es NULL, `ILI9341_ERROR` si el DMA no pudo iniciarse, `ILI9341_TIMEOUT` si el bus se bloqueó durante la transferencia.
 
 ---
 
@@ -1454,7 +1464,7 @@ ILI9341_Status_t ILI9341_BlitImage(const uint16_t* src, uint16_t x0, uint16_t y0
 
 #### `ILI9341_Flush()` - Volcar Frame Buffer SDRAM *(solo SDRAM)*
 
-Equivalente a llamar `ILI9341_DisplayImage(ILI9341_GetFrameBuffer())`. Requiere que `ILI9341_Init()` haya sido invocado con un handle SDRAM válido.
+Equivalente a llamar `ILI9341_DisplayImage(0, 0, ILI9341_WIDTH, ILI9341_HEIGHT, ILI9341_GetFrameBuffer())`. Requiere que `ILI9341_Init()` haya sido invocado con un handle SDRAM válido.
 
 ```c
 ILI9341_Status_t ILI9341_Flush(void);
