@@ -6,9 +6,9 @@ Requiere Pillow:  pip install Pillow
 Uso básico:
     python3 image_to_bitmap.py foto.jpg -o foto.h
 
-El resultado es un arreglo `uint32_t` de tamaño IMG_TOTAL_BUF32 (dos píxeles
-RGB565 por palabra, little-endian), listo para pasarse directamente a
-ILI9341_DisplayImage() sin necesidad de cast.
+El resultado es un arreglo `const uint32_t` (dos píxeles RGB565 por palabra,
+little-endian, en flash), listo para pasarse directamente a
+ILI9341_DisplayImage(x, y, <NOMBRE>_WIDTH, <NOMBRE>_HEIGHT, <nombre>).
 """
 
 import argparse
@@ -61,7 +61,7 @@ def write_header(words, width, height, array_name, out_path, source_name):
         f.write("#include <stdint.h>\n\n")
         f.write(f"#define {array_name.upper()}_WIDTH  {width}U\n")
         f.write(f"#define {array_name.upper()}_HEIGHT {height}U\n\n")
-        f.write(f"uint32_t {array_name}[{len(words)}] = {{\n")
+        f.write(f"const uint32_t {array_name}[{len(words)}] = {{\n")
         for i in range(0, len(words), 12):
             chunk = words[i:i + 12]
             f.write("    " + ", ".join(f"0x{w:08X}" for w in chunk) + ",\n")
@@ -102,7 +102,7 @@ def main():
     print(f"OK: '{out_path}' generado ({args.width}x{args.height}, {len(words)} palabras uint32_t).")
     print(f"Uso en tu proyecto STM32:\n"
           f'  #include "{out_path.rsplit("/", 1)[-1]}"\n'
-          f"  ILI9341_DisplayImage({args.name});")
+          f"  ILI9341_DisplayImage(0, 0, {args.name.upper()}_WIDTH, {args.name.upper()}_HEIGHT, {args.name});")
 
 
 if __name__ == "__main__":
