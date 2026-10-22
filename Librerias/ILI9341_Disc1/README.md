@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![STM32](https://img.shields.io/badge/Platform-STM32F429--Discovery-black)](https://www.st.com/en/evaluation-tools/32f429idiscovery.html)
-[![Version](https://img.shields.io/badge/Version-1.4.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/ILI9341_Disc1)
+[![Version](https://img.shields.io/badge/Version-2.0.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/ILI9341_Disc1)
 [![Protocol](https://img.shields.io/badge/Protocol-SPI%20%2B%20I2C%20%2B%20SDRAM%20%2B%20DMA2D%20%2B%20SPI--DMA-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/ILI9341_Disc1)
 
 ---
@@ -64,6 +64,7 @@
       - [`ILI9341_GetStringSize()` - Calcular Tamaño de Cadena](#ili9341_getstringsize---calcular-tamaño-de-cadena)
       - [`ILI9341_PutsAligned()` / `ILI9341_PrintfAligned()` - Texto Alineado Horizontalmente](#ili9341_putsaligned--ili9341_printfaligned---texto-alineado-horizontalmente)
       - [`ILI9341_DisplayImage()` - Dibujar Imagen o Frame Buffer](#ili9341_displayimage---dibujar-imagen-o-frame-buffer)
+      - [`ILI9341_DrawBitmap1bpp()` - Dibujar Bitmap Monocromo](#ili9341_drawbitmap1bpp---dibujar-bitmap-monocromo)
       - [Funciones de Frame Buffer fuera de Pantalla](#funciones-de-frame-buffer-fuera-de-pantalla)
       - [`ILI9341_Printf_ImageBuffer()` - Texto Formateado en Buffer](#ili9341_printf_imagebuffer---texto-formateado-en-buffer)
       - [`ILI9341_PutsAligned_ImageBuffer()` / `ILI9341_PrintfAligned_ImageBuffer()` - Texto Alineado en Buffer](#ili9341_putsaligned_imagebuffer--ili9341_printfaligned_imagebuffer---texto-alineado-en-buffer)
@@ -87,26 +88,30 @@
   - [Colores Predefinidos](#colores-predefinidos)
   - [Licencia](#licencia)
   - [Changelog](#changelog)
-    - [\[1.4.0\] - 07-07-2026](#140---07-07-2026)
+    - [\[2.0.0\] - 22-10-2026](#200---22-10-2026)
       - [Added](#added)
-    - [\[1.3.0\] - 03-07-2026](#130---03-07-2026)
-      - [Added](#added-1)
       - [Changed](#changed)
+      - [Fixed](#fixed)
+    - [\[1.4.0\] - 07-07-2026](#140---07-07-2026)
+      - [Added](#added-1)
+    - [\[1.3.0\] - 03-07-2026](#130---03-07-2026)
+      - [Added](#added-2)
+      - [Changed](#changed-1)
       - [Removed](#removed)
       - [Migration notes](#migration-notes)
     - [\[1.2.0\] - 15-06-2026](#120---15-06-2026)
-      - [Added](#added-2)
-      - [Changed](#changed-1)
-      - [Fixed](#fixed)
-      - [Migration notes](#migration-notes-1)
-    - [\[1.1.0\] - 14-06-2026](#110---14-06-2026)
       - [Added](#added-3)
       - [Changed](#changed-2)
       - [Fixed](#fixed-1)
-    - [\[1.0.1\]](#101)
-      - [Fixed](#fixed-2)
-    - [\[1.0.0\] - 08-06-2026](#100---08-06-2026)
+      - [Migration notes](#migration-notes-1)
+    - [\[1.1.0\] - 14-06-2026](#110---14-06-2026)
       - [Added](#added-4)
+      - [Changed](#changed-3)
+      - [Fixed](#fixed-2)
+    - [\[1.0.1\]](#101)
+      - [Fixed](#fixed-3)
+    - [\[1.0.0\] - 08-06-2026](#100---08-06-2026)
+      - [Added](#added-5)
 
 ---
 
@@ -123,6 +128,7 @@ Diseñada para ser portable y robusta: toda función pública (incluidas las var
 - **Comunicación SPI optimizada**: Inicialización a 2 Mbit/s para la secuencia de configuración del chip; tras `ILI9341_Init()` el preescalador se eleva automáticamente a 45 Mbit/s para máxima velocidad de refresco.
 - **Escrituras SPI optimizadas mediante acceso directo al registro `DR`**: `ILI9341_Fill()`, `ILI9341_DrawFilledRectangle()` e `ILI9341_Putc()` acceden directamente al registro `DR` del SPI. El sondeo de TXE usa un contador de iteraciones (`SPI_ILI9341_WaitTXE`) en lugar de `HAL_GetTick()`, eliminando una llamada a función y una lectura de tick por byte en los bucles críticos de volcado.
 - **Volcado de frame buffer por DMA SPI**: `ILI9341_DisplayImage()` (imágenes o íconos de cualquier tamaño, sin frame buffer) e `ILI9341_Flush()` (frame buffer completo) transfieren los píxeles a la pantalla usando **DMA2\_Stream6** vinculado a SPI5\_TX en modo 16 bits. El SPI en modo 16 bits serializa cada `uint16_t` MSB-first, produciendo automáticamente el orden big-endian esperado por el ILI9341 sin swap manual de bytes. La transferencia se divide en tramos de hasta 65 535 píxeles para respetar el límite del registro NDTR del DMA.
+- **Bitmaps monocromo de 1 bpp**: `ILI9341_DrawBitmap1bpp()` (pantalla) y `ILI9341_DrawBitmap1bpp_ImageBuffer()` (frame buffer) dibujan íconos y glifos en formato Adafruit\_GFX (filas de `(w + 7) / 8` bytes, MSB primero), con colores de primer plano y fondo configurables y recorte automático.
 - **Aceleración DMA2D** *(requiere `HAL_DMA2D_MODULE_ENABLED`)*: `ILI9341_Init()` acepta un `DMA2D_HandleTypeDef*` opcional; si no es NULL, configura el periférico DMA2D una sola vez y lo reutiliza en modo R2M (relleno) para `ILI9341_DrawFilledRectangle_ImageBuffer()` y en modo M2M (copia) para `ILI9341_BlitImage()`. Si se pasa NULL, ambas operaciones usan el camino CPU.
 - **Primitivas de dibujo completas**: Píxeles, líneas (algoritmo de Bresenham) con variantes rápidas horizontal/vertical (`ILI9341_DrawFastHLine`/`ILI9341_DrawFastVLine`) y con grosor configurable (`ILI9341_DrawThickLine`), rectángulos (contorno y relleno), círculos (contorno y relleno), triángulos (contorno y relleno por scanline), elipses (contorno y relleno, algoritmo de punto medio de Zingl) y arcos/sectores de anillo entre dos ángulos (contorno y relleno) directamente sobre la pantalla.
 - **Paleta de 147 colores predefinidos** en formato RGB565 basada en el estándar de nombres de color X11/CSS, generada con la macro pública `RGB565(r, g, b)`. Incluye también `RGB16TO24(c)` para expandir un color RGB565 de vuelta a RGB888, y la función `ILI9341_Color565(r, g, b)` para convertir componentes RGB888 calculadas en tiempo de ejecución.
@@ -1184,6 +1190,32 @@ ILI9341_DisplayImage(0, 0, ILI9341_WIDTH, ILI9341_HEIGHT, fb);
 
 ---
 
+#### `ILI9341_DrawBitmap1bpp()` - Dibujar Bitmap Monocromo
+
+Dibuja un bitmap de **1 bit por píxel** directamente en la LCD, sin frame buffer. Cada fila ocupa `(w + 7) / 8` bytes con el píxel izquierdo en el bit 7 del primer byte (formato Adafruit\_GFX). Los bits a 1 se pintan con `fg` y los bits a 0 con `bg`. Abre una única ventana GRAM y expande cada fila a RGB565 en un buffer local en pila (640 bytes) antes de enviarla por SPI. La parte que sale por la derecha o por abajo de la pantalla se recorta.
+
+```c
+ILI9341_Status_t ILI9341_DrawBitmap1bpp(uint16_t x, uint16_t y, uint16_t w, uint16_t h,
+                                        const uint8_t* bits, uint16_t fg, uint16_t bg);
+```
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `x`, `y` | `uint16_t` | Esquina superior izquierda en pantalla |
+| `w`, `h` | `uint16_t` | Ancho y alto del bitmap en píxeles |
+| `bits` | `const uint8_t*` | `h * ((w + 7) / 8)` bytes, por filas, MSB primero |
+| `fg` | `uint16_t` | Color RGB565 de los bits a 1 |
+| `bg` | `uint16_t` | Color RGB565 de los bits a 0 |
+
+```c
+static const uint8_t flecha[8] = { 0x18, 0x3C, 0x7E, 0xFF, 0x18, 0x18, 0x18, 0x18 }; /* 8×8 */
+ILI9341_DrawBitmap1bpp(100, 100, 8, 8, flecha, ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK);
+```
+
+**Retorna**: `ILI9341_OK` si todos los píxeles se enviaron (o el bitmap queda fuera de pantalla), `ILI9341_NOT_INITIALIZED`, `ILI9341_INVALID_PARAM` si `bits` es NULL, `ILI9341_ERROR` si falla la transmisión SPI.
+
+---
+
 #### Funciones de Frame Buffer fuera de Pantalla
 
 Estas funciones realizan la misma operación que sus equivalentes directas, pero escriben en un `uint32_t image[IMG_TOTAL_BUF32]` en RAM en lugar de enviar datos por SPI. El formato de empaquetado es idéntico al requerido por `ILI9341_DisplayImage()`.
@@ -1212,6 +1244,7 @@ Todas retornan `ILI9341_Status_t` (`ILI9341_OK`, `ILI9341_INVALID_PARAM` o `ILI9
 | `ILI9341_Printf_ImageBuffer(x, y, font, fg, image, fmt, ...)` | Cadena con formato printf (sin fondo) |
 | `ILI9341_PutsAligned_ImageBuffer(x0, x1, y, align, str, font, fg, image)` | Cadena alineada horizontalmente (sin fondo) |
 | `ILI9341_PrintfAligned_ImageBuffer(x0, x1, y, align, font, fg, image, fmt, ...)` | Cadena con formato printf y alineada (sin fondo) |
+| `ILI9341_DrawBitmap1bpp_ImageBuffer(x, y, w, h, bits, fg, bg, image)` | Bitmap monocromo de 1 bpp (mismo formato que `ILI9341_DrawBitmap1bpp()`) |
 
 ---
 
@@ -1719,6 +1752,28 @@ Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](../../LI
 
 Todos los cambios notables de esta librería se documentan en esta sección.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
+
+---
+
+### [2.0.0] - 22-10-2026
+
+Imágenes de tamaño arbitrario en cualquier posición, bitmaps monocromo de 1 bpp y un trazado de arcos reescrito. Incluye un **cambio incompatible** en la firma de `ILI9341_DisplayImage()`.
+
+#### Added
+
+- **Bitmaps monocromo de 1 bpp** — `ILI9341_DrawBitmap1bpp()`: dibuja directamente en la LCD un bitmap en formato Adafruit\_GFX (filas de `(w + 7) / 8` bytes, píxel izquierdo en el bit 7), pintando los bits a 1 con `fg` y los bits a 0 con `bg`. Abre una sola ventana GRAM y expande cada fila a RGB565 en un buffer local antes de enviarla; recorta lo que sale por la derecha o por abajo. Útil para íconos y glifos sin ocupar 16 bits por píxel en flash.
+- `ILI9341_DrawBitmap1bpp_ImageBuffer()` *(solo SDRAM)*: misma operación sobre el frame buffer fuera de pantalla.
+
+#### Changed
+
+- **[BREAKING]** `ILI9341_DisplayImage()` pasa de volcar un frame buffer completo a dibujar una imagen RGB565 de **tamaño arbitrario** en `(x, y)`, con recorte automático en los bordes derecho e inferior:
+  `ILI9341_DisplayImage(image)` → `ILI9341_DisplayImage(x, y, w, h, image)`.
+  El parámetro `image` pasa de `uint32_t[IMG_TOTAL_BUF32]` a `const void*`, así que acepta `uint16_t[]` o `uint32_t[]` empaquetado, en flash o en RAM (no en CCM RAM). Para el comportamiento anterior: `ILI9341_DisplayImage(0, 0, ILI9341_WIDTH, ILI9341_HEIGHT, fb)`. Ahora devuelve `ILI9341_INVALID_PARAM` si `image` es NULL.
+- `image_to_bitmap.py` genera el arreglo como `const uint32_t` (queda en flash) e imprime la llamada con la nueva firma usando `<NOMBRE>_WIDTH` / `<NOMBRE>_HEIGHT`.
+
+#### Fixed
+
+- **Arcos** — `ILI9341_DrawArc()`, `ILI9341_DrawFilledArc()` y sus variantes `_ImageBuffer()`: el relleno se reescribe por filas con aritmética entera para la banda radial y dos semiplanos para el sector angular (troceando barridos de más de 180°). Se eliminan el desplazamiento de un píxel en los ángulos múltiplos de 90° (seno/coseno exactos en lugar del ajuste `+0.1°`) y los cortes en los barridos completos (`start = 0`, `end = 360`); los bordes rectos se trazan como un radio alineado con las circunferencias, y `start == end` en `DrawFilledArc` dibuja ese radio.
 
 ---
 
