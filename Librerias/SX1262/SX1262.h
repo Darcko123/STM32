@@ -7,8 +7,8 @@
  *          red y modulación, presets Meshtastic y telemetría (RSSI/SNR).
  *
  * @author Daniel Ruiz
- * @date July 22, 2026
- * @version 2.0.0
+ * @date Octubre 29, 2026
+ * @version 2.1.0
  */
 
 #ifndef SX1262_H
@@ -58,6 +58,13 @@
 
 // Dirección base del registro de Sync Word en modo GFSK (8 bytes: 0x06C0-0x06C7)
 #define SX126X_REG_SYNC_WORD_BASE    0x06C0
+
+// Registros de whitening y CRC en modo GFSK
+#define SX126X_REG_WHITENING_SEED_MSB 0x06B8 /**< Bit 0 = MSB de la semilla; bits 7:1 reservados */
+#define SX126X_REG_CRC_SEED_BASE      0x06BC /**< Semilla CRC (0x06BC-0x06BD) seguida del polinomio (0x06BE-0x06BF) */
+
+// Semilla PN9 de whitening estándar (Semtech LoRaMac-node, RadioLib)
+#define SX126X_FSK_WHITENING_SEED    0x01FF
 
 // Modos de reposo (Sleep)
 #define SX126X_SLEEP_START_WARM               0x00  /**< Mantiene la configuración en retención */
@@ -202,13 +209,20 @@ typedef enum {
 
 /**
  * @brief Enumeración para el tipo de CRC en modulación GFSK.
+ *
+ *        Los tipos de 2 bytes se configuran con los pares estándar del
+ *        datasheet (§6.2.3.5), así que interoperan con cualquier transceptor
+ *        que use el mismo estándar:
+ *        - FSK_CRC_2_BYTE     → CRC-16 IBM   (semilla 0xFFFF, polinomio 0x8005)
+ *        - FSK_CRC_2_BYTE_INV → CRC-16 CCITT (semilla 0x1D0F, polinomio 0x1021, invertido)
+ *        Los de 1 byte usan los valores de reset (0x1D0F / 0x1021).
  */
 typedef enum {
     FSK_CRC_OFF        = 0x01,
     FSK_CRC_1_BYTE     = 0x00,
-    FSK_CRC_2_BYTE     = 0x02,
+    FSK_CRC_2_BYTE     = 0x02, /**< CRC-16 IBM */
     FSK_CRC_1_BYTE_INV = 0x04,
-    FSK_CRC_2_BYTE_INV = 0x06
+    FSK_CRC_2_BYTE_INV = 0x06  /**< CRC-16 CCITT (default de Semtech y RadioLib) */
 } fsk_crc_type_t;
 
 /**
@@ -230,8 +244,8 @@ typedef struct {
     uint8_t sync_word_len;              // Sync word length (default: 2)
     bool fixed_length;                  // Fixed vs variable length packets
     uint8_t payload_len;                // Payload length for fixed mode (ignorado en longitud variable: la RX acepta hasta 255 bytes)
-    fsk_crc_type_t crc_type;            // FSK_CRC_OFF / 1_BYTE / 2_BYTE / *_INV (default: FSK_CRC_2_BYTE)
-    bool whitening;                     // Enable whitening (default: true)
+    fsk_crc_type_t crc_type;            // FSK_CRC_OFF / 1_BYTE / 2_BYTE (IBM) / *_INV (2_BYTE_INV = CCITT) (default: FSK_CRC_2_BYTE_INV)
+    bool whitening;                     // Enable whitening, semilla PN9 0x01FF (default: true)
     bool config_pending;                // true if changes not yet applied
 } fsk_config_t;
 
@@ -624,7 +638,8 @@ SX1262_Status_t SX1262_LoRa_ApplyConfig(const lora_config_t *config);
  *
  *        No realiza ninguna comunicación SPI. Refleja el estado enviado en la
  *        última llamada exitosa a SX1262_LoRa_ApplyConfig(). El campo config_pending
- *        de la copia siempre será false.
+ *        de la copia es true si el chip se cambió después a GFSK con
+ *        SX1262_FSK_ApplyConfig().
  *
  * @param config    Puntero a la estructura donde se copiará la configuración actual.
  * @return SX1262_Status_t SX1262_OK si se copió la configuración,
@@ -706,6 +721,21 @@ SX1262_Status_t SX1262_LoRa_GetSNR(int8_t *snr_db);
  */
 SX1262_Status_t SX1262_GetRSSIInst(int16_t *rssi_dbm);
 
+/**
+ * @brief Obtiene el RSSI del último paquete FSK recibido.
+ *
+ *        Usa GetPacketStatus (0x14), que en FSK devuelve RxStatus, RssiSync y RssiAvg;
+ *        se reporta RssiSync: RSSI [dBm] = -RssiSync / 2 (datasheet SX1262 §13.5.3).
+ *        Debe llamarse justo después de una recepción exitosa. FSK no tiene SNR.
+ *
+ * @param rssi_dbm  Puntero donde se almacenará el RSSI en dBm (valor negativo típico).
+ * @return SX1262_Status_t SX1262_OK si se obtuvo el RSSI,
+ *                         SX1262_INVALID_PARAM si rssi_dbm es NULL,
+ *                         SX1262_NOT_INITIALIZED si no se inicializó,
+ *                         SX1262_ERROR ante fallos de SPI.
+ */
+SX1262_Status_t SX1262_FSK_GetRSSI(int16_t *rssi_dbm);
+
 // ----------------------------------------------------------------------------
 // Configuración FSK/GFSK
 // ----------------------------------------------------------------------------
@@ -750,10 +780,12 @@ SX1262_Status_t SX1262_FSK_Transmit(uint8_t* data, uint8_t length);
  *        caso retorna SX1262_TX_BUSY.
  *
  * @param data   Puntero al buffer de datos a transmitir.
- * @param length Longitud de los datos (máximo 255 bytes).
+ * @param length Longitud de los datos (máximo 255 bytes). En longitud fija
+ *               (fixed_length = true) debe ser igual a payload_len.
  * @return SX1262_Status_t SX1262_OK      si el chip entró en modo TX,
  *                         SX1262_TX_BUSY si ya hay una TX en curso,
- *                         SX1262_INVALID_PARAM si data es NULL o length es 0,
+ *                         SX1262_INVALID_PARAM si data es NULL, length es 0 o,
+ *                                        en longitud fija, length != payload_len,
  *                         SX1262_ERROR   si falla SPI o si no se ha llamado a
  *                                        SX1262_FSK_ApplyConfig(),
  *                         SX1262_NOT_INITIALIZED si no se inicializó.
@@ -912,9 +944,10 @@ SX1262_Status_t SX1262_FSK_AbortReceive(void);
  *        Cambia el packet type del chip a GFSK (SX126X_PACKET_TYPE_GFSK).
  *        LoRa y FSK son modos mutuamente excluyentes: tras llamar a esta
  *        función, el chip queda en modo GFSK hasta que se llame a
- *        SX1262_LoRa_ApplyConfig() para volver a LoRa. Las funciones de
- *        transmisión/recepción LoRa asumen que el chip permanece en modo
- *        LoRa, por lo que no deben usarse mientras el chip esté en GFSK.
+ *        SX1262_LoRa_ApplyConfig() para volver a LoRa. Mientras el chip esté
+ *        en GFSK, SX1262_LoRa_StartTransmitIT/StartReceiveIT/Receive/
+ *        ChannelActivityDetection devuelven SX1262_ERROR (y viceversa: tras
+ *        SX1262_LoRa_ApplyConfig() las SX1262_FSK_* devuelven SX1262_ERROR).
  *
  * @param config Puntero a la estructura de configuración (fsk_config_t)
  * @return SX1262_Status_t SX1262_OK si la configuración se aplicó,
@@ -930,8 +963,9 @@ SX1262_Status_t SX1262_FSK_ApplyConfig(fsk_config_t *config);
  *        No realiza ninguna comunicación SPI. Refleja el estado enviado en la
  *        última llamada exitosa a SX1262_FSK_ApplyConfig(), o los valores por
  *        defecto cacheados durante SX1262_Init() si aún no se ha aplicado
- *        ninguna configuración FSK. El campo config_pending de la copia
- *        siempre será false.
+ *        ninguna configuración FSK. El campo config_pending de la copia es
+ *        true si el chip no está en GFSK (nunca se llamó a
+ *        SX1262_FSK_ApplyConfig() o se volvió a LoRa después).
  *
  * @param config Puntero a la estructura donde se copiará la configuración actual.
  * @return SX1262_Status_t SX1262_OK si se copió la configuración,
