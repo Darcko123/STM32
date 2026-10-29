@@ -7,8 +7,8 @@
  *          aplicación de configuración de red/modulación y la telemetría RSSI/SNR.
  *
  * @author Daniel Ruiz
- * @date July 22, 2026
- * @version 2.0.0
+ * @date Octubre 29, 2026
+ * @version 2.1.0
  */
 
 #include "SX1262.h"
@@ -293,6 +293,44 @@ static SX1262_Status_t sx1262_ReadBuffer(uint8_t offset, uint8_t *data, uint8_t 
 }
 
 /**
+ * @brief Lee registros del SX1262 (comando ReadRegister) a través de SPI,
+ * manejando la señal NSS y el pin BUSY.
+ *
+ * @param address Dirección del primer registro a leer
+ * @param data Puntero al buffer donde se almacenarán los datos leídos
+ * @param length Número de registros consecutivos a leer
+ * @return SX1262_Status_t
+ */
+static SX1262_Status_t sx1262_ReadRegister(uint16_t address, uint8_t *data, uint8_t length)
+{
+    if (sx1262_WaitBusy() != SX1262_OK)
+    {
+        return SX1262_TIMEOUT;
+    }
+
+    uint8_t cmd[4] = {SX126X_CMD_READ_REGISTER, (address >> 8) & 0xFF, address & 0xFF, 0x00}; // Último byte: NOP por el STATUS
+    uint8_t dump[4];                                                                          // Buffer basura para capturar las respuestas ignoradas al transmitir
+
+    HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_RESET);
+
+    // Usamos TransmitReceive para evadir la condición de error Overrun
+    if (HAL_SPI_TransmitReceive(SX1262_hspi, cmd, dump, 4, HAL_MAX_DELAY) != HAL_OK)
+    {
+        HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_SET);
+        return SX1262_ERROR;
+    }
+
+    if (HAL_SPI_Receive(SX1262_hspi, data, length, HAL_MAX_DELAY) != HAL_OK)
+    {
+        HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_SET);
+        return SX1262_ERROR;
+    }
+    HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_GPIO_Pin, GPIO_PIN_SET);
+
+    return SX1262_OK;
+}
+
+/**
  * @brief Realiza un reset hardware del SX1262 utilizando el pin RST, siguiendo
  * la secuencia recomendada por el datasheet.
  */
@@ -323,6 +361,11 @@ static SX1262_Status_t sx1262_ClearIrq(void)
  */
 static SX1262_Status_t sx1262_Standby(void)
 {
+    // Standby cancela cualquier RX continuo: sin esto, un ApplyConfig con RX IT
+    // armado dejaba RxActive = 1 y el siguiente StartReceiveIT devolvía RX_BUSY
+    // con el chip sordo en Standby.
+    SX1262_RxActive = 0;
+
     uint8_t buf[1] = { SX126X_STANDBY_RC };
     return sx1262_WriteCommand(SX126X_CMD_SET_STANDBY, buf, 1);
 }
@@ -933,7 +976,7 @@ SX1262_Status_t SX1262_Init(SPI_HandleTypeDef *hspi,
         .sync_word_len = 2,
         .fixed_length = false,
         .payload_len = 0,
-        .crc_type = FSK_CRC_2_BYTE,
+        .crc_type = FSK_CRC_2_BYTE_INV, // CCITT, el CRC por defecto de Semtech y RadioLib
         .whitening = true,
         .config_pending = false
     };
@@ -1441,6 +1484,10 @@ SX1262_Status_t SX1262_LoRa_ApplyConfig(const lora_config_t *config)
     SX1262_LoRa_CurrentConfig = *config;
     SX1262_LoRa_CurrentConfig.config_pending = false;
 
+    // El chip queda en LoRa: las funciones SX1262_FSK_* deben fallar hasta el
+    // próximo SX1262_FSK_ApplyConfig() en lugar de enviar parámetros GFSK.
+    SX1262_FSK_CurrentConfig.config_pending = true;
+
     return SX1262_OK;
 }
 
@@ -1532,6 +1579,36 @@ SX1262_Status_t SX1262_GetRSSIInst(int16_t *rssi_dbm)
 }
 
 /**
+ * @brief Obtiene el RSSI del último paquete FSK recibido. Contrato en SX1262.h.
+ */
+SX1262_Status_t SX1262_FSK_GetRSSI(int16_t *rssi_dbm)
+{
+    if (SX1262_Initialized != 1)
+    {
+        return SX1262_NOT_INITIALIZED;
+    }
+    if (rssi_dbm == NULL)
+    {
+        return SX1262_INVALID_PARAM;
+    }
+
+    // GetPacketStatus devuelve 3 bytes en FSK:
+    //   [0] RxStatus  (no utilizado aquí)
+    //   [1] RssiSync  → RSSI = -RssiSync/2  (dBm, medido al detectar el sync word)
+    //   [2] RssiAvg   (no utilizado aquí)
+    uint8_t status[3];
+    SX1262_Status_t st = sx1262_ReadCommand(SX126X_CMD_GET_PACKET_STATUS, status, 3);
+    if (st != SX1262_OK)
+    {
+        return st;
+    }
+
+    *rssi_dbm = -(int16_t)status[1] / 2;
+
+    return SX1262_OK;
+}
+
+/**
  * @brief Retorna una copia de la configuración LoRa aplicada. Contrato en SX1262.h.
  */
 SX1262_Status_t SX1262_LoRa_GetConfig(lora_config_t *config)
@@ -1613,6 +1690,13 @@ SX1262_Status_t SX1262_FSK_StartTransmitIT(uint8_t *data, uint8_t length)
     }
 
     if (data == NULL || length == 0)
+    {
+        return SX1262_INVALID_PARAM;
+    }
+
+    // En longitud fija no viaja el byte de longitud: el receptor lee exactamente
+    // payload_len bytes, así que cualquier otra longitud llega como CRC_ERR.
+    if (SX1262_FSK_CurrentConfig.fixed_length && length != SX1262_FSK_CurrentConfig.payload_len)
     {
         return SX1262_INVALID_PARAM;
     }
@@ -1881,6 +1965,34 @@ SX1262_Status_t SX1262_FSK_ApplyConfig(fsk_config_t *config)
     }
     st = st ? st : sx1262_WriteCommand(SX126X_CMD_WRITE_REGISTER, buf, 2U + config->sync_word_len);
 
+    // --- 5b. SEMILLA DE WHITENING ---
+    // 0x01FF, la del driver de referencia de Semtech y RadioLib (el reset del
+    // chip es 0x0100 y no interopera con ellos). Solo el bit 0 de 0x06B8 es de
+    // la semilla: los 7 MSB no deben modificarse (datasheet tabla 12-1).
+    uint8_t whit_msb = 0;
+    st = st ? st : sx1262_ReadRegister(SX126X_REG_WHITENING_SEED_MSB, &whit_msb, 1);
+    buf[0] = (SX126X_REG_WHITENING_SEED_MSB >> 8) & 0xFF;
+    buf[1] = SX126X_REG_WHITENING_SEED_MSB & 0xFF;
+    buf[2] = (whit_msb & 0xFE) | ((SX126X_FSK_WHITENING_SEED >> 8) & 0x01);
+    buf[3] = SX126X_FSK_WHITENING_SEED & 0xFF;
+    st = st ? st : sx1262_WriteCommand(SX126X_CMD_WRITE_REGISTER, buf, 4);
+
+    // --- 5c. SEMILLA Y POLINOMIO DE CRC ---
+    // Pares estándar del datasheet §6.2.3.5: FSK_CRC_2_BYTE = IBM
+    // (0xFFFF / 0x8005), FSK_CRC_2_BYTE_INV = CCITT (0x1D0F / 0x1021). El resto
+    // usa los valores de reset. Se escriben siempre porque los registros
+    // conservan lo que dejó un ApplyConfig anterior.
+    bool crc_ibm = (config->crc_type == FSK_CRC_2_BYTE);
+    uint16_t crc_seed = crc_ibm ? 0xFFFF : 0x1D0F;
+    uint16_t crc_poly = crc_ibm ? 0x8005 : 0x1021;
+    buf[0] = (SX126X_REG_CRC_SEED_BASE >> 8) & 0xFF;
+    buf[1] = SX126X_REG_CRC_SEED_BASE & 0xFF;
+    buf[2] = (crc_seed >> 8) & 0xFF; // 0x06BC
+    buf[3] = crc_seed & 0xFF;        // 0x06BD
+    buf[4] = (crc_poly >> 8) & 0xFF; // 0x06BE
+    buf[5] = crc_poly & 0xFF;        // 0x06BF
+    st = st ? st : sx1262_WriteCommand(SX126X_CMD_WRITE_REGISTER, buf, 6);
+
     // --- 6. PARÁMETROS DEL PAQUETE ---
     // PreambleLength y SyncWordLength se expresan en bits en el comando GFSK
     // (los campos de la struct están en bytes).
@@ -1910,6 +2022,11 @@ SX1262_Status_t SX1262_FSK_ApplyConfig(fsk_config_t *config)
     // Guardar estado actual
     SX1262_FSK_CurrentConfig = *config;
     SX1262_FSK_CurrentConfig.config_pending = false;
+
+    // El chip queda en GFSK: las funciones SX1262_LoRa_* (TX, RX, CAD) deben
+    // fallar hasta el próximo SX1262_LoRa_ApplyConfig() en lugar de enviar
+    // parámetros LoRa (6 bytes de PacketParams) a un chip en GFSK.
+    SX1262_LoRa_CurrentConfig.config_pending = true;
 
     return SX1262_OK;
 }
