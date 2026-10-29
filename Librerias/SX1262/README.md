@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![STM32](https://img.shields.io/badge/Platform-STM32F411-black)](https://www.st.com/en/microcontrollers-microprocessors/stm32f4-series.html)
-[![Version](https://img.shields.io/badge/Version-2.0.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/SX1262)
+[![Version](https://img.shields.io/badge/Version-2.1.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/SX1262)
 [![Protocol](https://img.shields.io/badge/Protocol-LoRa%20%7C%20FSK-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/SX1262)
 
 ---
@@ -41,6 +41,7 @@
       - [`fsk_shaping_t` - Shaping Gaussiano FSK](#fsk_shaping_t---shaping-gaussiano-fsk)
       - [`fsk_rx_bandwidth_t` - Ancho de Banda de Recepción FSK](#fsk_rx_bandwidth_t---ancho-de-banda-de-recepción-fsk)
       - [`fsk_crc_type_t` - Tipo de CRC FSK](#fsk_crc_type_t---tipo-de-crc-fsk)
+      - [Whitening FSK](#whitening-fsk)
       - [Banderas `volatile` de Evento](#banderas-volatile-de-evento)
     - [2. Funciones Públicas](#2-funciones-públicas)
       - [`SX1262_Init()` - Inicialización del Driver](#sx1262_init---inicialización-del-driver)
@@ -68,27 +69,31 @@
       - [`SX1262_Wakeup()` - Despertar del Modo Reposo](#sx1262_wakeup---despertar-del-modo-reposo)
   - [Licencia](#licencia)
   - [Changelog](#changelog)
-    - [\[2.0.0\] - 21-07-2026](#200---21-07-2026)
+    - [\[2.1.0\] - 29-10-2026](#210---29-10-2026)
       - [Added](#added)
       - [Changed](#changed)
       - [Fixed](#fixed)
-    - [\[1.6.0\] - 27-04-2026](#160---27-04-2026)
-      - [Changed](#changed-1)
-    - [\[1.5.0\] - 19-04-2026](#150---19-04-2026)
+    - [\[2.0.0\] - 21-07-2026](#200---21-07-2026)
       - [Added](#added-1)
-      - [Changed](#changed-2)
-    - [\[1.4.0\] - 17-04-2026](#140---17-04-2026)
-      - [Added](#added-2)
-    - [\[1.3.0\] - 05-04-2026](#130---05-04-2026)
-      - [Added](#added-3)
-    - [\[1.2.0\] - 03-04-2026](#120---03-04-2026)
-      - [Added](#added-4)
-    - [\[1.1.0\] - 01-04-2026](#110---01-04-2026)
-      - [Added](#added-5)
-    - [\[1.0.1\] - 30-03-2026](#101---30-03-2026)
+      - [Changed](#changed-1)
       - [Fixed](#fixed-1)
-    - [\[1.0.0\] - 28-03-2026](#100---28-03-2026)
+    - [\[1.6.0\] - 27-04-2026](#160---27-04-2026)
+      - [Changed](#changed-2)
+    - [\[1.5.0\] - 19-04-2026](#150---19-04-2026)
+      - [Added](#added-2)
+      - [Changed](#changed-3)
+    - [\[1.4.0\] - 17-04-2026](#140---17-04-2026)
+      - [Added](#added-3)
+    - [\[1.3.0\] - 05-04-2026](#130---05-04-2026)
+      - [Added](#added-4)
+    - [\[1.2.0\] - 03-04-2026](#120---03-04-2026)
+      - [Added](#added-5)
+    - [\[1.1.0\] - 01-04-2026](#110---01-04-2026)
       - [Added](#added-6)
+    - [\[1.0.1\] - 30-03-2026](#101---30-03-2026)
+      - [Fixed](#fixed-2)
+    - [\[1.0.0\] - 28-03-2026](#100---28-03-2026)
+      - [Added](#added-7)
 
 ## Descripción
 Librería desarrollada en C para la interfaz con el módulo transceptor **Semtech SX1262** utilizando microcontroladores STM32. Proporciona funciones para configurar parámetros de comunicación, transmitir y recibir datos en las modulaciones **LoRa** y **FSK/GFSK**, y manejar eventos de interrupción. La librería está diseñada para ser fácil de usar, eficiente y compatible con la mayoría de las series STM32 (F1, F4, etc.) utilizando HAL. Soporta configuraciones avanzadas de LoRa como Spreading Factor, Bandwidth, Coding Rate y potencia de transmisión, detección de actividad en el canal (CAD) para *listen-before-talk*, y telemetría de señal (RSSI/SNR). Ideal para proyectos de IoT, sensores remotos y redes de baja potencia.
@@ -99,14 +104,14 @@ Librería desarrollada en C para la interfaz con el módulo transceptor **Semtec
 - **Doble modulación LoRa y FSK/GFSK**: API simétrica con prefijos `SX1262_LoRa_*` y `SX1262_FSK_*`. Ambos modos son mutuamente excluyentes en el chip; se conmuta llamando a `SX1262_LoRa_ApplyConfig()` o `SX1262_FSK_ApplyConfig()`.
 - **Comunicación SPI**: Abstracción de comandos (Write/Read registers, buffers) con manejo robusto del flag OVR.
 - **Configuración completa de parámetros LoRa**: Frecuencia (433/868/915 MHz), Spreading Factor (SF5-12), Bandwidth (7.8-500 kHz), Coding Rate (4/5 a 4/8).
-- **Configuración completa de parámetros FSK/GFSK**: Bit rate, desviación de frecuencia, RX bandwidth, shaping gaussiano (BT), sync word de hasta 8 bytes, CRC (1/2 bytes, con/sin inversión), whitening y paquetes de longitud fija o variable.
+- **Configuración completa de parámetros FSK/GFSK**: Bit rate, desviación de frecuencia, RX bandwidth, shaping gaussiano (BT), sync word de hasta 8 bytes, CRC (1/2 bytes, con/sin inversión; los de 2 bytes son CRC-16 IBM y CCITT estándar), whitening (semilla PN9 `0x01FF`, compatible con Semtech y RadioLib) y paquetes de longitud fija o variable.
 - **Transmisión bloqueante** (`SX1262_LoRa_Transmit` / `SX1262_FSK_Transmit`): Espera por IRQ vía polling en DIO1 (TxDone + Timeout), con timeout de software calculado a partir del Time on Air real.
 - **Transmisión no bloqueante** (`..._StartTransmitIT` + `..._GetTransmitStatus`): El CPU no se bloquea. El chip notifica TX_DONE vía EXTI en DIO1; la bandera `SX1262_LoRa_TxDoneFlag` señaliza el evento. Incluye `..._AbortTransmit()` para timeouts de software.
 - **Recepción bloqueante** (`SX1262_LoRa_Receive` / `SX1262_FSK_Receive`): Espera en polling hasta RxDone, con timeout configurable y protección de tamaño de buffer (`max_length`).
 - **Recepción no bloqueante** (`..._StartReceiveIT` + `..._GetReceivedPacket`): El chip notifica vía EXTI en DIO1. El CPU no se bloquea; la bandera `SX1262_LoRa_RxDoneFlag` señaliza el evento. Incluye `..._AbortReceive()` para timeouts de software.
 - **Protección contra desbordamiento en RX**: Todas las funciones de recepción reciben la capacidad del buffer (`max_length`) y retornan `SX1262_RX_BUFFER_TOO_SMALL` sin tocar el buffer si el paquete no cabe, devolviendo el tamaño real en `*length`.
 - **Detección de actividad en el canal (CAD)** (`SX1262_LoRa_ChannelActivityDetection`): Primitiva *listen-before-talk* rápida y de bajo consumo; sensibilidad derivada del SF según la nota de aplicación Semtech AN1200.48.
-- **Telemetría de señal**: `SX1262_LoRa_GetPacketStatus` (RSSI + SNR en una sola lectura), `SX1262_LoRa_GetRSSI`, `SX1262_LoRa_GetSNR` y `SX1262_GetRSSIInst` (RSSI instantáneo del canal, útil para escáner de espectro).
+- **Telemetría de señal**: `SX1262_LoRa_GetPacketStatus` (RSSI + SNR en una sola lectura), `SX1262_LoRa_GetRSSI`, `SX1262_LoRa_GetSNR`, `SX1262_FSK_GetRSSI` (RSSI del último paquete FSK) y `SX1262_GetRSSIInst` (RSSI instantáneo del canal, útil para escáner de espectro).
 - **Dispatcher ISR unificado** (`SX1262_IRQ_Handler`): Un único callback EXTI en DIO1 maneja tanto TX como RX en ambas modulaciones. El semáforo interno `SX1262_TxActive` decide qué bandera activar, sin realizar ninguna comunicación SPI desde el ISR.
 - **Soporte para redes públicas, privadas y Meshtastic**: SyncWord configurable por modo o valor personalizado. Presets Meshtastic listos para usar (`LongFast`, `LongSlow`, `MediumFast`, etc.).
 - **LDRO automático**: Calcula y activa LowDataRateOptimize dinámicamente según SF y BW, siguiendo la sección 6.1.1.4 del datasheet.
@@ -477,8 +482,8 @@ fsk_config_t fsk = {
     .sync_word_len = 2,
     .fixed_length = false,               // Longitud variable
     .payload_len  = 0,                   // Ignorado en longitud variable
-    .crc_type     = FSK_CRC_2_BYTE,
-    .whitening    = true,
+    .crc_type     = FSK_CRC_2_BYTE_INV,  // CRC-16 CCITT
+    .whitening    = true,                // Semilla PN9 0x01FF
     .config_pending = false
 };
 SX1262_FSK_ApplyConfig(&fsk);
@@ -654,8 +659,8 @@ typedef struct {
     uint8_t sync_word_len;           // Longitud del sync word (default: 2)
     bool fixed_length;               // Longitud fija vs variable (default: false)
     uint8_t payload_len;             // Longitud de payload en modo fijo (ignorado en variable)
-    fsk_crc_type_t crc_type;         // Tipo de CRC (default: FSK_CRC_2_BYTE)
-    bool whitening;                  // Habilitar whitening (default: true)
+    fsk_crc_type_t crc_type;         // Tipo de CRC (default: FSK_CRC_2_BYTE_INV = CCITT)
+    bool whitening;                  // Habilitar whitening, semilla 0x01FF (default: true)
     bool config_pending;             // true si hay cambios sin aplicar
 } fsk_config_t;
 ```
@@ -696,11 +701,23 @@ typedef enum {
 typedef enum {
     FSK_CRC_OFF        = 0x01,
     FSK_CRC_1_BYTE     = 0x00,
-    FSK_CRC_2_BYTE     = 0x02,
+    FSK_CRC_2_BYTE     = 0x02,   // CRC-16 IBM
     FSK_CRC_1_BYTE_INV = 0x04,
-    FSK_CRC_2_BYTE_INV = 0x06
+    FSK_CRC_2_BYTE_INV = 0x06    // CRC-16 CCITT (por defecto)
 } fsk_crc_type_t;
 ```
+
+`SX1262_FSK_ApplyConfig()` escribe la semilla y el polinomio estándar de cada tipo de 2 bytes (datasheet §6.2.3.5), así que el CRC interopera con cualquier transceptor que siga el mismo estándar:
+
+| Tipo | Estándar | Semilla | Polinomio | Invertido |
+|------|----------|---------|-----------|-----------|
+| `FSK_CRC_2_BYTE` | CRC-16 IBM | `0xFFFF` | `0x8005` | No |
+| `FSK_CRC_2_BYTE_INV` | CRC-16 CCITT | `0x1D0F` | `0x1021` | Sí |
+| `FSK_CRC_1_BYTE*` | — | `0x1D0F` | `0x1021` | según tipo |
+
+#### Whitening FSK
+
+Con `whitening = true` la librería programa la semilla PN9 `0x01FF` (`SX126X_FSK_WHITENING_SEED`), la del driver de referencia de Semtech y de RadioLib. El valor de reset del chip (`0x0100`) no interopera con ellos: el receptor de-blanquea con otra secuencia y el byte de longitud y el payload llegan corruptos. Los 7 MSB reservados de `0x06B8` se preservan (lectura-modificación-escritura).
 
 ---
 
@@ -1020,7 +1037,7 @@ SX1262_Status_t SX1262_LoRa_ApplyConfig(const lora_config_t *config);
 
 #### `SX1262_LoRa_GetConfig()` - Obtener Configuración Actual
 
-Permite obtener una copia de la configuración LoRa actualmente aplicada al chip. La función retorna una estructura `lora_config_t` con los parámetros que fueron aplicados en el último `SX1262_LoRa_ApplyConfig()`. No realiza comunicación SPI, ya que la librería mantiene una copia local de la configuración aplicada. El campo `config_pending` de la copia siempre se establece en `false`, ya que esta función solo refleja la configuración que ya está activa en el chip.
+Permite obtener una copia de la configuración LoRa actualmente aplicada al chip. La función retorna una estructura `lora_config_t` con los parámetros que fueron aplicados en el último `SX1262_LoRa_ApplyConfig()`. No realiza comunicación SPI, ya que la librería mantiene una copia local de la configuración aplicada. El campo `config_pending` de la copia es `true` si el chip se cambió después a GFSK con `SX1262_FSK_ApplyConfig()`; en ese caso las funciones `SX1262_LoRa_*` de TX/RX/CAD devuelven `SX1262_ERROR` hasta volver a llamar a `SX1262_LoRa_ApplyConfig()` (y lo mismo a la inversa con las `SX1262_FSK_*`).
 
 ```c
 SX1262_Status_t SX1262_LoRa_GetConfig(lora_config_t *config);
@@ -1114,11 +1131,16 @@ La API FSK es simétrica a la LoRa. Solo se documentan aquí las diferencias; el
 | Cancelar RX | `SX1262_FSK_AbortReceive(void)` | `SX1262_LoRa_AbortReceive` |
 | Aplicar configuración | `SX1262_FSK_ApplyConfig(fsk_config_t *config)` | `SX1262_LoRa_ApplyConfig` |
 | Obtener configuración | `SX1262_FSK_GetConfig(fsk_config_t *config)` | `SX1262_LoRa_GetConfig` |
+| RSSI del último paquete | `SX1262_FSK_GetRSSI(int16_t *rssi_dbm)` | `SX1262_LoRa_GetRSSI` |
 
 Las funciones FSK comparten las mismas banderas (`SX1262_LoRa_TxDoneFlag` / `SX1262_LoRa_RxDoneFlag`), el mismo `SX1262_IRQ_Handler()` y los mismos códigos de retorno (`SX1262_Status_t`) que su contraparte LoRa. La recepción FSK también protege contra desbordamiento vía `max_length` y retorna `SX1262_RX_BUFFER_TOO_SMALL` cuando corresponde.
 
 > [!NOTE]
 > `SX1262_FSK_GetConfig()` devuelve los valores por defecto cacheados durante `SX1262_Init()` si aún no se ha aplicado ninguna configuración FSK.
+
+**Diferencias respecto a LoRa:**
+- `SX1262_FSK_GetRSSI()` reporta el `RssiSync` de `GetPacketStatus` (`RSSI [dBm] = -RssiSync / 2`, datasheet §13.5.3), medido al detectar el sync word. Debe llamarse justo después de una recepción exitosa. FSK no tiene SNR, así que no hay equivalente de `SX1262_LoRa_GetSNR()`.
+- En longitud fija (`fixed_length = true`) no viaja el byte de longitud: `SX1262_FSK_Transmit()` / `SX1262_FSK_StartTransmitIT()` devuelven `SX1262_INVALID_PARAM` si `length != payload_len`.
 
 ---
 
@@ -1175,6 +1197,25 @@ Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](/LICENSE
 
 Todos los cambios notables de esta librería se documentan en esta sección.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
+
+### [2.1.0] - 29-10-2026
+
+Versión menor: interoperabilidad FSK con transceptores estándar (whitening y CRC), RSSI de paquete en FSK y protección contra el uso cruzado de funciones LoRa/FSK. Sin cambios de firmas, pero el CRC `FSK_CRC_2_BYTE` **no interopera** con equipos que usen la 2.0.0.
+
+#### Added
+- **RSSI de paquete en FSK**: `SX1262_FSK_GetRSSI()`, RSSI en dBm del último paquete FSK recibido (`RssiSync` de `GetPacketStatus`, `-RssiSync / 2`). Llamarla justo después de una recepción exitosa; FSK no tiene SNR.
+
+#### Changed
+- **CRC FSK con pares estándar del datasheet** (§6.2.3.5): `SX1262_FSK_ApplyConfig()` escribe semilla y polinomio. `FSK_CRC_2_BYTE` pasa a ser CRC-16 IBM (`0xFFFF`/`0x8005`) y `FSK_CRC_2_BYTE_INV` CRC-16 CCITT (`0x1D0F`/`0x1021`). Antes `FSK_CRC_2_BYTE` usaba `0x1D0F`/`0x1021` sin invertir, que no corresponde a ningún estándar. **Incompatible** con equipos que aún usen la 2.0.0 con `FSK_CRC_2_BYTE`: actualiza ambos extremos o usa `FSK_CRC_2_BYTE_INV`.
+- El CRC FSK por defecto (`SX1262_Init()`) pasa de `FSK_CRC_2_BYTE` a `FSK_CRC_2_BYTE_INV` (CCITT, el de Semtech y RadioLib).
+- **Guarda de modulación**: tras `SX1262_FSK_ApplyConfig()`, `SX1262_LoRa_StartTransmitIT()`, `SX1262_LoRa_StartReceiveIT()`, `SX1262_LoRa_Receive()` y `SX1262_LoRa_ChannelActivityDetection()` devuelven `SX1262_ERROR` hasta volver a llamar a `SX1262_LoRa_ApplyConfig()`, y viceversa con las `SX1262_FSK_*`. Antes enviaban parámetros de la otra modulación al chip. `SX1262_LoRa_GetConfig()` / `SX1262_FSK_GetConfig()` devuelven `config_pending = true` para la modulación inactiva.
+- **Validación de longitud fija en FSK**: `SX1262_FSK_Transmit()` / `SX1262_FSK_StartTransmitIT()` devuelven `SX1262_INVALID_PARAM` si `fixed_length = true` y `length != payload_len` (antes el receptor lo recibía como error de CRC).
+
+#### Fixed
+- **Interoperabilidad FSK con transceptores estándar** (Semtech LoRaMac-node, RadioLib, Zephyr/CatSniffer): `SX1262_FSK_ApplyConfig()` programa la semilla de whitening `0x01FF` en lugar de dejar el valor de reset `0x0100`, que corrompía todo paquete con whitening hacia/desde esos receptores. Los bits reservados de `0x06B8` se preservan.
+- **RX no bloqueante sorda tras reconfigurar**: llamar a `SX1262_LoRa_ApplyConfig()` / `SX1262_FSK_ApplyConfig()` con una RX IT armada dejaba el estado interno en "RX activa" con el chip en Standby, y el siguiente `..._StartReceiveIT()` devolvía `SX1262_RX_BUSY`. Pasar a Standby ahora cancela la RX en curso.
+
+---
 
 ### [2.0.0] - 21-07-2026
 
@@ -1292,7 +1333,7 @@ Versión mayor: añade la modulación FSK/GFSK completa, CAD y telemetría insta
   Permite obtener el SNR (Signal-to-Noise Ratio) del último paquete recibido, en dB. El valor se extrae del mismo comando GetPacketStatus y puede ser negativo.
 
 - Función `SX1262_GetConfig()`:
-  Retorna una copia de la configuración LoRa actualmente aplicada al chip, sin realizar comunicación SPI. El campo config_pending de la copia siempre es false.
+  Retorna una copia de la configuración LoRa actualmente aplicada al chip, sin realizar comunicación SPI. El campo config_pending de la copia es true si el chip está en GFSK.
 
 ---
 
