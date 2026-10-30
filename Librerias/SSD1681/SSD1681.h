@@ -9,6 +9,8 @@
 #include "FONTS.h"
 #include <stdint.h>
 #include <string.h>
+#include <math.h>
+#include <stdbool.h>
 
 // ============================================================================
 // MACROS Y CONSTANTES SSD1681
@@ -329,6 +331,20 @@ SSD1681_Status_t SSD1681_DrawEllipse(int16_t x0, int16_t y0, int16_t rx, int16_t
  * @note Los píxeles fuera de pantalla se recortan sin generar error.
  */
 SSD1681_Status_t SSD1681_DrawFilledEllipse(int16_t x, int16_t y, int16_t rx, int16_t ry, SSD1681_COLOR_t color);
+
+/**
+ * @brief Dibuja el contorno de un arco (sector de anillo) entre dos ángulos.
+ *
+ * @param[in] x     Coordenada X del centro.
+ * @param[in] y     Coordenada Y del centro.
+ * @param[in] r1    Radio exterior del arco.
+ * @param[in] r2    Radio interior del arco.
+ * @param[in] start Ángulo inicial en grados (0° = derecha, sentido horario).
+ * @param[in] end   Ángulo final en grados.
+ * @param[in] color Color del contorno.
+ * @return SSD1681_Status_t
+ */
+SSD1681_Status_t SSD1681_DrawArc(int16_t x, int16_t y, int16_t r1, int16_t r2, float start, float end, SSD1681_COLOR_t color);
 
 #ifdef __cplusplus
 }
