@@ -236,6 +236,18 @@ SSD1681_Status_t SSD1681_DrawFastHLine(int16_t x, int16_t y, int16_t w, SSD1681_
  */
 SSD1681_Status_t SSD1681_DrawRectangle(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, SSD1681_COLOR_t c);
 
+/**
+ * @brief Dibuja un rectángulo relleno.
+ * 
+ * @param[in] x  Coordenada X superior izquierda.
+ * @param[in] y  Coordenada Y superior izquierda.
+ * @param[in] w  Ancho del rectángulo.
+ * @param[in] h  Alto del rectángulo.
+ * @param[in] c  Color de la línea
+ * @return SSD1681_Status_t 
+ */
+SSD1681_Status_t SSD1681_DrawFilledRectangle(uint16_t x, uint16_t y, uint16_t w, uint16_t h, SSD1681_COLOR_t c);
+
 #ifdef __cplusplus
 }
 #endif

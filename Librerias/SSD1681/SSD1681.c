@@ -654,3 +654,47 @@ SSD1681_Status_t SSD1681_DrawRectangle(uint16_t x0, uint16_t y0, uint16_t x1, ui
 
 	return st;
 }
+
+/**
+ * @brief Dibuja un rectángulo relleno.
+ * 
+ * @param[in] x  Coordenada X superior izquierda.
+ * @param[in] y  Coordenada Y superior izquierda.
+ * @param[in] w  Ancho del rectángulo.
+ * @param[in] h  Alto del rectángulo.
+ * @param[in] c  Color de la línea
+ * @return SSD1681_Status_t 
+ */
+SSD1681_Status_t SSD1681_DrawFilledRectangle(uint16_t x, uint16_t y, uint16_t w, uint16_t h, SSD1681_COLOR_t c)
+{
+	SSD1681_Status_t st;
+	uint16_t i;
+
+	if (SSD1681_Initialized != 1U) { return SSD1681_NOT_INITIALIZED; }
+
+	if (x >= SSD1681_Width || y >= SSD1681_Height)
+	{
+		return SSD1681_INVALID_PARAM;
+	}
+
+	if (w == 0U || h == 0U)
+	{
+		return SSD1681_OK;
+	}
+
+	/* Recorta al borde de la pantalla */
+	if ((uint32_t)x + w > SSD1681_Width)  { w = SSD1681_Width - x;  }
+	if ((uint32_t)y + h > SSD1681_Height) { h = SSD1681_Height - y; }
+
+	/* Dibuja h filas de w píxeles */
+	for (i = 0U; i < h; i++)
+	{
+		st = ssd1681_FillHLine((int16_t)x, (int16_t)(x + w - 1U), (int16_t)(y + i), c);
+		if (st != SSD1681_OK)
+		{
+			return st;
+		}
+	}
+
+	return SSD1681_OK;
+}
