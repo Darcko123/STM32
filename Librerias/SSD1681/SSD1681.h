@@ -27,7 +27,7 @@
 
 /* -- Tiempos (pueden redefinirse antes de incluir este archivo) -- */
 #ifndef SSD1681_SPI_TIMEOUT_MS
-#define SSD1681_SPI_TIMEOUT_MS   100U  /**< Timeout de cada transmisión SPI          */
+#define SSD1681_SPI_TIMEOUT_MS   1000U /**< Timeout de cada transmisión SPI (cubre el buffer completo a baja velocidad) */
 #endif
 #ifndef SSD1681_BUSY_TIMEOUT_MS
 #define SSD1681_BUSY_TIMEOUT_MS  5000U /**< Espera máxima a que se libere BUSY       */
@@ -145,6 +145,13 @@ SSD1681_Status_t SSD1681_ToggleInvert(void);
 SSD1681_Status_t SSD1681_Fill(SSD1681_COLOR_t color);
 
 /**
+ * @brief Limpia el buffer y actualiza la pantalla.
+ * 
+ * @return SSD1681_Status_t 
+ */
+SSD1681_Status_t SSD1681_Clear(void);
+
+/**
  * @brief Dibuja un píxel individual en el buffer.
  * 
  * @param[in] x     Coordenada X (0..ancho configurado en SSD1681_Init - 1).
@@ -216,6 +223,18 @@ SSD1681_Status_t SSD1681_DrawFastVLine(int16_t x, int16_t y, int16_t h, SSD1681_
  * @return SSD1681_Status_t
  */
 SSD1681_Status_t SSD1681_DrawFastHLine(int16_t x, int16_t y, int16_t w, SSD1681_COLOR_t color);
+
+/**
+ * @brief Dibuja un rectángulo (solo bordes).
+ * 
+ * @param[in] x0  Coordenada X superior izquierda.
+ * @param[in] y0  Coordenada Y superior izquierda.
+ * @param[in] x1  Coordenada X inferior derecha.
+ * @param[in] y1  Coordenada Y inferior derecha.
+ * @param[in] c   Color de la línea
+ * @return SSD1681_Status_t 
+ */
+SSD1681_Status_t SSD1681_DrawRectangle(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, SSD1681_COLOR_t c);
 
 #ifdef __cplusplus
 }

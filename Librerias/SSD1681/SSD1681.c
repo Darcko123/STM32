@@ -363,6 +363,19 @@ SSD1681_Status_t SSD1681_Fill(SSD1681_COLOR_t color)
 }
 
 /**
+ * @brief Limpia el buffer y actualiza la pantalla.
+ * 
+ * @return SSD1681_Status_t 
+ */
+SSD1681_Status_t SSD1681_Clear(void)
+{
+	if (SSD1681_Initialized != 1U) { return SSD1681_NOT_INITIALIZED; }
+
+	SSD1681_Status_t st = SSD1681_Fill(SSD1681_COLOR_WHITE);
+	return (st != SSD1681_OK) ? st : SSD1681_UpdateScreen();
+}
+
+/**
  * @brief Dibuja un píxel individual en el buffer.
  * 
  * @param[in] x     Coordenada X (0..ancho configurado en SSD1681_Init - 1).
@@ -600,4 +613,44 @@ SSD1681_Status_t SSD1681_DrawFastHLine(int16_t x, int16_t y, int16_t w, SSD1681_
 	if (w < 0) { x += w + 1; w = -w; }
 
 	return ssd1681_FillHLine(x, x + w - 1, y, color);
+}
+
+/**
+ * @brief Dibuja un rectángulo (solo bordes).
+ *
+ * @param[in] x0  Coordenada X de una esquina.
+ * @param[in] y0  Coordenada Y de una esquina.
+ * @param[in] x1  Coordenada X de la esquina opuesta.
+ * @param[in] y1  Coordenada Y de la esquina opuesta.
+ * @param[in] c   Color de la línea
+ * @return SSD1681_Status_t 
+ */
+SSD1681_Status_t SSD1681_DrawRectangle(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, SSD1681_COLOR_t c)
+{
+	SSD1681_Status_t st;
+	uint16_t tmp;
+
+	if (SSD1681_Initialized != 1U) { return SSD1681_NOT_INITIALIZED; }
+
+	/* Extremos fuera de pantalla: mismo criterio que SSD1681_DrawLine */
+	if (x0 >= SSD1681_Width  || x1 >= SSD1681_Width ||
+		y0 >= SSD1681_Height || y1 >= SSD1681_Height)
+	{
+		return SSD1681_INVALID_PARAM;
+	}
+
+	/* Normaliza el orden de las esquinas */
+	if (x0 > x1) { tmp = x0; x0 = x1; x1 = tmp; }
+	if (y0 > y1) { tmp = y0; y0 = y1; y1 = tmp; }
+
+	const int16_t w = (int16_t)(x1 - x0 + 1U);
+	const int16_t h = (int16_t)(y1 - y0 + 1U);
+
+	/* Dibuja 4 líneas */
+	st  = SSD1681_DrawFastHLine((int16_t)x0, (int16_t)y0, w, c);           /* Línea superior */
+	st  = st ? st : SSD1681_DrawFastHLine((int16_t)x0, (int16_t)y1, w, c); /* Línea inferior */
+	st  = st ? st : SSD1681_DrawFastVLine((int16_t)x0, (int16_t)y0, h, c); /* Línea izquierda */
+	st  = st ? st : SSD1681_DrawFastVLine((int16_t)x1, (int16_t)y0, h, c); /* Línea derecha */
+
+	return st;
 }
