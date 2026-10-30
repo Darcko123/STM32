@@ -170,7 +170,7 @@ static SSD1681_Status_t ssd1681_FillVLine(int16_t x, int16_t y0, int16_t y1, SSD
  *
  * @details Evita el cómputo de Bresenham de SSD1681_DrawLine para el caso
  *          (ya conocido) de una línea horizontal, usado por las rutinas de
- *          relleno de círculos y triángulos.
+ *          relleno de círculos, triángulos y elipses.
  *
  * @param x0    Coordenada X inicial (puede exceder los límites, se recorta).
  * @param x1    Coordenada X final (puede exceder los límites, se recorta).
@@ -1034,6 +1034,79 @@ SSD1681_Status_t SSD1681_DrawEllipse(int16_t x0, int16_t y0, int16_t rx, int16_t
 			x--;
 		}
 		sigma += a2 * (4 * y + 6);
+	}
+
+	return SSD1681_OK;
+}
+
+/**
+ * @brief Dibuja una elipse rellena
+ * 
+ * @param[in] x    Coordenada X del centro.
+ * @param[in] y    Coordenada Y del centro.
+ * @param[in] rx    Radio horizontal (>= 0).
+ * @param[in] ry    Radio vertical (>= 0).
+ * @param[in] color Color del relleno.
+ * @return SSD1681_Status_t
+ *
+ * @note Los píxeles fuera de pantalla se recortan sin generar error.
+ */
+SSD1681_Status_t SSD1681_DrawFilledEllipse(int16_t x, int16_t y, int16_t rx, int16_t ry, SSD1681_COLOR_t color)
+{
+	SSD1681_Status_t st;
+	int32_t a2, b2, fa2, fb2, sigma, dx, dy;
+
+	if (SSD1681_Initialized != 1U) { return SSD1681_NOT_INITIALIZED; }
+	if (rx < 0 || ry < 0)          { return SSD1681_INVALID_PARAM;   }
+
+	if (rx == 0)
+	{
+		return ssd1681_FillVLine(x, y - ry, y + ry, color);
+	}
+	if (ry == 0)
+	{
+		return ssd1681_FillHLine(x - rx, x + rx, y, color);
+	}
+
+	a2 = (int32_t)rx * rx;
+	b2 = (int32_t)ry * ry;
+	fa2 = 4 * a2;
+	fb2 = 4 * b2;
+
+	/* Región 1: pendiente |dy/dx| <= 1 */
+	for (dx = 0, dy = ry, sigma = 2 * b2 + a2 * (1 - 2 * ry); b2 * dx <= a2 * dy; dx++)
+	{
+		st  = ssd1681_FillHLine((int16_t)(x - dx), (int16_t)(x + dx), (int16_t)(y + dy), color);
+		st  = st ? st : ssd1681_FillHLine((int16_t)(x - dx), (int16_t)(x + dx), (int16_t)(y - dy), color);
+		if (st != SSD1681_OK)
+		{
+			return st;
+		}
+
+		if (sigma >= 0)
+		{
+			sigma += fa2 * (1 - dy);
+			dy--;
+		}
+		sigma += b2 * (4 * dx + 6);
+	}
+
+	/* Región 2: pendiente |dy/dx| > 1 */
+	for (dx = rx, dy = 0, sigma = 2 * a2 + b2 * (1 - 2 * rx); a2 * dy <= b2 * dx; dy++)
+	{
+		st  = ssd1681_FillHLine((int16_t)(x - dx), (int16_t)(x + dx), (int16_t)(y + dy), color);
+		st  = st ? st : ssd1681_FillHLine((int16_t)(x - dx), (int16_t)(x + dx), (int16_t)(y - dy), color);
+		if (st != SSD1681_OK)
+		{
+			return st;
+		}
+
+		if (sigma >= 0)
+		{
+			sigma += fb2 * (1 - dx);
+			dx--;
+		}
+		sigma += a2 * (4 * dy + 6);
 	}
 
 	return SSD1681_OK;
