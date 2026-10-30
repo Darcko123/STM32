@@ -319,3 +319,26 @@ SSD1681_Status_t SSD1681_DrawPixel(uint16_t x, uint16_t y, SSD1681_COLOR_t color
 
 	return SSD1681_OK;
 }
+
+/**
+ * @brief Posiciona el cursor de escritura de texto.
+ * 
+ * @param[in] x Coordenada X de inicio.
+ * @param[in] y Coordenada Y de inicio.
+ * @return SSD1681_Status_t
+ */
+SSD1681_Status_t SSD1681_GotoXY(uint16_t x, uint16_t y)
+{
+	if (SSD1681_Initialized != 1U) { return SSD1681_NOT_INITIALIZED; }
+
+	if (x >= SSD1681_Width || y >= SSD1681_Height)
+	{
+		return SSD1681_INVALID_PARAM;
+	}
+
+	/* Configurar puntos */
+	SSD1681_State.CurrentX = x;
+	SSD1681_State.CurrentY = y;
+
+	return SSD1681_OK;
+}
