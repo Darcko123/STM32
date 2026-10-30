@@ -51,12 +51,10 @@ static uint16_t      SSD1681_BUSY_Pin  = 0U;   /**< Pin GPIO del pin BUSY    */
 static uint16_t SSD1681_Width  = 0U; /**< Ancho activo en píxeles */
 static uint16_t SSD1681_Height = 0U; /**< Alto activo en píxeles  */
 
-/** Estado interno del cursor de escritura, dimensiones reales y de la inversión de color */
+/** Estado interno del cursor de escritura y de la inversión de color */
 typedef struct {
 	uint16_t CurrentX;
 	uint16_t CurrentY;
-	uint16_t Width;
-	uint16_t Height;
 	uint8_t  Inverted;
 } SSD1681_State_t;
 
@@ -193,7 +191,7 @@ uint16_t SSD1681_GetWidth(void)
 {
 	if (SSD1681_Initialized != 1U) { return 0U; }
 
-	return SSD1681_State.Width;
+	return SSD1681_Width;
 }
 
 /**
@@ -205,5 +203,5 @@ uint16_t SSD1681_GetHeight(void)
 {
 	if (SSD1681_Initialized != 1U) { return 0U; }
 
-	return SSD1681_State.Height;
+	return SSD1681_Height;
 }

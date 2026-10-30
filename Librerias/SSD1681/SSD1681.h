@@ -19,7 +19,7 @@
  * ejecución mediante SSD1681_Init(). Pueden redefinirse antes de incluir
  * este archivo para soportar pantallas mayores a 400x300. */
 #ifndef SSD1681_MAX_WIDTH
-#define SSD1681_MAX_WIDTH     400u  /**< Ancho máximo soportado en píxeles */
+#define SSD1681_MAX_WIDTH     400U  /**< Ancho máximo soportado en píxeles */
 #endif
 #ifndef SSD1681_MAX_HEIGHT
 #define SSD1681_MAX_HEIGHT    300U   /**< Alto máximo soportado en píxeles  */
