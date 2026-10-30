@@ -35,8 +35,12 @@
 #define SSD1681_TEMP_INTERNAL       0x80U /**< Sensor de temperatura interno                   */
 #define SSD1681_UPDATE_FULL         0xF7U /**< Clock+analog on, carga temp+LUT, display, off   */
 
-/* Factor de conversión de grados a radianes, usado por SSD1681_DrawArc */
+/* Factor de conversión de grados a radianes, usado por ssd1681_ArcSinCos */
 #define SSD1681_DEG_TO_RAD          0.017453292519943295769236907684886f
+
+/* Tolerancia (en píxeles) de la distancia con signo a los rayos del sector:
+ * absorbe el error de redondeo de sinf()/cosf() sin desplazar el borde */
+#define SSD1681_ARC_EPS             1e-3f
 
 // ============================================================================
 // VARIABLES PRIVADAS
@@ -231,134 +235,309 @@ static SSD1681_Status_t ssd1681_PlotPixel(int16_t x, int16_t y, SSD1681_COLOR_t 
 }
 
 /**
- * @brief Rellena un segmento angular (arco) entre dos ángulos y dos radios.
+ * @brief Dibuja un tramo horizontal de un arco, recortado a la pantalla.
  *
- * @details Recorre el cuadro delimitador del arco fila por fila y dibuja,
- *          en cada una, los segmentos horizontales que caen dentro de la
- *          corona circular [iradius, oradius] y del sector angular
- *          [start, end]. Usado por SSD1681_DrawArc tanto para los bordes
- *          rectos del arco como para sus bordes curvos.
+ * @details Recorta en int32_t antes de pasar a int16_t: el cast truncaría
+ *          coordenadas fuera de rango y ssd1681_FillHLine no lo detectaría.
  *
- * @param cx      Coordenada X del centro.
- * @param cy      Coordenada Y del centro.
- * @param oradius Radio exterior del arco.
- * @param iradius Radio interior del arco.
- * @param start   Ángulo inicial en grados (0 a 360).
- * @param end     Ángulo final en grados (0 a 360).
- * @param color   Color a utilizar.
+ * @param xL    Extremo izquierdo del tramo.
+ * @param xR    Extremo derecho del tramo.
+ * @param y     Fila del tramo.
+ * @param color Color a utilizar.
  *
  * @return SSD1681_Status_t Estado de la operación.
  */
-static SSD1681_Status_t ssd1681_FillArcHelper(int16_t cx, int16_t cy, int16_t oradius, int16_t iradius, float start, float end, SSD1681_COLOR_t color)
+static SSD1681_Status_t ssd1681_ArcSpan(int32_t xL, int32_t xR, int32_t y, SSD1681_COLOR_t color)
+{
+	if (y < 0 || y >= (int32_t)SSD1681_Height || xR < 0 || xL >= (int32_t)SSD1681_Width)
+	{
+		return SSD1681_OK;
+	}
+
+	if (xL < 0) { xL = 0; }
+	if (xR >= (int32_t)SSD1681_Width) { xR = (int32_t)SSD1681_Width - 1; }
+
+	return ssd1681_FillHLine((int16_t)xL, (int16_t)xR, (int16_t)y, color);
+}
+
+/**
+ * @brief Calcula el seno y el coseno de un ángulo expresado en grados.
+ *
+ * @details En los múltiplos de 90° se devuelven valores exactos: sinf()/cosf()
+ *          dejan un residuo del orden de 1e-7 que, al dividir por el seno para
+ *          obtener el borde del sector, desplaza el corte un píxel hacia un
+ *          lado. El redondeo a los valores exactos elimina ese desplazamiento.
+ *
+ * @param deg   Ángulo en grados (cualquier valor; se normaliza a [0,360)).
+ * @param sin_t Seno del ángulo.
+ * @param cos_t Coseno del ángulo.
+ */
+static void ssd1681_ArcSinCos(float deg, float* sin_t, float* cos_t)
+{
+	float r = fmodf(deg, 360.0f);
+	if (r < 0.0f) { r += 360.0f; }
+
+	if      ((r < 0.001f)   || (r > 359.999f)) { *sin_t =  0.0f; *cos_t =  1.0f; }
+	else if ((r > 89.999f)  && (r < 90.001f))  { *sin_t =  1.0f; *cos_t =  0.0f; }
+	else if ((r > 179.999f) && (r < 180.001f)) { *sin_t =  0.0f; *cos_t = -1.0f; }
+	else if ((r > 269.999f) && (r < 270.001f)) { *sin_t = -1.0f; *cos_t =  0.0f; }
+	else
+	{
+		*sin_t = sinf(r * SSD1681_DEG_TO_RAD);
+		*cos_t = cosf(r * SSD1681_DEG_TO_RAD);
+	}
+}
+
+/**
+ * @brief Raíz cuadrada entera exacta: floor(sqrt(v)) para v >= 0.
+ *
+ * @details Con radios int16_t, v < 2^30 y los cuadrados caben en int32_t.
+ *
+ * @param v Valor del que se quiere la raíz cuadrada.
+ *
+ * @return La mayor raíz cuadrada entera cuyo cuadrado no supera @p v.
+ */
+static int32_t ssd1681_Isqrt(int32_t v)
+{
+	int32_t r = (int32_t)sqrtf((float)v);
+
+	/* Corrige el posible error de redondeo de la raíz en coma flotante */
+	while ((r * r) > v) { r--; }
+	while (((r + 1) * (r + 1)) <= v) { r++; }
+
+	return r;
+}
+
+/**
+ * @brief Normaliza el par de ángulos de un arco.
+ *
+ * @details Devuelve el ángulo inicial normalizado a [0,360) y el barrido en
+ *          sentido horario. Si los ángulos normalizados coinciden pero los
+ *          originales no (caso start=0, end=360, o start=90, end=450), el
+ *          barrido es de 360°: el arco completo.
+ *
+ * @param start Ángulo inicial en grados.
+ * @param end   Ángulo final en grados.
+ * @param a0    Ángulo inicial normalizado en grados.
+ * @param sweep Barrido angular en grados, en sentido horario.
+ */
+static void ssd1681_ArcAngles(float start, float end, float* a0, float* sweep)
+{
+	float s = fmodf(start, 360.0f);
+	float e = fmodf(end, 360.0f);
+
+	if (s < 0.0f) { s += 360.0f; }
+	if (e < 0.0f) { e += 360.0f; }
+
+	*sweep = e - s;
+	if (*sweep < 0.0f) { *sweep += 360.0f; }
+	if ((*sweep <= 0.001f) && (fabsf(start - end) > 0.001f)) { *sweep = 360.0f; }
+
+	*a0 = s;
+}
+
+/**
+ * @brief Rellena el sector anular (banda de radios) comprendido entre los ángulos
+ *        @p a0 y @p a0 + @p sweep.
+ *
+ * @details Recorre el sector fila a fila. Para cada fila calcula:
+ *          -# el rango radial: los píxeles cuyo cuadrado de distancia al centro
+ *             está en [r_in²-r_in, r_out²+r_out), es decir, entre los radios
+ *             r_in-0.5 y r_out+0.5. Con r_in == r_out la banda resultante es de
+ *             un píxel de ancho, que es lo que usa SSD1681_DrawArc para trazar
+ *             los bordes curvos.
+ *          -# el rango angular: la intersección de los dos semiplanos que
+ *             delimitan el sector, que se resuelve como una cota para X.
+ *
+ *          El barrido angular se trocea en trozos de 180° como máximo, porque
+ *          un sector de más de 180° no es convexo y no se puede describir con
+ *          dos semiplanos: la unión de dos sectores convexos consecutivos
+ *          cubre el mismo barrido.
+ *
+ * @param cx     Coordenada X del centro.
+ * @param cy     Coordenada Y del centro.
+ * @param r_out  Radio exterior de la banda.
+ * @param r_in   Radio interior de la banda.
+ * @param a0     Ángulo inicial en grados (0° = derecha, sentido horario).
+ * @param sweep  Barrido angular en grados, en sentido horario.
+ * @param color  Color a utilizar.
+ *
+ * @return SSD1681_Status_t Estado de la operación.
+ */
+static SSD1681_Status_t ssd1681_FillArcHelper(int32_t cx, int32_t cy, int32_t r_out, int32_t r_in, float a0, float sweep, SSD1681_COLOR_t color)
 {
 	SSD1681_Status_t st;
-	float s_cos, e_cos, sslope, eslope, swidth, ewidth;
-	int32_t ir2, or2, xs, y, ye, xe;
-	bool start180, end180, reversed;
+	int32_t hi2, lo2, dy;
+	float a = a0;
 
-	if ((start == 90.0f) || (start == 180.0f) || (start == 270.0f) || (start == 360.0f))
+	if (r_in < 0) { r_in = 0; }
+
+	hi2 = (r_out * r_out) + r_out; /* d² < hi2  → radio < r_out+0.5 */
+	lo2 = (r_in * r_in) - r_in;    /* d² >= lo2 → radio >= r_in-0.5 */
+
+	while (sweep > 0.001f)
 	{
-		start -= 0.1f;
-	}
-	if ((end == 90.0f) || (end == 180.0f) || (end == 270.0f) || (end == 360.0f))
-	{
-		end -= 0.1f;
-	}
+		float chunk = (sweep > 180.0f) ? 180.0f : sweep; /* Trozo convexo del sector */
+		float sA, cA, sB, cB;
 
-	s_cos  = cosf(start * SSD1681_DEG_TO_RAD);
-	e_cos  = cosf(end * SSD1681_DEG_TO_RAD);
-	sslope = s_cos / sinf(start * SSD1681_DEG_TO_RAD);
-	eslope = e_cos / sinf(end * SSD1681_DEG_TO_RAD);
-	swidth = 0.5f / s_cos;
-	ewidth = -0.5f / e_cos;
-	--iradius;
-	ir2 = (int32_t)iradius * iradius + iradius;
-	or2 = (int32_t)oradius * oradius + oradius;
+		ssd1681_ArcSinCos(a, &sA, &cA);
+		ssd1681_ArcSinCos(a + chunk, &sB, &cB);
 
-	start180 = !(start < 180.0f);
-	end180   = end < 180.0f;
-	reversed = (start + 180.0f < end) || (end < start && start < end + 180.0f);
+		for (dy = -r_out; dy <= r_out; dy++)
+		{
+			int32_t rem  = hi2 - 1 - (dy * dy); /* x² <= rem  → |x| <= x_max */
+			int32_t need = lo2 - (dy * dy);     /* x² >= need → |x| >= x_min */
+			int32_t x_max, x_min, blo, bhi, k;
+			bool empty = false;
 
-	xs = -oradius;
-	y  = -oradius;
-	ye = oradius;
-	xe = oradius + 1;
-	if (!reversed)
-	{
-		if ((end >= 270.0f || end < 90.0f) && (start >= 270.0f || start < 90.0f))
-		{
-			xs = 0;
-		}
-		else if (end < 270.0f && end >= 90.0f && start < 270.0f && start >= 90.0f)
-		{
-			xe = 1;
-		}
-		if (end >= 180.0f && start >= 180.0f)
-		{
-			ye = 0;
-		}
-		else if (end < 180.0f && start < 180.0f)
-		{
-			y = 0;
-		}
-	}
+			if (rem < 0) { continue; }
 
-	do
-	{
-		int32_t y2 = y * y;
-		int32_t x  = xs;
-		int32_t len = 0;
-		float ysslope, yeslope;
+			x_max = ssd1681_Isqrt(rem);
+			x_min = (need > 0) ? (ssd1681_Isqrt(need - 1) + 1) : 0;
+			if (x_min > x_max) { continue; }
 
-		if (x < 0)
-		{
-			while (x * x + y2 >= or2)
+			/* Cota angular: por defecto, toda la fila de la banda */
+			blo = -x_max;
+			bhi =  x_max;
+
+			/* Límite del rayo inicial: sin(φ-A) >= 0  →  cA*dy - sA*x >= -eps */
+			if (fabsf(sA) < 1e-6f)
 			{
-				++x;
+				if ((cA * (float)dy) < -SSD1681_ARC_EPS) { empty = true; }
 			}
-			if (xe != 1)
+			else if (sA > 0.0f)
 			{
-				xe = 1 - x;
-			}
-		}
-
-		ysslope = ((float)y + swidth) * sslope;
-		yeslope = ((float)y + ewidth) * eslope;
-
-		do
-		{
-			bool flg1 = start180 != (x <= ysslope);
-			bool flg2 = end180 != (x <= yeslope);
-			int32_t distance = x * x + y2;
-
-			if (distance >= ir2 && ((flg1 && flg2) || (reversed && (flg1 || flg2))) && x != xe && distance < or2)
-			{
-				++len;
+				int32_t v = (int32_t)floorf((cA * (float)dy + SSD1681_ARC_EPS) / sA);
+				if (v < bhi) { bhi = v; }
 			}
 			else
 			{
-				if (len)
+				int32_t v = (int32_t)ceilf((cA * (float)dy + SSD1681_ARC_EPS) / sA);
+				if (v > blo) { blo = v; }
+			}
+
+			/* Límite del rayo final: sin(φ-B) <= 0  →  sB*x - cB*dy >= -eps */
+			if (!empty)
+			{
+				if (fabsf(sB) < 1e-6f)
 				{
-					st = ssd1681_FillHLine((int16_t)(cx + x - len), (int16_t)(cx + x - 1), (int16_t)(cy + y), color);
-					if (st != SSD1681_OK)
-					{
-						return st;
-					}
-					len = 0;
+					if ((-cB * (float)dy) < -SSD1681_ARC_EPS) { empty = true; }
 				}
-				if (distance >= or2)
+				else if (sB > 0.0f)
 				{
-					break;
+					int32_t v = (int32_t)ceilf((cB * (float)dy - SSD1681_ARC_EPS) / sB);
+					if (v > blo) { blo = v; }
 				}
-				if (x < 0 && distance < ir2)
+				else
 				{
-					x = -x;
+					int32_t v = (int32_t)floorf((cB * (float)dy - SSD1681_ARC_EPS) / sB);
+					if (v < bhi) { bhi = v; }
 				}
 			}
-		} while (++x <= xe);
-	} while (++y <= ye);
+
+			if (empty || (blo > bhi)) { continue; }
+
+			/* La banda radial deja un tramo por fila si el hueco interior no
+			 * llega a esa altura, o dos si la fila atraviesa el disco hueco.
+			 * Cada tramo se recorta contra la cota angular y se dibuja. */
+			for (k = 0; k < ((x_min == 0) ? 1 : 2); k++)
+			{
+				int32_t px0 = (x_min == 0) ? -x_max : ((k == 0) ? -x_max : x_min);
+				int32_t px1 = (x_min == 0) ?  x_max : ((k == 0) ? -x_min : x_max);
+				int32_t sx0 = (px0 > blo) ? px0 : blo;
+				int32_t sx1 = (px1 < bhi) ? px1 : bhi;
+
+				if (sx0 > sx1) { continue; }
+
+				st = ssd1681_ArcSpan(cx + sx0, cx + sx1, cy + dy, color);
+				if (st != SSD1681_OK)
+				{
+					return st;
+				}
+			}
+		}
+
+		a     += chunk;
+		sweep -= chunk;
+	}
 
 	return SSD1681_OK;
+}
+
+/**
+ * @brief Dibuja el radio recto (la "raya" que une el borde interior con el
+ *        exterior) de un sector anular, en el ángulo indicado.
+ *
+ * @details Recorre la arista por su eje dominante (columnas si la arista es más
+ *          horizontal que vertical, filas en caso contrario) y calcula en cada
+ *          paso la coordenada exacta sobre la semirrecta. Así la arista queda
+ *          alineada con la circunferencia en sus dos extremos. En el recorrido
+ *          por columnas los píxeles de la misma fila se agrupan en un único tramo.
+ *
+ * @param cx     Coordenada X del centro.
+ * @param cy     Coordenada Y del centro.
+ * @param r_in   Radio interior (origen de la raya).
+ * @param r_out  Radio exterior (fin de la raya).
+ * @param ang    Ángulo de la raya en grados (0° = derecha, sentido horario).
+ * @param color  Color a utilizar.
+ *
+ * @return SSD1681_Status_t Estado de la operación.
+ */
+static SSD1681_Status_t ssd1681_DrawArcRadius(int32_t cx, int32_t cy, int32_t r_in, int32_t r_out, float ang, SSD1681_COLOR_t color)
+{
+	SSD1681_Status_t st = SSD1681_OK;
+	float s, c;
+	int32_t i, from, to, tmp;
+
+	ssd1681_ArcSinCos(ang, &s, &c);
+
+	if (fabsf(c) >= fabsf(s))
+	{
+		/* Arista más horizontal que vertical: se recorre por columnas agrupando
+		 * las que caen en la misma fila */
+		int32_t run_x0 = 0, run_y = 0;
+		bool run = false;
+
+		from = cx + (int32_t)lroundf((float)r_in  * c);
+		to   = cx + (int32_t)lroundf((float)r_out * c);
+		if (from > to) { tmp = from; from = to; to = tmp; }
+
+		for (i = from; i <= to; i++)
+		{
+			int32_t y = cy + (int32_t)lroundf((float)(i - cx) * s / c);
+
+			if (run && (y == run_y)) { continue; } /* Se alarga el tramo */
+
+			if (run) /* Se cierra el tramo anterior */
+			{
+				st = ssd1681_ArcSpan(run_x0, i - 1, run_y, color);
+				if (st != SSD1681_OK)
+				{
+					return st;
+				}
+			}
+			run_x0 = i;
+			run_y  = y;
+			run    = true;
+		}
+
+		if (run) { st = ssd1681_ArcSpan(run_x0, to, run_y, color); }
+	}
+	else
+	{
+		/* Arista más vertical que horizontal: se recorre por filas */
+		from = cy + (int32_t)lroundf((float)r_in  * s);
+		to   = cy + (int32_t)lroundf((float)r_out * s);
+		if (from > to) { tmp = from; from = to; to = tmp; }
+
+		for (i = from; (i <= to) && (st == SSD1681_OK); i++)
+		{
+			int32_t x = cx + (int32_t)lroundf((float)(i - cy) * c / s);
+			st = ssd1681_ArcSpan(x, x, i, color);
+		}
+	}
+
+	return st;
 }
 
 // ============================================================================
@@ -1257,11 +1436,13 @@ SSD1681_Status_t SSD1681_DrawFilledEllipse(int16_t x, int16_t y, int16_t rx, int
  * @param[in] end   Ángulo final en grados.
  * @param[in] color Color del contorno.
  * @return SSD1681_Status_t
+ *
+ * @note Los píxeles fuera de pantalla se recortan sin generar error.
  */
 SSD1681_Status_t SSD1681_DrawArc(int16_t x, int16_t y, int16_t r1, int16_t r2, float start, float end, SSD1681_COLOR_t color)
 {
 	SSD1681_Status_t st;
-	bool full;
+	float a0, sweep;
 	int16_t tmp;
 
 	if (SSD1681_Initialized != 1U) { return SSD1681_NOT_INITIALIZED; }
@@ -1271,32 +1452,18 @@ SSD1681_Status_t SSD1681_DrawArc(int16_t x, int16_t y, int16_t r1, int16_t r2, f
 	if (r1 < 1)  { r1 = 1; }
 	if (r2 < 1)  { r2 = 1; }
 
-	/* Un barrido de 360° o más es un anillo completo */
-	full  = fabsf(end - start) >= 360.0f;
-	start = fmodf(start, 360.0f);
-	end   = fmodf(end, 360.0f);
-	if (start < 0) { start += 360.0f; }
-	if (end < 0)   { end   += 360.0f; }
+	ssd1681_ArcAngles(start, end, &a0, &sweep);
 
-	if (full)
-	{
-		start = 0.0f;
-		end   = 360.0f;
-	}
-	else
-	{
-		/* Bordes rectos del arco (en start y en end); un anillo completo no los lleva */
-		st  = ssd1681_FillArcHelper(x, y, r1, r2, start, start, color);
-		st  = st ? st : ssd1681_FillArcHelper(x, y, r1, r2, end, end, color);
-		if (st != SSD1681_OK)
-		{
-			return st;
-		}
-	}
+	/* Bordes curvos del arco (bandas de 1 px en el radio exterior e interior) */
+	st  = ssd1681_FillArcHelper(x, y, r1, r1, a0, sweep, color);
+	st  = st ? st : ssd1681_FillArcHelper(x, y, r2, r2, a0, sweep, color);
 
-	/* Bordes curvos del arco (radio exterior e interior) */
-	st  = ssd1681_FillArcHelper(x, y, r1, r1, start, end, color);
-	st  = st ? st : ssd1681_FillArcHelper(x, y, r2, r2, start, end, color);
+	/* Bordes rectos del arco. En el barrido completo ambos extremos coinciden */
+	st  = st ? st : ssd1681_DrawArcRadius(x, y, r2, r1, a0, color);
+	if ((st == SSD1681_OK) && (sweep < 359.999f))
+	{
+		st = ssd1681_DrawArcRadius(x, y, r2, r1, a0 + sweep, color);
+	}
 
 	return st;
 }
