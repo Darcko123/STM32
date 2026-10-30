@@ -346,6 +346,20 @@ SSD1681_Status_t SSD1681_DrawFilledEllipse(int16_t x, int16_t y, int16_t rx, int
  */
 SSD1681_Status_t SSD1681_DrawArc(int16_t x, int16_t y, int16_t r1, int16_t r2, float start, float end, SSD1681_COLOR_t color);
 
+/**
+ * @brief Dibuja un arco relleno (sector de anillo) entre dos ángulos.
+ *
+ * @param[in] x     Coordenada X del centro.
+ * @param[in] y     Coordenada Y del centro.
+ * @param[in] r1    Radio exterior del arco.
+ * @param[in] r2    Radio interior del arco.
+ * @param[in] start Ángulo inicial en grados (0° = derecha, sentido horario).
+ * @param[in] end   Ángulo final en grados.
+ * @param[in] color Color del relleno.
+ * @return SSD1681_Status_t
+ */
+SSD1681_Status_t SSD1681_DrawFilledArc(int16_t x, int16_t y, int16_t r1, int16_t r2, float start, float end, SSD1681_COLOR_t color);
+
 #ifdef __cplusplus
 }
 #endif

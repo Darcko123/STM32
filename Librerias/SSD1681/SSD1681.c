@@ -1467,3 +1467,37 @@ SSD1681_Status_t SSD1681_DrawArc(int16_t x, int16_t y, int16_t r1, int16_t r2, f
 
 	return st;
 }
+
+/**
+ * @brief Dibuja un arco relleno (sector de anillo) entre dos ángulos.
+ *
+ * @param[in] x     Coordenada X del centro.
+ * @param[in] y     Coordenada Y del centro.
+ * @param[in] r1    Radio exterior del arco.
+ * @param[in] r2    Radio interior del arco.
+ * @param[in] start Ángulo inicial en grados (0° = derecha, sentido horario).
+ * @param[in] end   Ángulo final en grados.
+ * @param[in] color Color del relleno.
+ * @return SSD1681_Status_t
+ *
+ * @note Los píxeles fuera de pantalla se recortan sin generar error.
+ */
+SSD1681_Status_t SSD1681_DrawFilledArc(int16_t x, int16_t y, int16_t r1, int16_t r2, float start, float end, SSD1681_COLOR_t color)
+{
+	float a0, sweep;
+	int16_t tmp;
+
+	if (SSD1681_Initialized != 1U) { return SSD1681_NOT_INITIALIZED; }
+	if (r1 < 0 || r2 < 0)          { return SSD1681_INVALID_PARAM;   }
+
+	if (r1 < r2) { tmp = r1; r1 = r2; r2 = tmp; }
+	if (r1 < 1)  { r1 = 1; }
+	if (r2 < 1)  { r2 = 1; }
+
+	ssd1681_ArcAngles(start, end, &a0, &sweep);
+
+	/* Barrido nulo (start == end): el sector degenera en la arista radial */
+	if (sweep <= 0.001f) { return ssd1681_DrawArcRadius(x, y, r2, r1, a0, color); }
+
+	return ssd1681_FillArcHelper(x, y, r1, r2, a0, sweep, color);
+}
