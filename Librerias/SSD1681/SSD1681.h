@@ -206,6 +206,17 @@ SSD1681_Status_t SSD1681_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_
  */
 SSD1681_Status_t SSD1681_DrawFastVLine(int16_t x, int16_t y, int16_t h, SSD1681_COLOR_t color);
 
+/**
+ * @brief Dibuja una línea horizontal de forma optimizada (sin Bresenham).
+ *
+ * @param[in] x     Coordenada X inicial.
+ * @param[in] y     Coordenada Y de la línea.
+ * @param[in] w     Ancho de la línea (puede ser negativo, se normaliza).
+ * @param[in] color Color de la línea.
+ * @return SSD1681_Status_t
+ */
+SSD1681_Status_t SSD1681_DrawFastHLine(int16_t x, int16_t y, int16_t w, SSD1681_COLOR_t color);
+
 #ifdef __cplusplus
 }
 #endif

@@ -165,6 +165,46 @@ static SSD1681_Status_t ssd1681_FillVLine(int16_t x, int16_t y0, int16_t y1, SSD
 	return SSD1681_OK;
 }
 
+/**
+ * @brief Rellena un segmento horizontal directamente en el buffer de pantalla.
+ *
+ * @details Evita el cómputo de Bresenham de SSD1681_DrawLine para el caso
+ *          (ya conocido) de una línea horizontal, usado por las rutinas de
+ *          relleno de círculos y triángulos.
+ *
+ * @param x0    Coordenada X inicial (puede exceder los límites, se recorta).
+ * @param x1    Coordenada X final (puede exceder los límites, se recorta).
+ * @param y     Coordenada Y del segmento.
+ * @param color Color a utilizar.
+ *
+ * @return SSD1681_Status_t Estado de la operación.
+ */
+static SSD1681_Status_t ssd1681_FillHLine(int16_t x0, int16_t x1, int16_t y, SSD1681_COLOR_t color)
+{
+	SSD1681_Status_t st;
+	int16_t x, tmp;
+
+	if (y < 0 || y >= (int16_t)SSD1681_Height)
+	{
+		return SSD1681_OK;
+	}
+
+	if (x0 > x1) { tmp = x0; x0 = x1; x1 = tmp; }
+	if (x0 < 0) { x0 = 0; }
+	if (x1 >= (int16_t)SSD1681_Width) { x1 = (int16_t)SSD1681_Width - 1; }
+
+	for (x = x0; x <= x1; x++)
+	{
+		st = SSD1681_DrawPixel((uint16_t)x, (uint16_t)y, color);
+		if (st != SSD1681_OK)
+		{
+			return st;
+		}
+	}
+
+	return SSD1681_OK;
+}
+
 // ============================================================================
 // FUNCIONES PÚBLICAS
 // ============================================================================
@@ -537,4 +577,27 @@ SSD1681_Status_t SSD1681_DrawFastVLine(int16_t x, int16_t y, int16_t h, SSD1681_
 	if (h < 0) { y += h + 1; h = -h; }
 
 	return ssd1681_FillVLine(x, y, y + h - 1, color);
+}
+
+/**
+ * @brief Dibuja una línea horizontal de forma optimizada (sin Bresenham).
+ *
+ * @param[in] x     Coordenada X inicial.
+ * @param[in] y     Coordenada Y de la línea.
+ * @param[in] w     Ancho de la línea (puede ser negativo, se normaliza).
+ * @param[in] color Color de la línea.
+ * @return SSD1681_Status_t
+ */
+SSD1681_Status_t SSD1681_DrawFastHLine(int16_t x, int16_t y, int16_t w, SSD1681_COLOR_t color)
+{
+	if (SSD1681_Initialized != 1U) { return SSD1681_NOT_INITIALIZED; }
+
+	if (w == 0)
+	{
+		return SSD1681_OK;
+	}
+
+	if (w < 0) { x += w + 1; w = -w; }
+
+	return ssd1681_FillHLine(x, x + w - 1, y, color);
 }
