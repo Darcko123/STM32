@@ -129,6 +129,13 @@ uint16_t SSD1681_GetHeight(void);
  */
 SSD1681_Status_t SSD1681_UpdateScreen(void);
 
+/**
+ * @brief Invierte el color de todos los píxeles del buffer (negro<->blanco).
+ * 
+ * @return SSD1681_Status_t 
+ */
+SSD1681_Status_t SSD1681_ToggleInvert(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -65,6 +65,8 @@ typedef struct {
 	uint8_t  Inverted;
 } SSD1681_State_t;
 
+static SSD1681_State_t SSD1681_State = {0}; /**< Cursor de escritura y estado de inversión */
+
 // ============================================================================
 // FUNCIONES PRIVADAS
 // ============================================================================
@@ -235,4 +237,28 @@ SSD1681_Status_t SSD1681_UpdateScreen(void)
 	st = st ? st : SSD1681_WaitBusy(SSD1681_BUSY_TIMEOUT_MS);
 
 	return st;
+}
+
+/**
+ * @brief Invierte el color de todos los píxeles del buffer (negro<->blanco).
+ * 
+ * @return SSD1681_Status_t 
+ */
+SSD1681_Status_t SSD1681_ToggleInvert(void)
+{
+	uint32_t i;
+	const uint32_t size = ((SSD1681_Width + 7U) / 8U) * (uint32_t)SSD1681_Height;
+
+	if (SSD1681_Initialized != 1U) { return SSD1681_NOT_INITIALIZED; }
+
+	/* Invertir toggle */
+	SSD1681_State.Inverted = (uint8_t)!SSD1681_State.Inverted;
+
+	/* Hacer toggle de memoria */
+	for (i = 0U; i < size; i++)
+	{
+		SSD1681_Buffer[i] = (uint8_t)~SSD1681_Buffer[i];
+	}
+
+	return SSD1681_OK;
 }
