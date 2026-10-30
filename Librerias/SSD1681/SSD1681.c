@@ -698,3 +698,36 @@ SSD1681_Status_t SSD1681_DrawFilledRectangle(uint16_t x, uint16_t y, uint16_t w,
 
 	return SSD1681_OK;
 }
+
+/**
+ * @brief Dibuja un triángulo.
+ * 
+ * @param[in] x1    Coordenada X del primer vértice.
+ * @param[in] y1    Coordenada Y del primer vértice.
+ * @param[in] x2    Coordenada X del segundo vértice.
+ * @param[in] y2    Coordenada Y del segundo vértice.
+ * @param[in] x3    Coordenada X del tercer vértice.
+ * @param[in] y3    Coordenada Y del tercer vértice.
+ * @param[in] color Color de las líneas.
+ * @return SSD1681_Status_t
+ */
+SSD1681_Status_t SSD1681_DrawTriangle(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t x3, uint16_t y3, SSD1681_COLOR_t color)
+{
+	SSD1681_Status_t st;
+
+	if (SSD1681_Initialized != 1U) { return SSD1681_NOT_INITIALIZED; }
+
+	/* Vértices fuera de pantalla: mismo criterio que SSD1681_DrawLine */
+	if (x1 >= SSD1681_Width  || x2 >= SSD1681_Width  || x3 >= SSD1681_Width ||
+		y1 >= SSD1681_Height || y2 >= SSD1681_Height || y3 >= SSD1681_Height)
+	{
+		return SSD1681_INVALID_PARAM;
+	}
+
+	/* Dibuja líneas */
+	st  = SSD1681_DrawLine(x1, y1, x2, y2, color);
+	st  = st ? st : SSD1681_DrawLine(x2, y2, x3, y3, color);
+	st  = st ? st : SSD1681_DrawLine(x3, y3, x1, y1, color);
+
+	return st;
+}

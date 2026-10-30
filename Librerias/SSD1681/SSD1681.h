@@ -248,6 +248,20 @@ SSD1681_Status_t SSD1681_DrawRectangle(uint16_t x0, uint16_t y0, uint16_t x1, ui
  */
 SSD1681_Status_t SSD1681_DrawFilledRectangle(uint16_t x, uint16_t y, uint16_t w, uint16_t h, SSD1681_COLOR_t c);
 
+/**
+ * @brief Dibuja un triángulo.
+ * 
+ * @param x1 
+ * @param y1 
+ * @param x2 
+ * @param y2 
+ * @param x3 
+ * @param y3 
+ * @param color 
+ * @return SSD1681_Status_t 
+ */
+SSD1681_Status_t SSD1681_DrawTriangle(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t x3, uint16_t y3, SSD1681_COLOR_t color);
+
 #ifdef __cplusplus
 }
 #endif
