@@ -397,3 +397,32 @@ SSD1681_Status_t SSD1681_Putc(char ch, FontDef_t* Font, SSD1681_COLOR_t color)
 
 	return SSD1681_OK;
 }
+
+/**
+ * @brief Dibuja una cadena de texto a partir de la posición actual del cursor.
+ * 
+ * @param[in] str   Cadena a dibujar.
+ * @param[in] Font  Fuente a utilizar.
+ * @param[in] color Color del texto.
+ * @return SSD1681_Status_t
+ */
+SSD1681_Status_t SSD1681_Puts(char* str, FontDef_t* Font, SSD1681_COLOR_t color)
+{
+	SSD1681_Status_t st;
+
+	if (str == NULL) { return SSD1681_INVALID_PARAM; }
+
+	/* Escribir caracteres */
+	while (*str)
+	{
+		st = SSD1681_Putc(*str, Font, color);
+		if (st != SSD1681_OK)
+		{
+			return st;
+		}
+
+		str++;
+	}
+
+	return SSD1681_OK;
+}

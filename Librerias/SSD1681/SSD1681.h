@@ -173,6 +173,16 @@ SSD1681_Status_t SSD1681_GotoXY(uint16_t x, uint16_t y);
  */
 SSD1681_Status_t SSD1681_Putc(char ch, FontDef_t* Font, SSD1681_COLOR_t color);
 
+/**
+ * @brief Dibuja una cadena de texto a partir de la posición actual del cursor.
+ * 
+ * @param[in] str   Cadena a dibujar.
+ * @param[in] Font  Fuente a utilizar.
+ * @param[in] color Color del texto.
+ * @return SSD1681_Status_t
+ */
+SSD1681_Status_t SSD1681_Puts(char* str, FontDef_t* Font, SSD1681_COLOR_t color);
+
 #ifdef __cplusplus
 }
 #endif
