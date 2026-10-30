@@ -26,10 +26,14 @@
 #define SSD1681_CMD_RAM_Y_RANGE     0x45U /**< Ventana de RAM en Y (en filas)                  */
 #define SSD1681_CMD_RAM_X_COUNTER   0x4EU /**< Contador de dirección X                         */
 #define SSD1681_CMD_RAM_Y_COUNTER   0x4FU /**< Contador de dirección Y                         */
+#define SSD1681_CMD_MASTER_ACTIVATE 0x20U /**< Ejecuta la secuencia de actualización          */
+#define SSD1681_CMD_UPDATE_CTRL2    0x22U /**< Secuencia de actualización del panel            */
+#define SSD1681_CMD_WRITE_RAM_BW    0x24U /**< Escritura en la RAM blanco/negro                */
 
 #define SSD1681_DATA_ENTRY_XY_INC   0x03U /**< X+ y Y+, avanza en X (por filas)                */
 #define SSD1681_BORDER_WHITE        0x05U /**< El borde sigue a la LUT del blanco              */
 #define SSD1681_TEMP_INTERNAL       0x80U /**< Sensor de temperatura interno                   */
+#define SSD1681_UPDATE_FULL         0xF7U /**< Clock+analog on, carga temp+LUT, display, off   */
 
 // ============================================================================
 // VARIABLES PRIVADAS
@@ -50,6 +54,9 @@ static uint16_t      SSD1681_BUSY_Pin  = 0U;   /**< Pin GPIO del pin BUSY    */
 
 static uint16_t SSD1681_Width  = 0U; /**< Ancho activo en píxeles */
 static uint16_t SSD1681_Height = 0U; /**< Alto activo en píxeles  */
+
+/** Buffer 1 bpp, por filas, MSB = píxel de la izquierda (1 = blanco, 0 = negro) */
+static uint8_t SSD1681_Buffer[((SSD1681_MAX_WIDTH + 7U) / 8U) * SSD1681_MAX_HEIGHT];
 
 /** Estado interno del cursor de escritura y de la inversión de color */
 typedef struct {
@@ -204,4 +211,28 @@ uint16_t SSD1681_GetHeight(void)
 	if (SSD1681_Initialized != 1U) { return 0U; }
 
 	return SSD1681_Height;
+}
+
+/**
+ * @brief Envía el contenido del buffer interno a la pantalla física.
+ * 
+ * @return SSD1681_Status_t 
+ */
+SSD1681_Status_t SSD1681_UpdateScreen(void)
+{
+	SSD1681_Status_t st;
+	const uint8_t  origin[] = { 0x00U, 0x00U };
+	const uint8_t  update   = SSD1681_UPDATE_FULL;
+	const uint16_t size     = (uint16_t)(((SSD1681_Width + 7U) / 8U) * SSD1681_Height);
+
+	if (SSD1681_Initialized != 1U) { return SSD1681_NOT_INITIALIZED; }
+
+	st = SSD1681_SendCommand(SSD1681_CMD_RAM_X_COUNTER, origin, 1U);
+	st = st ? st : SSD1681_SendCommand(SSD1681_CMD_RAM_Y_COUNTER, origin, 2U);
+	st = st ? st : SSD1681_SendCommand(SSD1681_CMD_WRITE_RAM_BW, SSD1681_Buffer, size);
+	st = st ? st : SSD1681_SendCommand(SSD1681_CMD_UPDATE_CTRL2, &update, 1U);
+	st = st ? st : SSD1681_SendCommand(SSD1681_CMD_MASTER_ACTIVATE, NULL, 0U);
+	st = st ? st : SSD1681_WaitBusy(SSD1681_BUSY_TIMEOUT_MS);
+
+	return st;
 }

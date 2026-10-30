@@ -122,6 +122,13 @@ uint16_t SSD1681_GetWidth(void);
  */
 uint16_t SSD1681_GetHeight(void);
 
+/**
+ * @brief Envía el contenido del buffer interno a la pantalla física.
+ * 
+ * @return SSD1681_Status_t 
+ */
+SSD1681_Status_t SSD1681_UpdateScreen(void);
+
 #ifdef __cplusplus
 }
 #endif
