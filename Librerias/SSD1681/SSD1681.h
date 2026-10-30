@@ -136,6 +136,14 @@ SSD1681_Status_t SSD1681_UpdateScreen(void);
  */
 SSD1681_Status_t SSD1681_ToggleInvert(void);
 
+/**
+ * @brief Rellena todo el buffer con un color sólido.
+ * 
+ * @param[in] color Color de relleno (SSD1681_COLOR_BLACK o SSD1681_COLOR_WHITE).
+ * @return SSD1681_Status_t
+ */
+SSD1681_Status_t SSD1681_Fill(SSD1681_COLOR_t color);
+
 #ifdef __cplusplus
 }
 #endif

@@ -262,3 +262,24 @@ SSD1681_Status_t SSD1681_ToggleInvert(void)
 
 	return SSD1681_OK;
 }
+
+/**
+ * @brief Rellena todo el buffer con un color sólido.
+ * 
+ * @param[in] color Color de relleno (SSD1681_COLOR_BLACK o SSD1681_COLOR_WHITE).
+ * @return SSD1681_Status_t
+ */
+SSD1681_Status_t SSD1681_Fill(SSD1681_COLOR_t color)
+{
+	const uint32_t size = ((SSD1681_Width + 7U) / 8U) * (uint32_t)SSD1681_Height;
+
+	if (SSD1681_Initialized != 1U) { return SSD1681_NOT_INITIALIZED; }
+
+	/* Respetar la inversión activa */
+	if (SSD1681_State.Inverted) { color = (color == SSD1681_COLOR_BLACK) ? SSD1681_COLOR_WHITE : SSD1681_COLOR_BLACK; }
+
+	/* Configurar memoria */
+	memset(SSD1681_Buffer, (color == SSD1681_COLOR_BLACK) ? 0x00 : 0xFF, size);
+
+	return SSD1681_OK;
+}
