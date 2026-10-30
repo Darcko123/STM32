@@ -205,6 +205,28 @@ static SSD1681_Status_t ssd1681_FillHLine(int16_t x0, int16_t x1, int16_t y, SSD
 	return SSD1681_OK;
 }
 
+/**
+ * @brief Dibuja un píxel, ignorando en silencio los que caen fuera de pantalla.
+ *
+ * @details Usado por SSD1681_DrawCircle para recortar figuras parcialmente
+ *          visibles, con el mismo criterio que ssd1681_FillHLine.
+ *
+ * @param x     Coordenada X (puede exceder los límites).
+ * @param y     Coordenada Y (puede exceder los límites).
+ * @param color Color a utilizar.
+ *
+ * @return SSD1681_Status_t Estado de la operación.
+ */
+static SSD1681_Status_t ssd1681_PlotPixel(int16_t x, int16_t y, SSD1681_COLOR_t color)
+{
+	if (x < 0 || y < 0 || x >= (int16_t)SSD1681_Width || y >= (int16_t)SSD1681_Height)
+	{
+		return SSD1681_OK;
+	}
+
+	return SSD1681_DrawPixel((uint16_t)x, (uint16_t)y, color);
+}
+
 // ============================================================================
 // FUNCIONES PÚBLICAS
 // ============================================================================
@@ -813,6 +835,68 @@ SSD1681_Status_t SSD1681_DrawFilledTriangle(uint16_t x1, uint16_t y1, uint16_t x
 		sb += dxac;
 
 		st = ssd1681_FillHLine(a, b, y, color);
+		if (st != SSD1681_OK)
+		{
+			return st;
+		}
+	}
+
+	return SSD1681_OK;
+}
+
+/**
+ * @brief Dibuja un círculo (solo borde).
+ * 
+ * @param[in] x0 Coordenada X del centro.
+ * @param[in] y0 Coordenada Y del centro.
+ * @param[in] r  Radio del círculo (>= 0).
+ * @param[in] c  Color del borde.
+ * @return SSD1681_Status_t
+ *
+ * @note Los píxeles fuera de pantalla se recortan sin generar error.
+ */
+SSD1681_Status_t SSD1681_DrawCircle(int16_t x0, int16_t y0, int16_t r, SSD1681_COLOR_t c)
+{
+	SSD1681_Status_t st;
+	int16_t f = 1 - r;
+	int16_t ddF_x = 1;
+	int16_t ddF_y = -2 * r;
+	int16_t x = 0;
+	int16_t y = r;
+
+	if (SSD1681_Initialized != 1U) { return SSD1681_NOT_INITIALIZED; }
+	if (r < 0)                     { return SSD1681_INVALID_PARAM;   }
+
+	st  = ssd1681_PlotPixel(x0, y0 + r, c);
+	st  = st ? st : ssd1681_PlotPixel(x0, y0 - r, c);
+	st  = st ? st : ssd1681_PlotPixel(x0 + r, y0, c);
+	st  = st ? st : ssd1681_PlotPixel(x0 - r, y0, c);
+	if (st != SSD1681_OK)
+	{
+		return st;
+	}
+
+	while (x < y)
+	{
+		if (f >= 0)
+		{
+			y--;
+			ddF_y += 2;
+			f += ddF_y;
+		}
+		x++;
+		ddF_x += 2;
+		f += ddF_x;
+
+		st  = ssd1681_PlotPixel(x0 + x, y0 + y, c);
+		st  = st ? st : ssd1681_PlotPixel(x0 - x, y0 + y, c);
+		st  = st ? st : ssd1681_PlotPixel(x0 + x, y0 - y, c);
+		st  = st ? st : ssd1681_PlotPixel(x0 - x, y0 - y, c);
+
+		st  = st ? st : ssd1681_PlotPixel(x0 + y, y0 + x, c);
+		st  = st ? st : ssd1681_PlotPixel(x0 - y, y0 + x, c);
+		st  = st ? st : ssd1681_PlotPixel(x0 + y, y0 - x, c);
+		st  = st ? st : ssd1681_PlotPixel(x0 - y, y0 - x, c);
 		if (st != SSD1681_OK)
 		{
 			return st;
