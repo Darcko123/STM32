@@ -406,11 +406,12 @@ SSD1681_Status_t SSD1681_Putc(char ch, FontDef_t* Font, SSD1681_COLOR_t color)
  * @param[in] color Color del texto.
  * @return SSD1681_Status_t
  */
-SSD1681_Status_t SSD1681_Puts(char* str, FontDef_t* Font, SSD1681_COLOR_t color)
+SSD1681_Status_t SSD1681_Puts(const char* str, FontDef_t* Font, SSD1681_COLOR_t color)
 {
 	SSD1681_Status_t st;
 
-	if (str == NULL) { return SSD1681_INVALID_PARAM; }
+	if (SSD1681_Initialized != 1U) { return SSD1681_NOT_INITIALIZED; }
+	if (str == NULL)               { return SSD1681_INVALID_PARAM;   }
 
 	/* Escribir caracteres */
 	while (*str)
