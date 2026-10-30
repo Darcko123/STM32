@@ -163,6 +163,16 @@ SSD1681_Status_t SSD1681_DrawPixel(uint16_t x, uint16_t y, SSD1681_COLOR_t color
  */
 SSD1681_Status_t SSD1681_GotoXY(uint16_t x, uint16_t y);
 
+/**
+ * @brief Dibuja un carácter en la posición actual del cursor.
+ * 
+ * @param[in] ch    Carácter a dibujar.
+ * @param[in] Font  Fuente a utilizar.
+ * @param[in] color Color del carácter.
+ * @return SSD1681_Status_t
+ */
+SSD1681_Status_t SSD1681_Putc(char ch, FontDef_t* Font, SSD1681_COLOR_t color);
+
 #ifdef __cplusplus
 }
 #endif

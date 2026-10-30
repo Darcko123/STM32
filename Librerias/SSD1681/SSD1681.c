@@ -342,3 +342,58 @@ SSD1681_Status_t SSD1681_GotoXY(uint16_t x, uint16_t y)
 
 	return SSD1681_OK;
 }
+
+/**
+ * @brief Dibuja un carácter en la posición actual del cursor.
+ * 
+ * @param[in] ch    Carácter a dibujar.
+ * @param[in] Font  Fuente a utilizar.
+ * @param[in] color Color del carácter.
+ * @return SSD1681_Status_t
+ */
+SSD1681_Status_t SSD1681_Putc(char ch, FontDef_t* Font, SSD1681_COLOR_t color)
+{
+	SSD1681_Status_t st;
+	uint32_t i, b, j;
+
+	if (SSD1681_Initialized != 1U) { return SSD1681_NOT_INITIALIZED; }
+	if (Font == NULL)              { return SSD1681_INVALID_PARAM;   }
+
+	/* Solo ASCII imprimible (la tabla de la fuente inicia en 32) */
+	if (ch < 32 || ch > 126)       { return SSD1681_INVALID_PARAM;   }
+
+	/* Revisar espacio disponible */
+	if (
+		SSD1681_Width  < (SSD1681_State.CurrentX + Font->FontWidth) ||
+		SSD1681_Height < (SSD1681_State.CurrentY + Font->FontHeight)
+	) {
+		return SSD1681_INVALID_PARAM;
+	}
+
+	/* Dibujar cada línea de la fuente */
+	for (i = 0; i < Font->FontHeight; i++)
+	{
+		b = Font->data[(ch - 32) * Font->FontHeight + i];
+		for (j = 0; j < Font->FontWidth; j++)
+		{
+			if ((b << j) & 0x8000)
+			{
+				st = SSD1681_DrawPixel(SSD1681_State.CurrentX + j, SSD1681_State.CurrentY + i, color);
+			}
+			else
+			{
+				st = SSD1681_DrawPixel(SSD1681_State.CurrentX + j, SSD1681_State.CurrentY + i, (SSD1681_COLOR_t)!color);
+			}
+
+			if (st != SSD1681_OK)
+			{
+				return st;
+			}
+		}
+	}
+
+	/* Incrementar posición del cursor */
+	SSD1681_State.CurrentX += Font->FontWidth;
+
+	return SSD1681_OK;
+}
