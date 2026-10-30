@@ -79,7 +79,7 @@ static SSD1681_State_t SSD1681_State = {0}; /**< Cursor de escritura y estado de
  * @param[in] size   Número de bytes de datos.
  * @return SSD1681_OK si la transmisión fue exitosa; SSD1681_ERROR en caso contrario.
  */
-static SSD1681_Status_t SSD1681_SendCommand(uint8_t cmd, const uint8_t* data, uint16_t size)
+static SSD1681_Status_t ssd1681_SendCommand(uint8_t cmd, const uint8_t* data, uint16_t size)
 {
 	HAL_StatusTypeDef hst;
 
@@ -103,7 +103,7 @@ static SSD1681_Status_t SSD1681_SendCommand(uint8_t cmd, const uint8_t* data, ui
  * @param[in] timeout_ms Tiempo máximo de espera en milisegundos.
  * @return SSD1681_OK si BUSY se liberó; SSD1681_TIMEOUT si se agotó el tiempo.
  */
-static SSD1681_Status_t SSD1681_WaitBusy(uint32_t timeout_ms)
+static SSD1681_Status_t ssd1681_WaitBusy(uint32_t timeout_ms)
 {
 	uint32_t tickstart = HAL_GetTick();
 	while (HAL_GPIO_ReadPin(SSD1681_BUSY_Port, SSD1681_BUSY_Pin) == SSD1681_BUSY_ACTIVE_LEVEL)
@@ -119,12 +119,50 @@ static SSD1681_Status_t SSD1681_WaitBusy(uint32_t timeout_ms)
 /**
  * @brief Pulso de reset por hardware en el pin RST (activo en bajo).
  */
-static void SSD1681_HardwareReset(void)
+static void ssd1681_HardwareReset(void)
 {
 	HAL_GPIO_WritePin(SSD1681_RST_Port, SSD1681_RST_Pin, GPIO_PIN_RESET);
 	HAL_Delay(SSD1681_RESET_PULSE_MS);
 	HAL_GPIO_WritePin(SSD1681_RST_Port, SSD1681_RST_Pin, GPIO_PIN_SET);
 	HAL_Delay(SSD1681_RESET_PULSE_MS);
+}
+
+/**
+ * @brief Rellena un segmento vertical directamente en el buffer de pantalla.
+ *
+ * @details Usado por SSD1681_DrawFastVLine.
+ *
+ * @param x     Coordenada X del segmento.
+ * @param y0    Coordenada Y inicial (puede exceder los límites, se recorta).
+ * @param y1    Coordenada Y final (puede exceder los límites, se recorta).
+ * @param color Color a utilizar.
+ *
+ * @return SSD1681_Status_t Estado de la operación.
+ */
+static SSD1681_Status_t ssd1681_FillVLine(int16_t x, int16_t y0, int16_t y1, SSD1681_COLOR_t color)
+{
+	SSD1681_Status_t st;
+	int16_t y, tmp;
+
+	if (x < 0 || x >= (int16_t)SSD1681_Width)
+	{
+		return SSD1681_OK;
+	}
+
+	if (y0 > y1) { tmp = y0; y0 = y1; y1 = tmp; }
+	if (y0 < 0) { y0 = 0; }
+	if (y1 >= (int16_t)SSD1681_Height) { y1 = (int16_t)SSD1681_Height - 1; }
+
+	for (y = y0; y <= y1; y++)
+	{
+		st = SSD1681_DrawPixel((uint16_t)x, (uint16_t)y, color);
+		if (st != SSD1681_OK)
+		{
+			return st;
+		}
+	}
+
+	return SSD1681_OK;
 }
 
 // ============================================================================
@@ -157,10 +195,10 @@ SSD1681_Status_t SSD1681_Init(SPI_HandleTypeDef* hspi,
 
 	HAL_GPIO_WritePin(SSD1681_CS_Port, SSD1681_CS_Pin, GPIO_PIN_SET);
 
-	SSD1681_HardwareReset();
-	st = SSD1681_WaitBusy(SSD1681_BUSY_TIMEOUT_MS);
-	st = st ? st : SSD1681_SendCommand(SSD1681_CMD_SW_RESET, NULL, 0U);
-	st = st ? st : SSD1681_WaitBusy(SSD1681_BUSY_TIMEOUT_MS);
+	ssd1681_HardwareReset();
+	st = ssd1681_WaitBusy(SSD1681_BUSY_TIMEOUT_MS);
+	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_SW_RESET, NULL, 0U);
+	st = st ? st : ssd1681_WaitBusy(SSD1681_BUSY_TIMEOUT_MS);
 
 	/* Compuertas = filas del panel y ventana de RAM del panel completo,
 	 * recorrida por filas desde la esquina superior izquierda. */
@@ -174,15 +212,15 @@ SSD1681_Status_t SSD1681_Init(SPI_HandleTypeDef* hspi,
 	const uint8_t  tempSensor     = SSD1681_TEMP_INTERNAL;
 	const uint8_t  origin[]       = { 0x00U, 0x00U };
 
-	st = st ? st : SSD1681_SendCommand(SSD1681_CMD_DRIVER_OUTPUT, driverOutput, sizeof(driverOutput));
-	st = st ? st : SSD1681_SendCommand(SSD1681_CMD_DATA_ENTRY,    &dataEntry,   1U);
-	st = st ? st : SSD1681_SendCommand(SSD1681_CMD_RAM_X_RANGE,   xRange,       sizeof(xRange));
-	st = st ? st : SSD1681_SendCommand(SSD1681_CMD_RAM_Y_RANGE,   yRange,       sizeof(yRange));
-	st = st ? st : SSD1681_SendCommand(SSD1681_CMD_BORDER,        &border,      1U);
-	st = st ? st : SSD1681_SendCommand(SSD1681_CMD_TEMP_SENSOR,   &tempSensor,  1U);
-	st = st ? st : SSD1681_SendCommand(SSD1681_CMD_RAM_X_COUNTER, origin,       1U);
-	st = st ? st : SSD1681_SendCommand(SSD1681_CMD_RAM_Y_COUNTER, origin,       2U);
-	st = st ? st : SSD1681_WaitBusy(SSD1681_BUSY_TIMEOUT_MS);
+	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_DRIVER_OUTPUT, driverOutput, sizeof(driverOutput));
+	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_DATA_ENTRY,    &dataEntry,   1U);
+	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_RAM_X_RANGE,   xRange,       sizeof(xRange));
+	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_RAM_Y_RANGE,   yRange,       sizeof(yRange));
+	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_BORDER,        &border,      1U);
+	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_TEMP_SENSOR,   &tempSensor,  1U);
+	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_RAM_X_COUNTER, origin,       1U);
+	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_RAM_Y_COUNTER, origin,       2U);
+	st = st ? st : ssd1681_WaitBusy(SSD1681_BUSY_TIMEOUT_MS);
 
 	if (st == SSD1681_OK)
 	{
@@ -229,12 +267,12 @@ SSD1681_Status_t SSD1681_UpdateScreen(void)
 
 	if (SSD1681_Initialized != 1U) { return SSD1681_NOT_INITIALIZED; }
 
-	st = SSD1681_SendCommand(SSD1681_CMD_RAM_X_COUNTER, origin, 1U);
-	st = st ? st : SSD1681_SendCommand(SSD1681_CMD_RAM_Y_COUNTER, origin, 2U);
-	st = st ? st : SSD1681_SendCommand(SSD1681_CMD_WRITE_RAM_BW, SSD1681_Buffer, size);
-	st = st ? st : SSD1681_SendCommand(SSD1681_CMD_UPDATE_CTRL2, &update, 1U);
-	st = st ? st : SSD1681_SendCommand(SSD1681_CMD_MASTER_ACTIVATE, NULL, 0U);
-	st = st ? st : SSD1681_WaitBusy(SSD1681_BUSY_TIMEOUT_MS);
+	st = ssd1681_SendCommand(SSD1681_CMD_RAM_X_COUNTER, origin, 1U);
+	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_RAM_Y_COUNTER, origin, 2U);
+	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_WRITE_RAM_BW, SSD1681_Buffer, size);
+	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_UPDATE_CTRL2, &update, 1U);
+	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_MASTER_ACTIVATE, NULL, 0U);
+	st = st ? st : ssd1681_WaitBusy(SSD1681_BUSY_TIMEOUT_MS);
 
 	return st;
 }
@@ -476,4 +514,27 @@ SSD1681_Status_t SSD1681_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_
 	}
 
 	return SSD1681_OK;
+}
+
+/**
+ * @brief Dibuja una línea vertical de forma optimizada (sin Bresenham).
+ *
+ * @param[in] x     Coordenada X de la línea.
+ * @param[in] y     Coordenada Y inicial.
+ * @param[in] h     Alto de la línea (puede ser negativo, se normaliza).
+ * @param[in] color Color de la línea.
+ * @return SSD1681_Status_t
+ */
+SSD1681_Status_t SSD1681_DrawFastVLine(int16_t x, int16_t y, int16_t h, SSD1681_COLOR_t color)
+{
+	if (SSD1681_Initialized != 1U) { return SSD1681_NOT_INITIALIZED; }
+
+	if (h == 0)
+	{
+		return SSD1681_OK;
+	}
+
+	if (h < 0) { y += h + 1; h = -h; }
+
+	return ssd1681_FillVLine(x, y, y + h - 1, color);
 }

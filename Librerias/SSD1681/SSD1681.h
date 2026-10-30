@@ -195,6 +195,17 @@ SSD1681_Status_t SSD1681_Puts(const char* str, FontDef_t* Font, SSD1681_COLOR_t 
  */
 SSD1681_Status_t SSD1681_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, SSD1681_COLOR_t c);
 
+/**
+ * @brief Dibuja una línea vertical de forma optimizada (sin Bresenham).
+ *
+ * @param[in] x     Coordenada X de la línea.
+ * @param[in] y     Coordenada Y inicial.
+ * @param[in] h     Alto de la línea (puede ser negativo, se normaliza).
+ * @param[in] color Color de la línea.
+ * @return SSD1681_Status_t
+ */
+SSD1681_Status_t SSD1681_DrawFastVLine(int16_t x, int16_t y, int16_t h, SSD1681_COLOR_t color);
+
 #ifdef __cplusplus
 }
 #endif
