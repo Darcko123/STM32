@@ -208,7 +208,7 @@ static SSD1681_Status_t ssd1681_FillHLine(int16_t x0, int16_t x1, int16_t y, SSD
 /**
  * @brief Dibuja un píxel, ignorando en silencio los que caen fuera de pantalla.
  *
- * @details Usado por SSD1681_DrawCircle para recortar figuras parcialmente
+ * @details Usado por SSD1681_DrawCircle y SSD1681_DrawEllipse para recortar figuras parcialmente
  *          visibles, con el mismo criterio que ssd1681_FillHLine.
  *
  * @param x     Coordenada X (puede exceder los límites).
@@ -957,6 +957,83 @@ SSD1681_Status_t SSD1681_DrawFilledCircle(int16_t x0, int16_t y0, int16_t r, SSD
 		{
 			return st;
 		}
+	}
+
+	return SSD1681_OK;
+}
+
+/**
+ * @brief Dibuja una elipse (solo borde).
+ *
+ * @param[in] x0    Coordenada X del centro.
+ * @param[in] y0    Coordenada Y del centro.
+ * @param[in] rx    Radio horizontal (>= 0).
+ * @param[in] ry    Radio vertical (>= 0).
+ * @param[in] color Color del borde.
+ * @return SSD1681_Status_t
+ *
+ * @note Los píxeles fuera de pantalla se recortan sin generar error.
+ */
+SSD1681_Status_t SSD1681_DrawEllipse(int16_t x0, int16_t y0, int16_t rx, int16_t ry, SSD1681_COLOR_t color)
+{
+	SSD1681_Status_t st;
+	int32_t a2, b2, fa2, fb2, sigma, x, y;
+
+	if (SSD1681_Initialized != 1U) { return SSD1681_NOT_INITIALIZED; }
+	if (rx < 0 || ry < 0)          { return SSD1681_INVALID_PARAM;   }
+
+	if (rx == 0)
+	{
+		return ssd1681_FillVLine(x0, y0 - ry, y0 + ry, color);
+	}
+	if (ry == 0)
+	{
+		return ssd1681_FillHLine(x0 - rx, x0 + rx, y0, color);
+	}
+
+	a2 = (int32_t)rx * rx;
+	b2 = (int32_t)ry * ry;
+	fa2 = 4 * a2;
+	fb2 = 4 * b2;
+
+	/* Región 1: pendiente |dy/dx| <= 1 */
+	for (x = 0, y = ry, sigma = 2 * b2 + a2 * (1 - 2 * ry); b2 * x <= a2 * y; x++)
+	{
+		st  = ssd1681_PlotPixel((int16_t)(x0 + x), (int16_t)(y0 + y), color);
+		st  = st ? st : ssd1681_PlotPixel((int16_t)(x0 - x), (int16_t)(y0 + y), color);
+		st  = st ? st : ssd1681_PlotPixel((int16_t)(x0 + x), (int16_t)(y0 - y), color);
+		st  = st ? st : ssd1681_PlotPixel((int16_t)(x0 - x), (int16_t)(y0 - y), color);
+		if (st != SSD1681_OK)
+		{
+			return st;
+		}
+
+		if (sigma >= 0)
+		{
+			sigma += fa2 * (1 - y);
+			y--;
+		}
+		sigma += b2 * (4 * x + 6);
+	}
+
+	/* Región 2: pendiente |dy/dx| > 1 */
+	for (x = rx, y = 0, sigma = 2 * a2 + b2 * (1 - 2 * rx); a2 * y <= b2 * x; y++)
+	{
+		st  = ssd1681_PlotPixel((int16_t)(x0 + x), (int16_t)(y0 + y), color);
+		st  = st ? st : ssd1681_PlotPixel((int16_t)(x0 - x), (int16_t)(y0 + y), color);
+		st  = st ? st : ssd1681_PlotPixel((int16_t)(x0 + x), (int16_t)(y0 - y), color);
+		st  = st ? st : ssd1681_PlotPixel((int16_t)(x0 - x), (int16_t)(y0 - y), color);
+		if (st != SSD1681_OK)
+		{
+			return st;
+		}
+
+		if (sigma >= 0)
+		{
+			sigma += fb2 * (1 - x);
+			x--;
+		}
+		sigma += a2 * (4 * y + 6);
 	}
 
 	return SSD1681_OK;

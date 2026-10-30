@@ -302,6 +302,20 @@ SSD1681_Status_t SSD1681_DrawCircle(int16_t x0, int16_t y0, int16_t r, SSD1681_C
  */
 SSD1681_Status_t SSD1681_DrawFilledCircle(int16_t x0, int16_t y0, int16_t r, SSD1681_COLOR_t c);
 
+/**
+ * @brief Dibuja una elipse (solo borde).
+ *
+ * @param[in] x0    Coordenada X del centro.
+ * @param[in] y0    Coordenada Y del centro.
+ * @param[in] rx    Radio horizontal (>= 0).
+ * @param[in] ry    Radio vertical (>= 0).
+ * @param[in] color Color del borde.
+ * @return SSD1681_Status_t
+ *
+ * @note Los píxeles fuera de pantalla se recortan sin generar error.
+ */
+SSD1681_Status_t SSD1681_DrawEllipse(int16_t x0, int16_t y0, int16_t rx, int16_t ry, SSD1681_COLOR_t color);
+
 #ifdef __cplusplus
 }
 #endif
