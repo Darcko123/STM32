@@ -905,3 +905,59 @@ SSD1681_Status_t SSD1681_DrawCircle(int16_t x0, int16_t y0, int16_t r, SSD1681_C
 
 	return SSD1681_OK;
 }
+
+/**
+ * @brief Dibuja un círculo relleno.
+ * 
+ * @param[in] x0 Coordenada X del centro.
+ * @param[in] y0 Coordenada Y del centro.
+ * @param[in] r  Radio del círculo (>= 0).
+ * @param[in] c  Color del relleno.
+ * @return SSD1681_Status_t
+ *
+ * @note Los píxeles fuera de pantalla se recortan sin generar error.
+ */
+SSD1681_Status_t SSD1681_DrawFilledCircle(int16_t x0, int16_t y0, int16_t r, SSD1681_COLOR_t c)
+{
+	SSD1681_Status_t st;
+	int16_t f = 1 - r;
+	int16_t ddF_x = 1;
+	int16_t ddF_y = -2 * r;
+	int16_t x = 0;
+	int16_t y = r;
+
+	if (SSD1681_Initialized != 1U) { return SSD1681_NOT_INITIALIZED; }
+	if (r < 0)                     { return SSD1681_INVALID_PARAM;   }
+
+	/* Línea central; el bucle cubre el resto, incluidos los extremos (x0, y0±r) */
+	st = ssd1681_FillHLine(x0 - r, x0 + r, y0, c);
+	if (st != SSD1681_OK)
+	{
+		return st;
+	}
+
+	while (x < y)
+	{
+		if (f >= 0)
+		{
+			y--;
+			ddF_y += 2;
+			f += ddF_y;
+		}
+		x++;
+		ddF_x += 2;
+		f += ddF_x;
+
+		st  = ssd1681_FillHLine(x0 - x, x0 + x, y0 + y, c);
+		st  = st ? st : ssd1681_FillHLine(x0 - x, x0 + x, y0 - y, c);
+
+		st  = st ? st : ssd1681_FillHLine(x0 - y, x0 + y, y0 + x, c);
+		st  = st ? st : ssd1681_FillHLine(x0 - y, x0 + y, y0 - x, c);
+		if (st != SSD1681_OK)
+		{
+			return st;
+		}
+	}
+
+	return SSD1681_OK;
+}

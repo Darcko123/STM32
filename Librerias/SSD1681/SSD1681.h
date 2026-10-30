@@ -289,6 +289,19 @@ SSD1681_Status_t SSD1681_DrawFilledTriangle(uint16_t x1, uint16_t y1, uint16_t x
  */
 SSD1681_Status_t SSD1681_DrawCircle(int16_t x0, int16_t y0, int16_t r, SSD1681_COLOR_t c);
 
+/**
+ * @brief Dibuja un círculo relleno.
+ * 
+ * @param[in] x0 Coordenada X del centro.
+ * @param[in] y0 Coordenada Y del centro.
+ * @param[in] r  Radio del círculo (>= 0).
+ * @param[in] c  Color del relleno.
+ * @return SSD1681_Status_t
+ *
+ * @note Los píxeles fuera de pantalla se recortan sin generar error.
+ */
+SSD1681_Status_t SSD1681_DrawFilledCircle(int16_t x0, int16_t y0, int16_t r, SSD1681_COLOR_t c);
+
 #ifdef __cplusplus
 }
 #endif
