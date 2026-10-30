@@ -108,6 +108,20 @@ SSD1681_Status_t SSD1681_Init(SPI_HandleTypeDef* hspi,
                             GPIO_TypeDef* busyPort, uint16_t busyPin,
                             uint16_t width, uint16_t height);
 
+/**
+ * @brief Obtiene el ancho de pantalla configurado en SSD1681_Init.
+ *
+ * @return uint16_t Ancho en píxeles, o 0 si el módulo no ha sido inicializado.
+ */
+uint16_t SSD1681_GetWidth(void);
+
+/**
+ * @brief Obtiene el alto de pantalla configurado en SSD1681_Init.
+ *
+ * @return uint16_t Alto en píxeles, o 0 si el módulo no ha sido inicializado.
+ */
+uint16_t SSD1681_GetHeight(void);
+
 #ifdef __cplusplus
 }
 #endif

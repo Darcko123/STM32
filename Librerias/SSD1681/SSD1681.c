@@ -1,17 +1,17 @@
  /**
- * @file Epaper.c
+ * @file SSD1681.c
  * @brief Librería para la gestión de pantallas e-paper (SSD1680/SSD1681/SSD1683) mediante comunicación SPI.
  *
  * @details Driver para pantallas e-paper monocromáticas, soporta inicialización,
  *          primitivas de dibujo (píxeles, líneas, rectángulos, triángulos,
  *          círculos, bitmaps) y texto con fuentes personalizadas.
  *
- * @author Tilen Majerle, Alexander Lutsai - Daniel Ruiz
+ * @author Daniel Ruiz
  * @date Octubre 29, 2026
  * @version 0.1.0
  */
 
-#include "Epaper.h"
+#include "SSD1681.h"
 
 // ============================================================================
 // COMANDOS DEL CONTROLADOR (datasheet SSD1681 de Solomon Systech)
@@ -50,6 +50,15 @@ static uint16_t      SSD1681_BUSY_Pin  = 0U;   /**< Pin GPIO del pin BUSY    */
 
 static uint16_t SSD1681_Width  = 0U; /**< Ancho activo en píxeles */
 static uint16_t SSD1681_Height = 0U; /**< Alto activo en píxeles  */
+
+/** Estado interno del cursor de escritura, dimensiones reales y de la inversión de color */
+typedef struct {
+	uint16_t CurrentX;
+	uint16_t CurrentY;
+	uint16_t Width;
+	uint16_t Height;
+	uint8_t  Inverted;
+} SSD1681_State_t;
 
 // ============================================================================
 // FUNCIONES PRIVADAS
@@ -173,4 +182,28 @@ SSD1681_Status_t SSD1681_Init(SPI_HandleTypeDef* hspi,
 		SSD1681_Initialized = 1U;
 	}
 	return st;
+}
+
+/**
+ * @brief Obtiene el ancho de pantalla configurado en SSD1681_Init.
+ *
+ * @return uint16_t Ancho en píxeles, o 0 si el módulo no ha sido inicializado.
+ */
+uint16_t SSD1681_GetWidth(void)
+{
+	if (SSD1681_Initialized != 1U) { return 0U; }
+
+	return SSD1681_State.Width;
+}
+
+/**
+ * @brief Obtiene el alto de pantalla configurado en SSD1681_Init.
+ *
+ * @return uint16_t Alto en píxeles, o 0 si el módulo no ha sido inicializado.
+ */
+uint16_t SSD1681_GetHeight(void)
+{
+	if (SSD1681_Initialized != 1U) { return 0U; }
+
+	return SSD1681_State.Height;
 }
