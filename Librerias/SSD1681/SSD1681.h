@@ -183,6 +183,18 @@ SSD1681_Status_t SSD1681_Putc(char ch, FontDef_t* Font, SSD1681_COLOR_t color);
  */
 SSD1681_Status_t SSD1681_Puts(const char* str, FontDef_t* Font, SSD1681_COLOR_t color);
 
+/**
+ * @brief Dibuja una línea entre dos puntos.
+ * 
+ * @param[in] x0  Coordenada X de inicio.
+ * @param[in] y0  Coordenada Y de inicio.
+ * @param[in] x1  Coordenada X de fin.
+ * @param[in] y1  Coordenada Y de fin.
+ * @param[in] c   Color de la línea
+ * @return SSD1681_Status_t 
+ */
+SSD1681_Status_t SSD1681_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, SSD1681_COLOR_t c);
+
 #ifdef __cplusplus
 }
 #endif

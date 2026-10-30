@@ -427,3 +427,53 @@ SSD1681_Status_t SSD1681_Puts(const char* str, FontDef_t* Font, SSD1681_COLOR_t 
 
 	return SSD1681_OK;
 }
+
+/**
+ * @brief Dibuja una línea entre dos puntos.
+ * 
+ * @param[in] x0  Coordenada X de inicio.
+ * @param[in] y0  Coordenada Y de inicio.
+ * @param[in] x1  Coordenada X de fin.
+ * @param[in] y1  Coordenada Y de fin.
+ * @param[in] c   Color de la línea
+ * @return SSD1681_Status_t 
+ */
+SSD1681_Status_t SSD1681_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, SSD1681_COLOR_t c)
+{
+	SSD1681_Status_t st;
+	int16_t dx, dy, sx, sy, err, e2;
+
+	if (SSD1681_Initialized != 1U) { return SSD1681_NOT_INITIALIZED; }
+
+	/* Extremos fuera de pantalla: mismo criterio que SSD1681_DrawPixel */
+	if (x0 >= SSD1681_Width  || x1 >= SSD1681_Width ||
+		y0 >= SSD1681_Height || y1 >= SSD1681_Height)
+	{
+		return SSD1681_INVALID_PARAM;
+	}
+
+	dx = (x0 < x1) ? (x1 - x0) : (x0 - x1);
+	dy = (y0 < y1) ? (y1 - y0) : (y0 - y1);
+	sx = (x0 < x1) ? 1 : -1;
+	sy = (y0 < y1) ? 1 : -1;
+	err = ((dx > dy) ? dx : -dy) / 2;
+
+	/* Bresenham cubre también líneas horizontales, verticales y un punto */
+	while (1)
+	{
+		st = SSD1681_DrawPixel(x0, y0, c);
+		if (st != SSD1681_OK)
+		{
+			return st;
+		}
+		if (x0 == x1 && y0 == y1)
+		{
+			break;
+		}
+		e2 = err;
+		if (e2 > -dx) { err -= dy; x0 += sx; }
+		if (e2 < dy)  { err += dx; y0 += sy; }
+	}
+
+	return SSD1681_OK;
+}
