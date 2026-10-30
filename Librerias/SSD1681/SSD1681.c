@@ -283,3 +283,39 @@ SSD1681_Status_t SSD1681_Fill(SSD1681_COLOR_t color)
 
 	return SSD1681_OK;
 }
+
+/**
+ * @brief Dibuja un píxel individual en el buffer.
+ * 
+ * @param[in] x     Coordenada X (0..ancho configurado en SSD1681_Init - 1).
+ * @param[in] y     Coordenada Y (0..alto configurado en SSD1681_Init - 1).
+ * @param[in] color Color del píxel.
+ * @return SSD1681_Status_t
+ */
+SSD1681_Status_t SSD1681_DrawPixel(uint16_t x, uint16_t y, SSD1681_COLOR_t color)
+{
+	if (SSD1681_Initialized != 1U) { return SSD1681_NOT_INITIALIZED; }
+
+	if (x >= SSD1681_Width || y >= SSD1681_Height)
+	{
+		return SSD1681_INVALID_PARAM;
+	}
+
+	/* Respetar la inversión activa */
+	if (SSD1681_State.Inverted) { color = (color == SSD1681_COLOR_BLACK) ? SSD1681_COLOR_WHITE : SSD1681_COLOR_BLACK; }
+
+	/* Buffer por filas: byte = x/8 dentro de la fila y, bit 7 = píxel de la izquierda */
+	const uint32_t index = (uint32_t)y * ((SSD1681_Width + 7U) / 8U) + (x / 8U);
+	const uint8_t  mask  = (uint8_t)(0x80U >> (x % 8U));
+
+	if (color == SSD1681_COLOR_WHITE)
+	{
+		SSD1681_Buffer[index] |= mask;
+	}
+	else
+	{
+		SSD1681_Buffer[index] &= (uint8_t)~mask;
+	}
+
+	return SSD1681_OK;
+}

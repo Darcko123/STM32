@@ -144,6 +144,16 @@ SSD1681_Status_t SSD1681_ToggleInvert(void);
  */
 SSD1681_Status_t SSD1681_Fill(SSD1681_COLOR_t color);
 
+/**
+ * @brief Dibuja un píxel individual en el buffer.
+ * 
+ * @param[in] x     Coordenada X (0..ancho configurado en SSD1681_Init - 1).
+ * @param[in] y     Coordenada Y (0..alto configurado en SSD1681_Init - 1).
+ * @param[in] color Color del píxel.
+ * @return SSD1681_Status_t
+ */
+SSD1681_Status_t SSD1681_DrawPixel(uint16_t x, uint16_t y, SSD1681_COLOR_t color);
+
 #ifdef __cplusplus
 }
 #endif
