@@ -731,3 +731,93 @@ SSD1681_Status_t SSD1681_DrawTriangle(uint16_t x1, uint16_t y1, uint16_t x2, uin
 
 	return st;
 }
+
+/**
+ * @brief Dibuja un triángulo relleno.
+ * 
+ * @param[in] x1    Coordenada X del primer vértice.
+ * @param[in] y1    Coordenada Y del primer vértice.
+ * @param[in] x2    Coordenada X del segundo vértice.
+ * @param[in] y2    Coordenada Y del segundo vértice.
+ * @param[in] x3    Coordenada X del tercer vértice.
+ * @param[in] y3    Coordenada Y del tercer vértice.
+ * @param[in] color Color de relleno.
+ * @return SSD1681_Status_t
+ */
+SSD1681_Status_t SSD1681_DrawFilledTriangle(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t x3, uint16_t y3, SSD1681_COLOR_t color)
+{
+	SSD1681_Status_t st;
+	int16_t ax = (int16_t)x1, ay = (int16_t)y1;
+	int16_t bx = (int16_t)x2, by = (int16_t)y2;
+	int16_t cx = (int16_t)x3, cy = (int16_t)y3;
+	int16_t a, b, y, last, tmp;
+	int16_t dxab, dyab, dxac, dyac, dxbc, dybc;
+	int32_t sa, sb;
+
+	if (SSD1681_Initialized != 1U) { return SSD1681_NOT_INITIALIZED; }
+
+	/* Vértices fuera de pantalla: mismo criterio que SSD1681_DrawTriangle */
+	if (x1 >= SSD1681_Width  || x2 >= SSD1681_Width  || x3 >= SSD1681_Width ||
+		y1 >= SSD1681_Height || y2 >= SSD1681_Height || y3 >= SSD1681_Height)
+	{
+		return SSD1681_INVALID_PARAM;
+	}
+
+	/* Ordenar vértices por Y ascendente: ay <= by <= cy */
+	if (ay > by) { tmp = ay; ay = by; by = tmp; tmp = ax; ax = bx; bx = tmp; }
+	if (by > cy) { tmp = by; by = cy; cy = tmp; tmp = bx; bx = cx; cx = tmp; }
+	if (ay > by) { tmp = ay; ay = by; by = tmp; tmp = ax; ax = bx; bx = tmp; }
+
+	if (ay == cy)
+	{
+		/* Triángulo degenerado: los 3 vértices están en la misma fila */
+		a = b = ax;
+		if (bx < a)      { a = bx; }
+		else if (bx > b) { b = bx; }
+		if (cx < a)      { a = cx; }
+		else if (cx > b) { b = cx; }
+
+		return ssd1681_FillHLine(a, b, ay, color);
+	}
+
+	dxab = bx - ax; dyab = by - ay;
+	dxac = cx - ax; dyac = cy - ay;
+	dxbc = cx - bx; dybc = cy - by;
+	sa = 0;
+	sb = 0;
+
+	/* Mitad superior: bordes A-B y A-C (se omite la fila by si A-B no es plano) */
+	last = (by == cy) ? by : (int16_t)(by - 1);
+	for (y = ay; y <= last; y++)
+	{
+		a = ax + (int16_t)(sa / dyab);
+		b = ax + (int16_t)(sb / dyac);
+		sa += dxab;
+		sb += dxac;
+
+		st = ssd1681_FillHLine(a, b, y, color);
+		if (st != SSD1681_OK)
+		{
+			return st;
+		}
+	}
+
+	/* Mitad inferior: bordes B-C y A-C */
+	sa = (int32_t)dxbc * (y - by);
+	sb = (int32_t)dxac * (y - ay);
+	for (; y <= cy; y++)
+	{
+		a = bx + (int16_t)(sa / dybc);
+		b = ax + (int16_t)(sb / dyac);
+		sa += dxbc;
+		sb += dxac;
+
+		st = ssd1681_FillHLine(a, b, y, color);
+		if (st != SSD1681_OK)
+		{
+			return st;
+		}
+	}
+
+	return SSD1681_OK;
+}

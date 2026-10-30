@@ -251,16 +251,30 @@ SSD1681_Status_t SSD1681_DrawFilledRectangle(uint16_t x, uint16_t y, uint16_t w,
 /**
  * @brief Dibuja un triángulo.
  * 
- * @param x1 
- * @param y1 
- * @param x2 
- * @param y2 
- * @param x3 
- * @param y3 
- * @param color 
- * @return SSD1681_Status_t 
+ * @param[in] x1    Coordenada X del primer vértice.
+ * @param[in] y1    Coordenada Y del primer vértice.
+ * @param[in] x2    Coordenada X del segundo vértice.
+ * @param[in] y2    Coordenada Y del segundo vértice.
+ * @param[in] x3    Coordenada X del tercer vértice.
+ * @param[in] y3    Coordenada Y del tercer vértice.
+ * @param[in] color Color de las líneas.
+ * @return SSD1681_Status_t
  */
 SSD1681_Status_t SSD1681_DrawTriangle(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t x3, uint16_t y3, SSD1681_COLOR_t color);
+
+/**
+ * @brief Dibuja un triángulo.
+ * 
+ * @param[in] x1    Coordenada X del primer vértice.
+ * @param[in] y1    Coordenada Y del primer vértice.
+ * @param[in] x2    Coordenada X del segundo vértice.
+ * @param[in] y2    Coordenada Y del segundo vértice.
+ * @param[in] x3    Coordenada X del tercer vértice.
+ * @param[in] y3    Coordenada Y del tercer vértice.
+ * @param[in] color Color de las líneas.
+ * @return SSD1681_Status_t
+ */
+SSD1681_Status_t SSD1681_DrawFilledTriangle(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t x3, uint16_t y3, SSD1681_COLOR_t color);
 
 #ifdef __cplusplus
 }
