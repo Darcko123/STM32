@@ -1546,14 +1546,3 @@ SSD1681_Status_t SSD1681_DrawBitmap(int16_t x, int16_t y, const uint8_t* bitmap,
 
 	return SSD1681_OK;
 }
-
-/**
- * @brief Limpia el buffer y actualiza la pantalla.
- * 
- * @return SSD1681_Status_t 
- */
-SSD1681_Status_t SSD1681_Clear(void)
-{
-	SSD1681_Status_t st = SSD1681_Fill(SSD1681_COLOR_WHITE);
-	return (st != SSD1681_OK) ? st : SSD1681_UpdateScreen();
-}
