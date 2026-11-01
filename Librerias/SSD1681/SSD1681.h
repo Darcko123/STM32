@@ -360,6 +360,22 @@ SSD1681_Status_t SSD1681_DrawArc(int16_t x, int16_t y, int16_t r1, int16_t r2, f
  */
 SSD1681_Status_t SSD1681_DrawFilledArc(int16_t x, int16_t y, int16_t r1, int16_t r2, float start, float end, SSD1681_COLOR_t color);
 
+/**
+ * @brief Dibuja un bitmap monocromático en la posición indicada.
+ * 
+ * @param[in] x      Coordenada X de inicio.
+ * @param[in] y      Coordenada Y de inicio.
+ * @param[in] bitmap Datos del bitmap (1 bit por píxel, bit 7 = píxel de la izquierda,
+ *                   cada fila rellenada a byte completo).
+ * @param[in] w      Ancho del bitmap en píxeles.
+ * @param[in] h      Alto del bitmap en píxeles.
+ * @param[in] color  Color de los píxeles activos (los bits en 0 no se dibujan).
+ * @return SSD1681_Status_t
+ *
+ * @note Los píxeles fuera de pantalla se recortan sin generar error.
+ */
+SSD1681_Status_t SSD1681_DrawBitmap(int16_t x, int16_t y, const uint8_t* bitmap, int16_t w, int16_t h, SSD1681_COLOR_t color);
+
 #ifdef __cplusplus
 }
 #endif
