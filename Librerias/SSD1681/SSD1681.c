@@ -29,11 +29,13 @@
 #define SSD1681_CMD_MASTER_ACTIVATE 0x20U /**< Ejecuta la secuencia de actualización          */
 #define SSD1681_CMD_UPDATE_CTRL2    0x22U /**< Secuencia de actualización del panel            */
 #define SSD1681_CMD_WRITE_RAM_BW    0x24U /**< Escritura en la RAM blanco/negro                */
+#define SSD1681_CMD_DEEP_SLEEP      0x10U /**< Entrada a deep sleep                            */
 
 #define SSD1681_DATA_ENTRY_XY_INC   0x03U /**< X+ y Y+, avanza en X (por filas)                */
 #define SSD1681_BORDER_WHITE        0x05U /**< El borde sigue a la LUT del blanco              */
 #define SSD1681_TEMP_INTERNAL       0x80U /**< Sensor de temperatura interno                   */
 #define SSD1681_UPDATE_FULL         0xF7U /**< Clock+analog on, carga temp+LUT, display, off   */
+#define SSD1681_SLEEP_MODE_1        0x01U /**< Deep sleep modo 1 (conserva la RAM)             */
 
 /* Factor de conversión de grados a radianes, usado por ssd1681_ArcSinCos */
 #define SSD1681_DEG_TO_RAD          0.017453292519943295769236907684886f
@@ -48,6 +50,7 @@
 
 static SPI_HandleTypeDef* SSD1681_hspi        = NULL; /**< Handle de SPI utilizado para comunicarse con el SSD1681 */
 static uint8_t            SSD1681_Initialized = 0U;   /**< Bandera para verificar si el módulo está inicializado */
+static uint8_t            SSD1681_Sleeping    = 0U;   /**< Bandera de panel en deep sleep (requiere reset)       */
 
 /* -- Pines de control (parametrizados en SSD1681_Init) -- */
 static GPIO_TypeDef* SSD1681_CS_Port   = NULL; /**< Puerto GPIO del pin CS   */
@@ -132,6 +135,48 @@ static void ssd1681_HardwareReset(void)
 	HAL_Delay(SSD1681_RESET_PULSE_MS);
 	HAL_GPIO_WritePin(SSD1681_RST_Port, SSD1681_RST_Pin, GPIO_PIN_SET);
 	HAL_Delay(SSD1681_RESET_PULSE_MS);
+}
+
+/**
+ * @brief Reset por hardware y configuración completa del controlador.
+ *
+ * @details Usado por SSD1681_Init y por SSD1681_UpdateScreen para despertar
+ *          el panel tras SSD1681_Sleep (deep sleep solo sale con reset).
+ *
+ * @return SSD1681_Status_t Estado de la operación.
+ */
+static SSD1681_Status_t ssd1681_Configure(void)
+{
+	SSD1681_Status_t st;
+
+	ssd1681_HardwareReset();
+	st = ssd1681_WaitBusy(SSD1681_BUSY_TIMEOUT_MS);
+	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_SW_RESET, NULL, 0U);
+	st = st ? st : ssd1681_WaitBusy(SSD1681_BUSY_TIMEOUT_MS);
+
+	/* Compuertas = filas del panel y ventana de RAM del panel completo,
+	 * recorrida por filas desde la esquina superior izquierda. */
+	const uint16_t lastRow  = SSD1681_Height - 1U;
+	const uint8_t  lastByte = (uint8_t)(((SSD1681_Width + 7U) / 8U) - 1U);
+	const uint8_t  driverOutput[] = { (uint8_t)(lastRow & 0xFFU), (uint8_t)(lastRow >> 8), 0x00U };
+	const uint8_t  dataEntry      = SSD1681_DATA_ENTRY_XY_INC;
+	const uint8_t  xRange[]       = { 0x00U, lastByte };
+	const uint8_t  yRange[]       = { 0x00U, 0x00U, (uint8_t)(lastRow & 0xFFU), (uint8_t)(lastRow >> 8) };
+	const uint8_t  border         = SSD1681_BORDER_WHITE;
+	const uint8_t  tempSensor     = SSD1681_TEMP_INTERNAL;
+	const uint8_t  origin[]       = { 0x00U, 0x00U };
+
+	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_DRIVER_OUTPUT, driverOutput, sizeof(driverOutput));
+	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_DATA_ENTRY,    &dataEntry,   1U);
+	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_RAM_X_RANGE,   xRange,       sizeof(xRange));
+	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_RAM_Y_RANGE,   yRange,       sizeof(yRange));
+	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_BORDER,        &border,      1U);
+	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_TEMP_SENSOR,   &tempSensor,  1U);
+	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_RAM_X_COUNTER, origin,       1U);
+	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_RAM_Y_COUNTER, origin,       2U);
+	st = st ? st : ssd1681_WaitBusy(SSD1681_BUSY_TIMEOUT_MS);
+
+	return st;
 }
 
 /**
@@ -567,35 +612,11 @@ SSD1681_Status_t SSD1681_Init(SPI_HandleTypeDef* hspi,
 	SSD1681_Width  = width;
 	SSD1681_Height = height;
 	SSD1681_Initialized = 0U;
+	SSD1681_Sleeping    = 0U;
 
 	HAL_GPIO_WritePin(SSD1681_CS_Port, SSD1681_CS_Pin, GPIO_PIN_SET);
 
-	ssd1681_HardwareReset();
-	st = ssd1681_WaitBusy(SSD1681_BUSY_TIMEOUT_MS);
-	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_SW_RESET, NULL, 0U);
-	st = st ? st : ssd1681_WaitBusy(SSD1681_BUSY_TIMEOUT_MS);
-
-	/* Compuertas = filas del panel y ventana de RAM del panel completo,
-	 * recorrida por filas desde la esquina superior izquierda. */
-	const uint16_t lastRow  = height - 1U;
-	const uint8_t  lastByte = (uint8_t)(((width + 7U) / 8U) - 1U);
-	const uint8_t  driverOutput[] = { (uint8_t)(lastRow & 0xFFU), (uint8_t)(lastRow >> 8), 0x00U };
-	const uint8_t  dataEntry      = SSD1681_DATA_ENTRY_XY_INC;
-	const uint8_t  xRange[]       = { 0x00U, lastByte };
-	const uint8_t  yRange[]       = { 0x00U, 0x00U, (uint8_t)(lastRow & 0xFFU), (uint8_t)(lastRow >> 8) };
-	const uint8_t  border         = SSD1681_BORDER_WHITE;
-	const uint8_t  tempSensor     = SSD1681_TEMP_INTERNAL;
-	const uint8_t  origin[]       = { 0x00U, 0x00U };
-
-	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_DRIVER_OUTPUT, driverOutput, sizeof(driverOutput));
-	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_DATA_ENTRY,    &dataEntry,   1U);
-	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_RAM_X_RANGE,   xRange,       sizeof(xRange));
-	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_RAM_Y_RANGE,   yRange,       sizeof(yRange));
-	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_BORDER,        &border,      1U);
-	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_TEMP_SENSOR,   &tempSensor,  1U);
-	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_RAM_X_COUNTER, origin,       1U);
-	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_RAM_Y_COUNTER, origin,       2U);
-	st = st ? st : ssd1681_WaitBusy(SSD1681_BUSY_TIMEOUT_MS);
+	st = ssd1681_Configure();
 
 	if (st == SSD1681_OK)
 	{
@@ -630,25 +651,59 @@ uint16_t SSD1681_GetHeight(void)
 
 /**
  * @brief Envía el contenido del buffer interno a la pantalla física.
- * 
- * @return SSD1681_Status_t 
+ *
+ * @details Si el panel está en deep sleep (SSD1681_Sleep), lo despierta con
+ *          un reset por hardware y lo reconfigura antes de enviar el buffer.
+ *
+ * @return SSD1681_Status_t
  */
 SSD1681_Status_t SSD1681_UpdateScreen(void)
 {
-	SSD1681_Status_t st;
+	SSD1681_Status_t st = SSD1681_OK;
 	const uint8_t  origin[] = { 0x00U, 0x00U };
 	const uint8_t  update   = SSD1681_UPDATE_FULL;
 	const uint16_t size     = (uint16_t)(((SSD1681_Width + 7U) / 8U) * SSD1681_Height);
 
 	if (SSD1681_Initialized != 1U) { return SSD1681_NOT_INITIALIZED; }
 
-	st = ssd1681_SendCommand(SSD1681_CMD_RAM_X_COUNTER, origin, 1U);
+	if (SSD1681_Sleeping)
+	{
+		st = ssd1681_Configure();
+		if (st == SSD1681_OK) { SSD1681_Sleeping = 0U; }
+	}
+
+	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_RAM_X_COUNTER, origin, 1U);
 	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_RAM_Y_COUNTER, origin, 2U);
 	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_WRITE_RAM_BW, SSD1681_Buffer, size);
 	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_UPDATE_CTRL2, &update, 1U);
 	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_MASTER_ACTIVATE, NULL, 0U);
 	st = st ? st : ssd1681_WaitBusy(SSD1681_BUSY_TIMEOUT_MS);
 
+	return st;
+}
+
+/**
+ * @brief Pone el panel en deep sleep (modo 1, conserva la RAM).
+ *
+ * @details La imagen permanece visible. El controlador solo sale de deep
+ *          sleep con un reset por hardware; SSD1681_UpdateScreen lo hace
+ *          automáticamente en la siguiente llamada.
+ *
+ * @return SSD1681_Status_t
+ */
+SSD1681_Status_t SSD1681_Sleep(void)
+{
+	SSD1681_Status_t st;
+	const uint8_t mode = SSD1681_SLEEP_MODE_1;
+
+	if (SSD1681_Initialized != 1U) { return SSD1681_NOT_INITIALIZED; }
+	if (SSD1681_Sleeping) { return SSD1681_OK; }
+
+	/* El comando solo se acepta con BUSY liberado */
+	st = ssd1681_WaitBusy(SSD1681_BUSY_TIMEOUT_MS);
+	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_DEEP_SLEEP, &mode, 1U);
+
+	if (st == SSD1681_OK) { SSD1681_Sleeping = 1U; }
 	return st;
 }
 
@@ -1076,7 +1131,7 @@ SSD1681_Status_t SSD1681_DrawTriangle(uint16_t x1, uint16_t y1, uint16_t x2, uin
  * @param[in] y2    Coordenada Y del segundo vértice.
  * @param[in] x3    Coordenada X del tercer vértice.
  * @param[in] y3    Coordenada Y del tercer vértice.
- * @param[in] color Color de relleno.
+ * @param[in] color Color del relleno.
  * @return SSD1681_Status_t
  */
 SSD1681_Status_t SSD1681_DrawFilledTriangle(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t x3, uint16_t y3, SSD1681_COLOR_t color)

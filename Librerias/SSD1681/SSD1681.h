@@ -126,10 +126,29 @@ uint16_t SSD1681_GetHeight(void);
 
 /**
  * @brief Envía el contenido del buffer interno a la pantalla física.
- * 
- * @return SSD1681_Status_t 
+ *
+ * @details Si el panel está en deep sleep (SSD1681_Sleep), lo despierta con
+ *          un reset por hardware y lo reconfigura antes de enviar el buffer.
+ *
+ * @return SSD1681_Status_t
  */
 SSD1681_Status_t SSD1681_UpdateScreen(void);
+
+/**
+ * @brief Pone el panel en deep sleep (modo 1, conserva la RAM).
+ *
+ * @details La imagen permanece visible. El controlador solo sale de deep
+ *          sleep con un reset por hardware; SSD1681_UpdateScreen lo hace
+ *          automáticamente en la siguiente llamada, sin volver a llamar a
+ *          SSD1681_Init. El buffer interno no se modifica.
+ *
+ * @return SSD1681_Status_t
+ *          - SSD1681_OK              si el panel quedó dormido (o ya lo estaba).
+ *          - SSD1681_ERROR           si ocurrió un error de comunicación.
+ *          - SSD1681_TIMEOUT         si BUSY no se liberó antes del comando.
+ *          - SSD1681_NOT_INITIALIZED si el módulo no ha sido inicializado.
+ */
+SSD1681_Status_t SSD1681_Sleep(void);
 
 /**
  * @brief Invierte el color de todos los píxeles del buffer (negro<->blanco).
@@ -265,7 +284,7 @@ SSD1681_Status_t SSD1681_DrawFilledRectangle(uint16_t x, uint16_t y, uint16_t w,
 SSD1681_Status_t SSD1681_DrawTriangle(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t x3, uint16_t y3, SSD1681_COLOR_t color);
 
 /**
- * @brief Dibuja un triángulo.
+ * @brief Dibuja un triángulo relleno.
  * 
  * @param[in] x1    Coordenada X del primer vértice.
  * @param[in] y1    Coordenada Y del primer vértice.
@@ -273,7 +292,7 @@ SSD1681_Status_t SSD1681_DrawTriangle(uint16_t x1, uint16_t y1, uint16_t x2, uin
  * @param[in] y2    Coordenada Y del segundo vértice.
  * @param[in] x3    Coordenada X del tercer vértice.
  * @param[in] y3    Coordenada Y del tercer vértice.
- * @param[in] color Color de las líneas.
+ * @param[in] color Color del relleno.
  * @return SSD1681_Status_t
  */
 SSD1681_Status_t SSD1681_DrawFilledTriangle(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t x3, uint16_t y3, SSD1681_COLOR_t color);
