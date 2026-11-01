@@ -3,12 +3,13 @@
  * @brief Librería para la gestión de pantallas e-paper (SSD1680/SSD1681/SSD1683) mediante comunicación SPI.
  *
  * @details Driver para pantallas e-paper monocromáticas, soporta inicialización,
- *          primitivas de dibujo (píxeles, líneas, rectángulos, triángulos,
- *          círculos, bitmaps) y texto con fuentes personalizadas.
+ *          refresco completo y parcial, deep sleep, primitivas de dibujo
+ *          (píxeles, líneas, rectángulos, triángulos, círculos, elipses, arcos,
+ *          bitmaps) y texto con fuentes personalizadas.
  *
  * @author Daniel Ruiz
- * @date Octubre 29, 2026
- * @version 0.1.0
+ * @date Octubre 31, 2026
+ * @version 1.0.0
  */
 
 #include "SSD1681.h"

@@ -1,3 +1,17 @@
+/**
+ * @file SSD1681.h
+ * @brief Librería para la gestión de pantallas e-paper (SSD1680/SSD1681/SSD1683) mediante comunicación SPI.
+ *
+ * @details API pública del driver: inicialización, refresco completo y parcial,
+ *          deep sleep, primitivas de dibujo (píxeles, líneas, rectángulos,
+ *          triángulos, círculos, elipses, arcos, bitmaps) y texto con las
+ *          fuentes de FONTS.h.
+ *
+ * @author Daniel Ruiz
+ * @date Octubre 31, 2026
+ * @version 1.0.0
+ */
+
 #ifndef SSD1681_H
 #define SSD1681_H
 
