@@ -29,12 +29,14 @@
 #define SSD1681_CMD_MASTER_ACTIVATE 0x20U /**< Ejecuta la secuencia de actualización          */
 #define SSD1681_CMD_UPDATE_CTRL2    0x22U /**< Secuencia de actualización del panel            */
 #define SSD1681_CMD_WRITE_RAM_BW    0x24U /**< Escritura en la RAM blanco/negro                */
+#define SSD1681_CMD_WRITE_RAM_OLD   0x26U /**< Escritura en la RAM "anterior" (rojo en BWR)    */
 #define SSD1681_CMD_DEEP_SLEEP      0x10U /**< Entrada a deep sleep                            */
 
 #define SSD1681_DATA_ENTRY_XY_INC   0x03U /**< X+ y Y+, avanza en X (por filas)                */
 #define SSD1681_BORDER_WHITE        0x05U /**< El borde sigue a la LUT del blanco              */
 #define SSD1681_TEMP_INTERNAL       0x80U /**< Sensor de temperatura interno                   */
 #define SSD1681_UPDATE_FULL         0xF7U /**< Clock+analog on, carga temp+LUT, display, off   */
+#define SSD1681_UPDATE_PARTIAL      0xFFU /**< Igual que FULL pero con LUT/display en modo 2   */
 #define SSD1681_SLEEP_MODE_1        0x01U /**< Deep sleep modo 1 (conserva la RAM)             */
 
 /* Factor de conversión de grados a radianes, usado por ssd1681_ArcSinCos */
@@ -51,6 +53,7 @@
 static SPI_HandleTypeDef* SSD1681_hspi        = NULL; /**< Handle de SPI utilizado para comunicarse con el SSD1681 */
 static uint8_t            SSD1681_Initialized = 0U;   /**< Bandera para verificar si el módulo está inicializado */
 static uint8_t            SSD1681_Sleeping    = 0U;   /**< Bandera de panel en deep sleep (requiere reset)       */
+static uint8_t            SSD1681_OldRamValid = 0U;   /**< La RAM 0x26 refleja la imagen mostrada en el panel   */
 
 /* -- Pines de control (parametrizados en SSD1681_Init) -- */
 static GPIO_TypeDef* SSD1681_CS_Port   = NULL; /**< Puerto GPIO del pin CS   */
@@ -176,6 +179,59 @@ static SSD1681_Status_t ssd1681_Configure(void)
 	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_RAM_Y_COUNTER, origin,       2U);
 	st = st ? st : ssd1681_WaitBusy(SSD1681_BUSY_TIMEOUT_MS);
 
+	return st;
+}
+
+/**
+ * @brief Envía el buffer interno completo a una de las RAM del controlador.
+ *
+ * @param[in] ramCmd SSD1681_CMD_WRITE_RAM_BW (0x24) o SSD1681_CMD_WRITE_RAM_OLD (0x26).
+ * @return SSD1681_Status_t Estado de la operación.
+ */
+static SSD1681_Status_t ssd1681_WriteRam(uint8_t ramCmd)
+{
+	SSD1681_Status_t st;
+	const uint8_t  origin[] = { 0x00U, 0x00U };
+	const uint16_t size     = (uint16_t)(((SSD1681_Width + 7U) / 8U) * SSD1681_Height);
+
+	st = ssd1681_SendCommand(SSD1681_CMD_RAM_X_COUNTER, origin, 1U);
+	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_RAM_Y_COUNTER, origin, 2U);
+	st = st ? st : ssd1681_SendCommand(ramCmd, SSD1681_Buffer, size);
+
+	return st;
+}
+
+/**
+ * @brief Ejecuta una secuencia de actualización (0x22 + 0x20) y espera BUSY.
+ *
+ * @param[in] sequence SSD1681_UPDATE_FULL o SSD1681_UPDATE_PARTIAL.
+ * @return SSD1681_Status_t Estado de la operación.
+ */
+static SSD1681_Status_t ssd1681_Refresh(uint8_t sequence)
+{
+	SSD1681_Status_t st;
+
+	st = ssd1681_SendCommand(SSD1681_CMD_UPDATE_CTRL2, &sequence, 1U);
+	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_MASTER_ACTIVATE, NULL, 0U);
+	st = st ? st : ssd1681_WaitBusy(SSD1681_BUSY_TIMEOUT_MS);
+
+	return st;
+}
+
+/**
+ * @brief Despierta el panel si está en deep sleep (reset + reconfiguración).
+ *
+ * @return SSD1681_Status_t Estado de la operación.
+ */
+static SSD1681_Status_t ssd1681_Wake(void)
+{
+	SSD1681_Status_t st = SSD1681_OK;
+
+	if (SSD1681_Sleeping)
+	{
+		st = ssd1681_Configure();
+		if (st == SSD1681_OK) { SSD1681_Sleeping = 0U; }
+	}
 	return st;
 }
 
@@ -613,6 +669,7 @@ SSD1681_Status_t SSD1681_Init(SPI_HandleTypeDef* hspi,
 	SSD1681_Height = height;
 	SSD1681_Initialized = 0U;
 	SSD1681_Sleeping    = 0U;
+	SSD1681_OldRamValid = 0U;
 
 	HAL_GPIO_WritePin(SSD1681_CS_Port, SSD1681_CS_Pin, GPIO_PIN_SET);
 
@@ -659,26 +716,44 @@ uint16_t SSD1681_GetHeight(void)
  */
 SSD1681_Status_t SSD1681_UpdateScreen(void)
 {
-	SSD1681_Status_t st = SSD1681_OK;
-	const uint8_t  origin[] = { 0x00U, 0x00U };
-	const uint8_t  update   = SSD1681_UPDATE_FULL;
-	const uint16_t size     = (uint16_t)(((SSD1681_Width + 7U) / 8U) * SSD1681_Height);
+	SSD1681_Status_t st;
 
 	if (SSD1681_Initialized != 1U) { return SSD1681_NOT_INITIALIZED; }
 
-	if (SSD1681_Sleeping)
-	{
-		st = ssd1681_Configure();
-		if (st == SSD1681_OK) { SSD1681_Sleeping = 0U; }
-	}
+	/* La RAM 0x26 no se toca: deja de coincidir con lo mostrado */
+	SSD1681_OldRamValid = 0U;
 
-	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_RAM_X_COUNTER, origin, 1U);
-	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_RAM_Y_COUNTER, origin, 2U);
-	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_WRITE_RAM_BW, SSD1681_Buffer, size);
-	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_UPDATE_CTRL2, &update, 1U);
-	st = st ? st : ssd1681_SendCommand(SSD1681_CMD_MASTER_ACTIVATE, NULL, 0U);
-	st = st ? st : ssd1681_WaitBusy(SSD1681_BUSY_TIMEOUT_MS);
+	st = ssd1681_Wake();
+	st = st ? st : ssd1681_WriteRam(SSD1681_CMD_WRITE_RAM_BW);
+	st = st ? st : ssd1681_Refresh(SSD1681_UPDATE_FULL);
 
+	return st;
+}
+
+/**
+ * @brief Envía el buffer interno con un refresco parcial (rápido, sin parpadeo).
+ *
+ * @details El modo 2 compara la RAM nueva (0x24) con la anterior (0x26) y solo
+ *          mueve los píxeles que cambian. Tras el refresco se copia el buffer
+ *          a 0x26 para que sirva de referencia en la siguiente llamada. Si 0x26
+ *          aún no es válida (tras Init, UpdateScreen o un error) se hace un
+ *          refresco completo que establece la imagen base.
+ *
+ * @return SSD1681_Status_t
+ */
+SSD1681_Status_t SSD1681_UpdateScreenPartial(void)
+{
+	SSD1681_Status_t st;
+	const uint8_t sequence = SSD1681_OldRamValid ? SSD1681_UPDATE_PARTIAL : SSD1681_UPDATE_FULL;
+
+	if (SSD1681_Initialized != 1U) { return SSD1681_NOT_INITIALIZED; }
+
+	st = ssd1681_Wake();
+	st = st ? st : ssd1681_WriteRam(SSD1681_CMD_WRITE_RAM_BW);
+	st = st ? st : ssd1681_Refresh(sequence);
+	st = st ? st : ssd1681_WriteRam(SSD1681_CMD_WRITE_RAM_OLD);
+
+	SSD1681_OldRamValid = (st == SSD1681_OK) ? 1U : 0U;
 	return st;
 }
 

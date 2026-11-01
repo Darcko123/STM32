@@ -135,6 +135,26 @@ uint16_t SSD1681_GetHeight(void);
 SSD1681_Status_t SSD1681_UpdateScreen(void);
 
 /**
+ * @brief Envía el buffer interno con un refresco parcial (~0,3-0,5 s, sin parpadeo).
+ *
+ * @details Pensado para relojes, contadores o lecturas de sensores. Usa la
+ *          forma de onda del modo 2 (0x22 = 0xFF), que compara la RAM nueva
+ *          (0x24) con la anterior (0x26). La primera llamada tras SSD1681_Init
+ *          o SSD1681_UpdateScreen hace un refresco completo para fijar la imagen
+ *          base. Los refrescos parciales acumulan ghosting: conviene intercalar
+ *          un SSD1681_UpdateScreen cada cierto número de llamadas. Despierta
+ *          el panel si está en deep sleep, igual que SSD1681_UpdateScreen.
+ *          Solo para paneles blanco/negro (en BWR la RAM 0x26 es el rojo).
+ *
+ * @return SSD1681_Status_t
+ *          - SSD1681_OK              si la pantalla se actualizó.
+ *          - SSD1681_ERROR           si ocurrió un error de comunicación.
+ *          - SSD1681_TIMEOUT         si BUSY no se liberó a tiempo.
+ *          - SSD1681_NOT_INITIALIZED si el módulo no ha sido inicializado.
+ */
+SSD1681_Status_t SSD1681_UpdateScreenPartial(void);
+
+/**
  * @brief Pone el panel en deep sleep (modo 1, conserva la RAM).
  *
  * @details La imagen permanece visible. El controlador solo sale de deep
