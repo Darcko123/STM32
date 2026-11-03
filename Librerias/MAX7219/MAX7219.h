@@ -4,8 +4,8 @@
  * @brief Librería para el control de matrices de LEDs MAX7219 mediante SPI.
  *
  * @author Daniel Ruiz
- * @date Junio 18, 2026
- * @version 2.1.0
+ * @date Noviembre 03, 2026
+ * @version 3.0.0
  */
 
 
