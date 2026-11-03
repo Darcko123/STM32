@@ -177,22 +177,6 @@ static MAX7219_Status_t ShiftLeft(void)
 }
 
 /**
- * @brief Desplaza el contenido de la matriz hacia la derecha.
- * 
- * @return MAX7219_Status_t Estado de la operación.
- */
-static MAX7219_Status_t ShiftRight(void)
-{
-    for (int cnt = 0; cnt < NumDev * 8 - 1; cnt++)
-    {
-        bufferCol[cnt] = bufferCol[cnt + 1];
-    }
-    bufferCol[NumDev * 8 - 1] = 0;
-    
-    return flushBuffer();
-}
-
-/**
  * @brief Desplaza un carácter a través de la matriz de LEDs con un retardo específico.
  * 
  * Convierte un carácter en su representación de bits y lo desplaza a través de la matriz
