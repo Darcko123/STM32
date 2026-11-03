@@ -223,6 +223,119 @@ MAX7219_Status_t MAX7219_Fill(MAX7219_COLOR_t color);
 MAX7219_Status_t MAX7219_DrawPixel(uint16_t x, uint16_t y, MAX7219_COLOR_t color);
 
 /**
+ * @brief Dibuja una línea horizontal en el buffer interno.
+ *
+ * Solo escribe en el buffer: llamar a MAX7219_UpdateScreen() para mostrar el resultado.
+ * Los píxeles fuera de la pantalla se recortan sin generar error.
+ *
+ * @param x     Columna inicial: 0 = izquierda.
+ * @param y     Fila de la línea: 0 = arriba.
+ * @param w     Ancho de la línea (puede ser negativo: se dibuja hacia la izquierda de @p x).
+ * @param color Color de la línea.
+ *
+ * @return MAX7219_Status_t
+ *         - MAX7219_OK              si la línea se escribió en el buffer (también si @p w es 0).
+ *         - MAX7219_NOT_INITIALIZED si no se ha llamado a MAX7219_Init.
+ */
+MAX7219_Status_t MAX7219_DrawFastHLine(int16_t x, int16_t y, int16_t w, MAX7219_COLOR_t color);
+
+/**
+ * @brief Dibuja una línea vertical en el buffer interno.
+ *
+ * Solo escribe en el buffer: llamar a MAX7219_UpdateScreen() para mostrar el resultado.
+ * Los píxeles fuera de la pantalla se recortan sin generar error.
+ *
+ * @param x     Columna de la línea: 0 = izquierda.
+ * @param y     Fila inicial: 0 = arriba.
+ * @param h     Alto de la línea (puede ser negativo: se dibuja hacia arriba de @p y).
+ * @param color Color de la línea.
+ *
+ * @return MAX7219_Status_t
+ *         - MAX7219_OK              si la línea se escribió en el buffer (también si @p h es 0).
+ *         - MAX7219_NOT_INITIALIZED si no se ha llamado a MAX7219_Init.
+ */
+MAX7219_Status_t MAX7219_DrawFastVLine(int16_t x, int16_t y, int16_t h, MAX7219_COLOR_t color);
+
+/**
+ * @brief Dibuja una línea entre dos puntos en el buffer interno (algoritmo de Bresenham).
+ *
+ * Solo escribe en el buffer: llamar a MAX7219_UpdateScreen() para mostrar el resultado.
+ *
+ * @param x0 Columna del primer extremo.
+ * @param y0 Fila del primer extremo.
+ * @param x1 Columna del segundo extremo.
+ * @param y1 Fila del segundo extremo.
+ * @param c  Color de la línea.
+ *
+ * @return MAX7219_Status_t
+ *         - MAX7219_OK              si la línea se escribió en el buffer.
+ *         - MAX7219_NOT_INITIALIZED si no se ha llamado a MAX7219_Init.
+ *         - MAX7219_INVALID_PARAM   si algún extremo está fuera de la pantalla (no se dibuja nada).
+ */
+MAX7219_Status_t MAX7219_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, MAX7219_COLOR_t c);
+
+/**
+ * @brief Dibuja el borde de un rectángulo en el buffer interno.
+ *
+ * Solo escribe en el buffer: llamar a MAX7219_UpdateScreen() para mostrar el resultado.
+ * Recibe dos esquinas opuestas, en cualquier orden (como SSD1681_DrawRectangle).
+ *
+ * @param x0 Columna de la primera esquina.
+ * @param y0 Fila de la primera esquina.
+ * @param x1 Columna de la esquina opuesta.
+ * @param y1 Fila de la esquina opuesta.
+ * @param c  Color del borde.
+ *
+ * @return MAX7219_Status_t
+ *         - MAX7219_OK              si el rectángulo se escribió en el buffer.
+ *         - MAX7219_NOT_INITIALIZED si no se ha llamado a MAX7219_Init.
+ *         - MAX7219_INVALID_PARAM   si alguna esquina está fuera de la pantalla (no se dibuja nada).
+ */
+MAX7219_Status_t MAX7219_DrawRectangle(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, MAX7219_COLOR_t c);
+
+/**
+ * @brief Dibuja un rectángulo relleno en el buffer interno.
+ *
+ * Solo escribe en el buffer: llamar a MAX7219_UpdateScreen() para mostrar el resultado.
+ * Recibe esquina superior izquierda, ancho y alto (como SSD1681_DrawFilledRectangle, a diferencia
+ * de MAX7219_DrawRectangle, que recibe dos esquinas). Lo que sobresale de la pantalla se recorta.
+ *
+ * @param x Columna de la esquina superior izquierda.
+ * @param y Fila de la esquina superior izquierda.
+ * @param w Ancho en píxeles.
+ * @param h Alto en píxeles.
+ * @param c Color del relleno.
+ *
+ * @return MAX7219_Status_t
+ *         - MAX7219_OK              si el rectángulo se escribió en el buffer (también si @p w o @p h son 0).
+ *         - MAX7219_NOT_INITIALIZED si no se ha llamado a MAX7219_Init.
+ *         - MAX7219_INVALID_PARAM   si la esquina superior izquierda está fuera de la pantalla.
+ */
+MAX7219_Status_t MAX7219_DrawFilledRectangle(uint16_t x, uint16_t y, uint16_t w, uint16_t h, MAX7219_COLOR_t c);
+
+/**
+ * @brief Dibuja un bitmap monocromo en el buffer interno.
+ *
+ * Solo escribe en el buffer: llamar a MAX7219_UpdateScreen() para mostrar el resultado.
+ * Mismo formato que SSD1681_DrawBitmap: por filas, bit 7 = píxel de la izquierda, cada fila ocupa
+ * (w + 7) / 8 bytes (compatible con image2cpp, "Horizontal - 1 bit per pixel"). Es transparente:
+ * solo se pintan los bits a 1. Lo que sobresale de la pantalla se recorta sin generar error.
+ *
+ * @param x      Columna de la esquina superior izquierda (puede ser negativa).
+ * @param y      Fila de la esquina superior izquierda (puede ser negativa).
+ * @param bitmap Datos del bitmap.
+ * @param w      Ancho del bitmap en píxeles.
+ * @param h      Alto del bitmap en píxeles.
+ * @param color  Color de los píxeles activos.
+ *
+ * @return MAX7219_Status_t
+ *         - MAX7219_OK              si el bitmap se escribió en el buffer.
+ *         - MAX7219_NOT_INITIALIZED si no se ha llamado a MAX7219_Init.
+ *         - MAX7219_INVALID_PARAM   si @p bitmap es NULL.
+ */
+MAX7219_Status_t MAX7219_DrawBitmap(int16_t x, int16_t y, const uint8_t* bitmap, int16_t w, int16_t h, MAX7219_COLOR_t color);
+
+/**
  * @brief Conjunto de fuentes para la pantalla de matriz de puntos MAX7219.
  *
  * Este array contiene el conjunto de fuentes de 8x8 para la pantalla de matriz de puntos MAX7219.

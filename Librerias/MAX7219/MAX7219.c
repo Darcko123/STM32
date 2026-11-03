@@ -231,6 +231,44 @@ static void max7219_PlotPixel(int16_t x, int16_t y, MAX7219_COLOR_t color)
     *col = (color == MAX7219_COLOR_ON) ? (uint8_t)(*col | mask) : (uint8_t)(*col & (uint8_t)~mask);
 }
 
+/**
+ * @brief Dibuja una línea horizontal entre dos columnas (extremos incluidos) en el buffer.
+ *
+ * No puede fallar: el recorte lo hace max7219_PlotPixel.
+ *
+ * @param x0    Columna de un extremo.
+ * @param x1    Columna del otro extremo.
+ * @param y     Fila de la línea.
+ * @param color Color de la línea.
+ */
+static void max7219_FillHLine(int16_t x0, int16_t x1, int16_t y, MAX7219_COLOR_t color)
+{
+    if (x0 > x1) { int16_t tmp = x0; x0 = x1; x1 = tmp; }
+    for (int16_t x = x0; x <= x1; x++)
+    {
+        max7219_PlotPixel(x, y, color);
+    }
+}
+
+/**
+ * @brief Dibuja una línea vertical entre dos filas (extremos incluidos) en el buffer.
+ *
+ * No puede fallar: el recorte lo hace max7219_PlotPixel.
+ *
+ * @param x     Columna de la línea.
+ * @param y0    Fila de un extremo.
+ * @param y1    Fila del otro extremo.
+ * @param color Color de la línea.
+ */
+static void max7219_FillVLine(int16_t x, int16_t y0, int16_t y1, MAX7219_COLOR_t color)
+{
+    if (y0 > y1) { int16_t tmp = y0; y0 = y1; y1 = tmp; }
+    for (int16_t y = y0; y <= y1; y++)
+    {
+        max7219_PlotPixel(x, y, color);
+    }
+}
+
 // ============================================================================
 // FUNCIONES PÚBLICAS
 // ============================================================================
@@ -559,6 +597,217 @@ MAX7219_Status_t MAX7219_DrawPixel(uint16_t x, uint16_t y, MAX7219_COLOR_t color
     }
 
     max7219_PlotPixel((int16_t)x, (int16_t)y, color);
+
+    return MAX7219_OK;
+}
+
+/**
+ * @brief Dibuja una línea horizontal en el buffer interno (no actualiza la pantalla).
+ *
+ * @param x     Columna inicial: 0 = izquierda.
+ * @param y     Fila de la línea: 0 = arriba.
+ * @param w     Ancho de la línea (puede ser negativo: se dibuja hacia la izquierda de @p x).
+ * @param color Color de la línea.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_DrawFastHLine(int16_t x, int16_t y, int16_t w, MAX7219_COLOR_t color)
+{
+    if (!MAX7219_Initialized) { return MAX7219_NOT_INITIALIZED; }
+
+    if (w == 0) { return MAX7219_OK; }
+    if (w < 0)  { x += w + 1; w = -w; }
+
+    max7219_FillHLine(x, x + w - 1, y, color);
+
+    return MAX7219_OK;
+}
+
+/**
+ * @brief Dibuja una línea vertical en el buffer interno (no actualiza la pantalla).
+ *
+ * @param x     Columna de la línea: 0 = izquierda.
+ * @param y     Fila inicial: 0 = arriba.
+ * @param h     Alto de la línea (puede ser negativo: se dibuja hacia arriba de @p y).
+ * @param color Color de la línea.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_DrawFastVLine(int16_t x, int16_t y, int16_t h, MAX7219_COLOR_t color)
+{
+    if (!MAX7219_Initialized) { return MAX7219_NOT_INITIALIZED; }
+
+    if (h == 0) { return MAX7219_OK; }
+    if (h < 0)  { y += h + 1; h = -h; }
+
+    max7219_FillVLine(x, y, y + h - 1, color);
+
+    return MAX7219_OK;
+}
+
+/**
+ * @brief Dibuja una línea entre dos puntos en el buffer interno (Bresenham; no actualiza la pantalla).
+ *
+ * Los extremos fuera de la pantalla dan MAX7219_INVALID_PARAM, igual que en SSD1681.
+ *
+ * @param x0 Columna del primer extremo.
+ * @param y0 Fila del primer extremo.
+ * @param x1 Columna del segundo extremo.
+ * @param y1 Fila del segundo extremo.
+ * @param c  Color de la línea.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, MAX7219_COLOR_t c)
+{
+    int16_t dx, dy, sx, sy, err, e2;
+
+    if (!MAX7219_Initialized) { return MAX7219_NOT_INITIALIZED; }
+
+    // Extremos fuera de pantalla: mismo criterio que MAX7219_DrawPixel
+    if (x0 >= MAX7219_NumDev * 8U || x1 >= MAX7219_NumDev * 8U || y0 >= 8U || y1 >= 8U)
+    {
+        return MAX7219_INVALID_PARAM;
+    }
+
+    dx = (int16_t)((x0 < x1) ? (x1 - x0) : (x0 - x1));
+    dy = (int16_t)((y0 < y1) ? (y1 - y0) : (y0 - y1));
+    sx = (x0 < x1) ? 1 : -1;
+    sy = (y0 < y1) ? 1 : -1;
+    err = (int16_t)(((dx > dy) ? dx : -dy) / 2);
+
+    // Bresenham cubre también líneas horizontales, verticales y un punto
+    while (1)
+    {
+        max7219_PlotPixel((int16_t)x0, (int16_t)y0, c);
+        if (x0 == x1 && y0 == y1)
+        {
+            break;
+        }
+        e2 = err;
+        if (e2 > -dx) { err = (int16_t)(err - dy); x0 = (uint16_t)(x0 + sx); }
+        if (e2 < dy)  { err = (int16_t)(err + dx); y0 = (uint16_t)(y0 + sy); }
+    }
+
+    return MAX7219_OK;
+}
+
+/**
+ * @brief Dibuja el borde de un rectángulo en el buffer interno (no actualiza la pantalla).
+ *
+ * Recibe dos esquinas opuestas, en cualquier orden, como SSD1681_DrawRectangle.
+ *
+ * @param x0 Columna de la primera esquina.
+ * @param y0 Fila de la primera esquina.
+ * @param x1 Columna de la esquina opuesta.
+ * @param y1 Fila de la esquina opuesta.
+ * @param c  Color del borde.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_DrawRectangle(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, MAX7219_COLOR_t c)
+{
+    MAX7219_Status_t st;
+    uint16_t tmp;
+
+    if (!MAX7219_Initialized) { return MAX7219_NOT_INITIALIZED; }
+
+    if (x0 >= MAX7219_NumDev * 8U || x1 >= MAX7219_NumDev * 8U || y0 >= 8U || y1 >= 8U)
+    {
+        return MAX7219_INVALID_PARAM;
+    }
+
+    if (x0 > x1) { tmp = x0; x0 = x1; x1 = tmp; }
+    if (y0 > y1) { tmp = y0; y0 = y1; y1 = tmp; }
+
+    const int16_t w = (int16_t)(x1 - x0 + 1U);
+    const int16_t h = (int16_t)(y1 - y0 + 1U);
+
+    st = MAX7219_DrawFastHLine((int16_t)x0, (int16_t)y0, w, c);            // Línea superior
+    st = st ? st : MAX7219_DrawFastHLine((int16_t)x0, (int16_t)y1, w, c);  // Línea inferior
+    st = st ? st : MAX7219_DrawFastVLine((int16_t)x0, (int16_t)y0, h, c);  // Línea izquierda
+    st = st ? st : MAX7219_DrawFastVLine((int16_t)x1, (int16_t)y0, h, c);  // Línea derecha
+
+    return st;
+}
+
+/**
+ * @brief Dibuja un rectángulo relleno en el buffer interno (no actualiza la pantalla).
+ *
+ * Recibe esquina superior izquierda, ancho y alto, como SSD1681_DrawFilledRectangle.
+ * Lo que sobresale de la pantalla se recorta.
+ *
+ * @param x Columna de la esquina superior izquierda.
+ * @param y Fila de la esquina superior izquierda.
+ * @param w Ancho en píxeles.
+ * @param h Alto en píxeles.
+ * @param c Color del relleno.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_DrawFilledRectangle(uint16_t x, uint16_t y, uint16_t w, uint16_t h, MAX7219_COLOR_t c)
+{
+    if (!MAX7219_Initialized) { return MAX7219_NOT_INITIALIZED; }
+
+    if (x >= MAX7219_NumDev * 8U || y >= 8U)
+    {
+        return MAX7219_INVALID_PARAM;
+    }
+
+    if (w == 0U || h == 0U)
+    {
+        return MAX7219_OK;
+    }
+
+    // Recorta al borde de la pantalla
+    if ((uint32_t)x + w > MAX7219_NumDev * 8U) { w = (uint16_t)(MAX7219_NumDev * 8U - x); }
+    if ((uint32_t)y + h > 8U)                  { h = (uint16_t)(8U - y); }
+
+    for (uint16_t i = 0U; i < h; i++)
+    {
+        max7219_FillHLine((int16_t)x, (int16_t)(x + w - 1U), (int16_t)(y + i), c);
+    }
+
+    return MAX7219_OK;
+}
+
+/**
+ * @brief Dibuja un bitmap monocromo en el buffer interno (no actualiza la pantalla).
+ *
+ * Mismo formato que SSD1681_DrawBitmap: por filas, bit 7 = píxel de la izquierda,
+ * (w + 7) / 8 bytes por fila. Es transparente (solo se pintan los bits a 1) y recorta
+ * en los bordes, así que un sprite parcialmente fuera de la pantalla devuelve MAX7219_OK.
+ *
+ * @param x      Columna de la esquina superior izquierda (puede ser negativa).
+ * @param y      Fila de la esquina superior izquierda (puede ser negativa).
+ * @param bitmap Datos del bitmap.
+ * @param w      Ancho del bitmap en píxeles.
+ * @param h      Alto del bitmap en píxeles.
+ * @param color  Color de los píxeles activos.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_DrawBitmap(int16_t x, int16_t y, const uint8_t* bitmap, int16_t w, int16_t h, MAX7219_COLOR_t color)
+{
+    const int16_t byteWidth = (int16_t)((w + 7) / 8); // Cada fila ocupa bytes completos
+    uint8_t byte = 0U;
+
+    if (!MAX7219_Initialized) { return MAX7219_NOT_INITIALIZED; }
+    if (bitmap == NULL)       { return MAX7219_INVALID_PARAM;   }
+
+    for (int16_t j = 0; j < h; j++)
+    {
+        for (int16_t i = 0; i < w; i++)
+        {
+            // Un byte nuevo cada 8 píxeles; si no, desplaza al siguiente bit
+            byte = (i & 7) ? (uint8_t)(byte << 1) : bitmap[j * byteWidth + i / 8];
+
+            if (byte & 0x80U)
+            {
+                max7219_PlotPixel((int16_t)(x + i), (int16_t)(y + j), color);
+            }
+        }
+    }
 
     return MAX7219_OK;
 }
