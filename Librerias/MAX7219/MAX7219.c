@@ -11,6 +11,16 @@
 #include "MAX7219.h"
 
 // ============================================================================
+// REGISTROS DEL MAX7219
+// ============================================================================
+#define MAX7219_REG_NOOP          0x00U /**< Sin operación (resto de dispositivos de la cascada) */
+#define MAX7219_REG_DECODE_MODE   0x09U /**< Modo de decodificación BCD */
+#define MAX7219_REG_INTENSITY     0x0AU /**< Intensidad de brillo */
+#define MAX7219_REG_SCAN_LIMIT    0x0BU /**< Número de dígitos/columnas escaneados */
+#define MAX7219_REG_SHUTDOWN      0x0CU /**< 0x00 = shutdown, 0x01 = operación normal */
+#define MAX7219_REG_DISPLAY_TEST  0x0FU /**< Test de display */
+
+// ============================================================================
 // VARIABLES PRIVADAS
 // ============================================================================
 
@@ -33,16 +43,16 @@ uint8_t              bufferCol[MAX7219_MAX_DEV*8] = {0}; /**< Buffer de columnas
  * 
  * @return MAX7219_Status_t Estado de la operación.
  */
-static MAX7219_Status_t max7219_cmd(uint8_t Addr, uint8_t data)
+static MAX7219_Status_t max7219_SendCommand(uint8_t Addr, uint8_t data)
 {
     HAL_StatusTypeDef hal_status;
 
     uint16_t writeData = (Addr << 8) | data;
-    HAL_GPIO_WritePin(MAX7219_CS_Port, MAX7219_CS_Pin, 0);
+    HAL_GPIO_WritePin(MAX7219_CS_Port, MAX7219_CS_Pin, GPIO_PIN_RESET);
     
     for (int i = 0; i < MAX7219_NumDev; i++)
     {
-        hal_status = HAL_SPI_Transmit(MAX7219_hspi, (uint8_t *)&writeData, 1, 100);
+        hal_status = HAL_SPI_Transmit(MAX7219_hspi, (uint8_t *)&writeData, 1, MAX7219_SPI_TIMEOUT_MS);
         if(hal_status == HAL_TIMEOUT)
         {
             HAL_GPIO_WritePin(MAX7219_CS_Port, MAX7219_CS_Pin, GPIO_PIN_SET);
@@ -55,7 +65,7 @@ static MAX7219_Status_t max7219_cmd(uint8_t Addr, uint8_t data)
         }
     }
 
-    HAL_GPIO_WritePin(MAX7219_CS_Port, MAX7219_CS_Pin, 1);
+    HAL_GPIO_WritePin(MAX7219_CS_Port, MAX7219_CS_Pin, GPIO_PIN_SET);
 
     return MAX7219_OK;
 }
@@ -68,52 +78,27 @@ static MAX7219_Status_t max7219_cmd(uint8_t Addr, uint8_t data)
  * 
  * @return MAX7219_Status_t Estado de la operación.
  */
-static MAX7219_Status_t max7219_write(int row, uint8_t data)
+static MAX7219_Status_t max7219_WriteRow(int row, uint8_t data)
 {
     HAL_StatusTypeDef hal_status;
 
     int devTarget = (row - 1) / 8;  // Determina en qué MAX7219 se escribirá el dato
     int offset = devTarget * 8;     // Calcula el offset de la fila en el buffer
-    uint16_t writeData = 0;
 
-    HAL_GPIO_WritePin(MAX7219_CS_Port, MAX7219_CS_Pin, 0);  // Habilitar el esclavo
+    HAL_GPIO_WritePin(MAX7219_CS_Port, MAX7219_CS_Pin, GPIO_PIN_RESET);  // Habilitar el esclavo
     for (int dev = 0; dev < MAX7219_NumDev; dev++)
     {
-        if (dev == devTarget)
+        // Fila y dato para el dispositivo objetivo; no-operación para el resto
+        uint16_t writeData = (dev == devTarget) ? (uint16_t)(((row - offset) << 8) | data) : MAX7219_REG_NOOP;
+        hal_status = HAL_SPI_Transmit(MAX7219_hspi, (uint8_t *)&writeData, 1, MAX7219_SPI_TIMEOUT_MS);
+        if (hal_status != HAL_OK)
         {
-            writeData = ((row - offset) << 8) | data;  // Enviar número de fila y datos
-            hal_status = HAL_SPI_Transmit(MAX7219_hspi, (uint8_t *)&writeData, 1, 1000);
-            
-            if(hal_status == HAL_TIMEOUT)
-            {
-                HAL_GPIO_WritePin(MAX7219_CS_Port, MAX7219_CS_Pin, GPIO_PIN_SET);
-                return MAX7219_TIMEOUT;
-            }
-            else if (hal_status != HAL_OK)
-            {
-                HAL_GPIO_WritePin(MAX7219_CS_Port, MAX7219_CS_Pin, GPIO_PIN_SET);
-                return MAX7219_ERROR;
-            }
-        }
-        else
-        {
-            writeData = 0;  // No operación en los otros dispositivos
-            hal_status = HAL_SPI_Transmit(MAX7219_hspi, (uint8_t *)&writeData, 1, 1000);
-
-            if(hal_status == HAL_TIMEOUT)
-            {
-                HAL_GPIO_WritePin(MAX7219_CS_Port, MAX7219_CS_Pin, GPIO_PIN_SET);
-                return MAX7219_TIMEOUT;
-            }
-            else if (hal_status != HAL_OK)
-            {
-                HAL_GPIO_WritePin(MAX7219_CS_Port, MAX7219_CS_Pin, GPIO_PIN_SET);
-                return MAX7219_ERROR;
-            }
+            HAL_GPIO_WritePin(MAX7219_CS_Port, MAX7219_CS_Pin, GPIO_PIN_SET);
+            return (hal_status == HAL_TIMEOUT) ? MAX7219_TIMEOUT : MAX7219_ERROR;
         }
     }
 
-    HAL_GPIO_WritePin(MAX7219_CS_Port, MAX7219_CS_Pin, 1);  // Deshabilitar el esclavo
+    HAL_GPIO_WritePin(MAX7219_CS_Port, MAX7219_CS_Pin, GPIO_PIN_SET);  // Deshabilitar el esclavo
     
     return MAX7219_OK;
 }
@@ -123,7 +108,7 @@ static MAX7219_Status_t max7219_write(int row, uint8_t data)
  * 
  * @return MAX7219_Status_t Estado de la operación
  */
-static MAX7219_Status_t flushBuffer(void)
+static MAX7219_Status_t max7219_FlushBuffer(void)
 {
     MAX7219_Status_t status;
 
@@ -145,7 +130,7 @@ static MAX7219_Status_t flushBuffer(void)
     // Escribir cada fila
     for (int row = 1; row <= (MAX7219_NumDev * 8); row++)
     {
-        status = max7219_write(row, bufferRow[row - 1]);
+        status = max7219_WriteRow(row, bufferRow[row - 1]);
 
         if(status == MAX7219_TIMEOUT)
         {
@@ -165,7 +150,7 @@ static MAX7219_Status_t flushBuffer(void)
  * 
  * @return MAX7219_Status_t Estado de la operación
  */
-static MAX7219_Status_t ShiftLeft(void)
+static MAX7219_Status_t max7219_ShiftLeft(void)
 {
     for (int cnt = MAX7219_NumDev * 8 - 2; cnt >= 0; cnt--)
     {
@@ -173,7 +158,7 @@ static MAX7219_Status_t ShiftLeft(void)
     }
     bufferCol[0] = 0;
 
-    return flushBuffer();
+    return max7219_FlushBuffer();
 }
 
 /**
@@ -187,7 +172,7 @@ static MAX7219_Status_t ShiftLeft(void)
  * 
  * @return MAX7219_Status_t Estado de la operación.
  */
-static MAX7219_Status_t shiftchar(uint8_t ch, int delay)
+static MAX7219_Status_t max7219_ShiftChar(uint8_t ch, int delay)
 {
     MAX7219_Status_t status;
     int indx = 0;
@@ -208,14 +193,14 @@ static MAX7219_Status_t shiftchar(uint8_t ch, int delay)
         bufferCol[0] = data;  // Almacenar el byte modificado en la primera posición del buffer
         
         // Actualizar la pantalla con el nuevo dato
-        status = flushBuffer();
+        status = max7219_FlushBuffer();
         if(status != MAX7219_OK)
         {
             return status;
         }
 
         // Desplazar la imagen a la izquierda
-        status = ShiftLeft();
+        status = max7219_ShiftLeft();
         if(status != MAX7219_OK)
         {
             return status;
@@ -260,35 +245,35 @@ MAX7219_Status_t MAX7219_Init(SPI_HandleTypeDef* hspi, GPIO_TypeDef* GPIOx, uint
     MAX7219_Initialized = 0;    // Marcar como no inicializada hasta que se termine el proceso
 
     // Sin decodificación (modo gráfico)
-    status = max7219_cmd(0x09, 0);
+    status = max7219_SendCommand(MAX7219_REG_DECODE_MODE, 0x00);
     if(status != MAX7219_OK)
     {
         return MAX7219_ERROR;
     }
 
     // Intensidad de brillo en 3/32
-    status = max7219_cmd(0x0A, 0x01);
+    status = max7219_SendCommand(MAX7219_REG_INTENSITY, 0x01);
     if(status != MAX7219_OK)
     {
         return MAX7219_ERROR;
     }
 
     // Escaneo de las 8 columnas
-    status = max7219_cmd(0x0B, 0x07);
+    status = max7219_SendCommand(MAX7219_REG_SCAN_LIMIT, 0x07);
     if(status != MAX7219_OK)
     {
         return MAX7219_ERROR;
     }
 
     // Modo operación normal
-    status = max7219_cmd(0x0C, 0x01);
+    status = max7219_SendCommand(MAX7219_REG_SHUTDOWN, 0x01);
     if(status != MAX7219_OK)
     {
         return MAX7219_ERROR;
     }
 
     // Deshabilitar test de display
-    status = max7219_cmd(0x0F, 0);
+    status = max7219_SendCommand(MAX7219_REG_DISPLAY_TEST, 0x00);
     if(status != MAX7219_OK)
     {
         return MAX7219_ERROR;
@@ -324,7 +309,7 @@ MAX7219_Status_t MAX7219_DeInit(void)
     }
 
     // Apagar la pantalla (modo shutdown)
-    status = max7219_cmd(0x0C, 0x00);
+    status = max7219_SendCommand(MAX7219_REG_SHUTDOWN, 0x00);
     if(status != MAX7219_OK)
     {
         return status;
@@ -357,8 +342,8 @@ MAX7219_Status_t MAX7219_Set_Sleep(uint8_t enable)
         return MAX7219_NOT_INITIALIZED;
     }
 
-    // Registro 0x0C: 0x00 = modo shutdown, 0x01 = modo operación normal
-    return max7219_cmd(0x0C, enable ? 0x00 : 0x01);
+    // Registro MAX7219_REG_SHUTDOWN: 0x00 = modo shutdown, 0x01 = modo operación normal
+    return max7219_SendCommand(MAX7219_REG_SHUTDOWN, enable ? 0x00 : 0x01);
 }
 
 /**
@@ -381,7 +366,7 @@ MAX7219_Status_t MAX7219_ClearDisplay(void)
     }
 
     // Actualizar la pantalla
-    return flushBuffer();
+    return max7219_FlushBuffer();
 }
 
 /**
@@ -410,7 +395,7 @@ MAX7219_Status_t MAX7219_ScrollString(char *str, int delay)
 
     while (*str)
     {
-        status = shiftchar(*str, delay);
+        status = max7219_ShiftChar(*str, delay);
         if(status != MAX7219_OK)
         {
             return status;
@@ -471,7 +456,7 @@ MAX7219_Status_t MAX7219_PrintString(const char *str)
         }
     }
 
-    return flushBuffer(); // Actualizar la pantalla con el nuevo contenido
+    return max7219_FlushBuffer(); // Actualizar la pantalla con el nuevo contenido
 }
 
 /**
@@ -507,7 +492,7 @@ MAX7219_Status_t MAX7219_SetPixel(int x, int y, uint8_t state)
         bufferCol[x] &= ~(1 << y);
     }
 
-    return flushBuffer();
+    return max7219_FlushBuffer();
 }
 
 /**

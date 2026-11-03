@@ -23,7 +23,12 @@
 // DEFINICIONES DE CONSTANTES
 // ============================================================================
 
-#define MAX7219_MAX_DEV 4   /**< Número máximo de dispositivos MAX7219 en cascada soportados (define el tamaño del buffer estático) */
+#ifndef MAX7219_MAX_DEV
+#define MAX7219_MAX_DEV        4U   /**< Número máximo de MAX7219 en cascada (dimensiona el buffer estático) */
+#endif
+#ifndef MAX7219_SPI_TIMEOUT_MS
+#define MAX7219_SPI_TIMEOUT_MS 100U /**< Timeout de cada transmisión SPI [ms] */
+#endif
 #define FONT_WIDTH 8        /**< Ancho de cada carácter en el conjunto de fuentes */
 
 extern uint8_t bufferCol[MAX7219_MAX_DEV*8];	/**< Número de columnas respecto al número de dispositivos conectados en cascada */
