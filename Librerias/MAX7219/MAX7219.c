@@ -20,6 +20,8 @@
 #define MAX7219_REG_SHUTDOWN      0x0CU /**< 0x00 = shutdown, 0x01 = operación normal */
 #define MAX7219_REG_DISPLAY_TEST  0x0FU /**< Test de display */
 
+#define MAX7219_FONT_WIDTH 8U /**< Ancho en columnas de cada carácter */
+
 // ============================================================================
 // VARIABLES PRIVADAS
 // ============================================================================
@@ -29,8 +31,8 @@ static GPIO_TypeDef*        MAX7219_CS_Port     = NULL; /**< Puerto GPIO del pin
 static uint16_t             MAX7219_CS_Pin      = 0U;   /**< Pin GPIO del pin CS del MAX7219 */
 static uint8_t              MAX7219_Initialized = 0U;   /**< Bandera para verificar si el módulo está inicializado */
 static uint8_t              MAX7219_NumDev      = 0U;   /**< Número de dispositivos MAX7219 conectados en cascada, configurado en MAX7219_Init */
+static uint8_t              MAX7219_Buffer[MAX7219_MAX_DEV * 8] = {0}; /**< Buffer de columnas de la matriz de LEDs */
 
-uint8_t              bufferCol[MAX7219_MAX_DEV*8] = {0}; /**< Buffer de columnas para la matriz de LEDs */
 // ============================================================================
 // FUNCIONES PRIVADAS
 // ============================================================================
@@ -120,7 +122,7 @@ static MAX7219_Status_t max7219_FlushBuffer(void)
         int dev = i / 8;
         for (int j = 0; j < 8; j++)
         {
-            if (bufferCol[i] & (1 << j))
+            if (MAX7219_Buffer[i] & (1 << j))
             {
                 bufferRow[j + (8 * dev)] |= (1 << (7 - (i - (8 * dev))));
             }
@@ -149,9 +151,9 @@ static MAX7219_Status_t max7219_ShiftLeft(void)
 {
     for (int cnt = MAX7219_NumDev * 8 - 2; cnt >= 0; cnt--)
     {
-        bufferCol[cnt + 1] = bufferCol[cnt];
+        MAX7219_Buffer[cnt + 1] = MAX7219_Buffer[cnt];
     }
-    bufferCol[0] = 0;
+    MAX7219_Buffer[0] = 0;
 
     return max7219_FlushBuffer();
 }
@@ -167,12 +169,12 @@ static MAX7219_Status_t max7219_ShiftLeft(void)
  * 
  * @return MAX7219_Status_t Estado de la operación.
  */
-static MAX7219_Status_t max7219_ShiftChar(uint8_t ch, int delay)
+static MAX7219_Status_t max7219_ShiftChar(uint8_t ch, uint32_t delay)
 {
     MAX7219_Status_t status;
     int indx = 0;
     
-    for (int i = 0; i < FONT_WIDTH - 1; i++)  // Iterar sobre los bytes de la fuente de caracteres
+    for (uint32_t i = 0; i < MAX7219_FONT_WIDTH - 1; i++)  // Iterar sobre los bytes de la fuente de caracteres
     {
         uint8_t data = 0;
         
@@ -185,7 +187,7 @@ static MAX7219_Status_t max7219_ShiftChar(uint8_t ch, int delay)
             }
         }
         
-        bufferCol[0] = data;  // Almacenar el byte modificado en la primera posición del buffer
+        MAX7219_Buffer[0] = data;  // Almacenar el byte modificado en la primera posición del buffer
 
         // Desplazar la imagen a la izquierda (max7219_ShiftLeft ya actualiza la pantalla)
         status = max7219_ShiftLeft();
@@ -242,12 +244,12 @@ MAX7219_Status_t MAX7219_Init(SPI_HandleTypeDef* hspi, GPIO_TypeDef* GPIOx, uint
         return status;
     }
 
-    // MAX7219_ClearDisplay() exige el módulo inicializado; se marca antes y se
+    // MAX7219_Clear() exige el módulo inicializado; se marca antes y se
     // revierte si falla, para no dejar el driver reportando MAX7219_OK a futuras llamadas.
     MAX7219_Initialized = 1;
 
     // Limpiar la pantalla
-    status = MAX7219_ClearDisplay();
+    status = MAX7219_Clear();
     if(status != MAX7219_OK)
     {
         MAX7219_Initialized = 0;
@@ -296,7 +298,7 @@ MAX7219_Status_t MAX7219_DeInit(void)
  *
  * @return MAX7219_Status_t Estado de la operación.
  */
-MAX7219_Status_t MAX7219_Set_Sleep(uint8_t enable)
+MAX7219_Status_t MAX7219_SetSleep(uint8_t enable)
 {
     if(!MAX7219_Initialized)
     {
@@ -312,7 +314,7 @@ MAX7219_Status_t MAX7219_Set_Sleep(uint8_t enable)
  *
  * @return MAX7219_Status_t Estado de la operación.
  */
-MAX7219_Status_t MAX7219_ClearDisplay(void)
+MAX7219_Status_t MAX7219_Clear(void)
 {
     // Verificar si ya se inicializó la librería
     if(!MAX7219_Initialized)
@@ -323,7 +325,7 @@ MAX7219_Status_t MAX7219_ClearDisplay(void)
     // Limpiar el buffer
     for (int i = 0; i < MAX7219_NumDev * 8; i++)
     {
-        bufferCol[i] = 0;
+        MAX7219_Buffer[i] = 0;
     }
 
     // Actualizar la pantalla
@@ -334,11 +336,11 @@ MAX7219_Status_t MAX7219_ClearDisplay(void)
  * @brief Muestra una cadena de caracteres en la matriz de LEDs con desplazamiento.
  * 
  * @param str Cadena de caracteres a mostrar.
- * @param delay Tiempo de retardo entre cada desplazamiento.
- * 
+ * @param delay Tiempo de retardo entre cada desplazamiento [ms].
+ *
  * @return MAX7219_Status_t Estado de la operación.
  */
-MAX7219_Status_t MAX7219_ScrollString(char *str, int delay)
+MAX7219_Status_t MAX7219_ScrollString(const char *str, uint32_t delay)
 {
     MAX7219_Status_t status;
 
@@ -399,7 +401,7 @@ MAX7219_Status_t MAX7219_PrintString(const char *str)
     {
         int indx = 0; // Índice dentro de la fuente de caracteres
 
-        for (int i = 0; i < FONT_WIDTH - 1 && k >= 0; i++)  // Iterar sobre los bytes de la fuente
+        for (uint32_t i = 0; i < MAX7219_FONT_WIDTH - 1 && k >= 0; i++)  // Iterar sobre los bytes de la fuente
         {
             uint8_t data = 0;
             
@@ -412,7 +414,7 @@ MAX7219_Status_t MAX7219_PrintString(const char *str)
                 }
             }
             
-            bufferCol[k--] = data;  // Almacenar el byte modificado en el buffer de columnas
+            MAX7219_Buffer[k--] = data;  // Almacenar el byte modificado en el buffer de columnas
             indx++;
         }
     }
@@ -420,7 +422,7 @@ MAX7219_Status_t MAX7219_PrintString(const char *str)
     // Apagar las columnas no ocupadas por el texto (restos del contenido anterior)
     while (k >= 0)
     {
-        bufferCol[k--] = 0;
+        MAX7219_Buffer[k--] = 0;
     }
 
     return max7219_FlushBuffer(); // Actualizar la pantalla con el nuevo contenido
@@ -429,34 +431,34 @@ MAX7219_Status_t MAX7219_PrintString(const char *str)
 /**
  * @brief Enciende o apaga un píxel individual de la matriz de LEDs.
  *
- * Manipula directamente bufferCol para permitir dibujar gráficos/iconos arbitrarios,
+ * Modifica el buffer interno para permitir dibujar gráficos/iconos arbitrarios,
  * en lugar de limitarse a texto. La actualización de la pantalla es inmediata.
  *
  * @param x Columna del píxel (0 a MAX7219_NumDev*8 - 1).
- * @param y Fila del píxel dentro de la columna (0 a 7), donde el bit y de bufferCol[x] representa el píxel.
+ * @param y Fila del píxel dentro de la columna (0 a 7), donde el bit y de MAX7219_Buffer[x] representa el píxel.
  * @param state Distinto de 0 para encender el píxel, 0 para apagarlo.
  *
  * @return MAX7219_Status_t Estado de la operación.
  */
-MAX7219_Status_t MAX7219_SetPixel(int x, int y, uint8_t state)
+MAX7219_Status_t MAX7219_SetPixel(uint16_t x, uint16_t y, uint8_t state)
 {
     if(!MAX7219_Initialized)
     {
         return MAX7219_NOT_INITIALIZED;
     }
 
-    if(x < 0 || x >= MAX7219_NumDev * 8 || y < 0 || y >= 8)
+    if(x >= MAX7219_NumDev * 8U || y >= 8U)
     {
         return MAX7219_INVALID_PARAM;
     }
 
     if(state)
     {
-        bufferCol[x] |= (1 << y);
+        MAX7219_Buffer[x] |= (1 << y);
     }
     else
     {
-        bufferCol[x] &= ~(1 << y);
+        MAX7219_Buffer[x] &= ~(1 << y);
     }
 
     return max7219_FlushBuffer();

@@ -1,7 +1,7 @@
 /**
- * @file MAX7219.c
+ * @file MAX7219.h
  *
- * @brief Implementación de la librería para el control de una matriz de LEDs usando MAX7219 en STM32 mediante SPI.
+ * @brief Librería para el control de matrices de LEDs MAX7219 mediante SPI.
  *
  * @author Daniel Ruiz
  * @date Junio 18, 2026
@@ -29,9 +29,6 @@
 #ifndef MAX7219_SPI_TIMEOUT_MS
 #define MAX7219_SPI_TIMEOUT_MS 100U /**< Timeout de cada transmisión SPI [ms] */
 #endif
-#define FONT_WIDTH 8        /**< Ancho de cada carácter en el conjunto de fuentes */
-
-extern uint8_t bufferCol[MAX7219_MAX_DEV*8];	/**< Número de columnas respecto al número de dispositivos conectados en cascada */
 
 // ============================================================================
 // ENUMERACIONES Y ESTRUCTURAS
@@ -40,11 +37,11 @@ extern uint8_t bufferCol[MAX7219_MAX_DEV*8];	/**< Número de columnas respecto a
  * @brief Enumeración para estados de retorno del MAX7219.
  */
 typedef enum {
-	MAX7219_OK = 0,					/** Operación exitosa */
-	MAX7219_ERROR = 1,				/** Error en la operación */
-	MAX7219_TIMEOUT = 2,			/** Timeout en la operación */
-	MAX7219_NOT_INITIALIZED = 3,	/** Sensor no inicializado */
-	MAX7219_INVALID_PARAM = 4		/** Parámetro inválido */
+	MAX7219_OK = 0,					/**< Operación exitosa */
+	MAX7219_ERROR = 1,				/**< Error en la operación */
+	MAX7219_TIMEOUT = 2,			/**< Timeout en la operación */
+	MAX7219_NOT_INITIALIZED = 3,	/**< Módulo no inicializado */
+	MAX7219_INVALID_PARAM = 4		/**< Parámetro inválido */
 }MAX7219_Status_t;
 
 // ============================================================================
@@ -84,24 +81,24 @@ MAX7219_Status_t MAX7219_DeInit(void);
  *
  * @return MAX7219_Status_t Estado de la operación.
  */
-MAX7219_Status_t MAX7219_Set_Sleep(uint8_t enable);
+MAX7219_Status_t MAX7219_SetSleep(uint8_t enable);
 
 /**
  * @brief Apaga todos los LEDs de la matriz.
  *
  * @return MAX7219_Status_t Estado de la operación.
  */
-MAX7219_Status_t MAX7219_ClearDisplay(void);
+MAX7219_Status_t MAX7219_Clear(void);
 
 /**
  * @brief Muestra una cadena de caracteres en la matriz de LEDs con desplazamiento.
  *
  * @param str Cadena de caracteres a mostrar.
- * @param delay Tiempo de retardo entre cada desplazamiento.
+ * @param delay Tiempo de retardo entre cada desplazamiento [ms].
  *
  * @return MAX7219_Status_t Estado de la operación.
  */
-MAX7219_Status_t MAX7219_ScrollString (char *str, int delay);
+MAX7219_Status_t MAX7219_ScrollString(const char *str, uint32_t delay);
 
 /**
  * @brief Muestra una cadena de caracteres en la matriz de LEDs.
@@ -119,16 +116,16 @@ MAX7219_Status_t MAX7219_PrintString(const char *str);
 /**
  * @brief Enciende o apaga un píxel individual de la matriz de LEDs.
  *
- * Manipula directamente bufferCol para permitir dibujar gráficos/iconos arbitrarios,
+ * Modifica el buffer interno para permitir dibujar gráficos/iconos arbitrarios,
  * en lugar de limitarse a texto. La actualización de la pantalla es inmediata.
  *
  * @param x Columna del píxel (0 a número de dispositivos configurado en MAX7219_Init multiplicado por 8, menos 1).
- * @param y Fila del píxel dentro de la columna (0 a 7), donde el bit y de bufferCol[x] representa el píxel.
+ * @param y Fila del píxel dentro de la columna (0 a 7).
  * @param state Distinto de 0 para encender el píxel, 0 para apagarlo.
  *
  * @return MAX7219_Status_t Estado de la operación.
  */
-MAX7219_Status_t MAX7219_SetPixel(int x, int y, uint8_t state);
+MAX7219_Status_t MAX7219_SetPixel(uint16_t x, uint16_t y, uint8_t state);
 
 /**
  * @brief Conjunto de fuentes para la pantalla de matriz de puntos MAX7219.
