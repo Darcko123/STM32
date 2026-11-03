@@ -9,6 +9,7 @@
  */
 
 #include "MAX7219.h"
+#include <string.h>
 
 // ============================================================================
 // REGISTROS DEL MAX7219
@@ -203,6 +204,33 @@ static MAX7219_Status_t max7219_ShiftChar(uint8_t ch, uint32_t delay)
     return MAX7219_OK;
 }
 
+/**
+ * @brief Escribe un píxel en el buffer traduciendo las coordenadas públicas.
+ *
+ * Origen (0,0) arriba a la izquierda, como en el resto de pantallas del repo.
+ * El buffer guarda las columnas de derecha a izquierda y el bit 7 es la fila superior.
+ * Los píxeles fuera de la pantalla se ignoran (igual que ssd1681_PlotPixel), por lo que
+ * esta función no puede fallar y no devuelve estado.
+ *
+ * @param x     Columna (0 = izquierda); puede quedar fuera de la pantalla.
+ * @param y     Fila (0 = arriba); puede quedar fuera de la pantalla.
+ * @param color Color del píxel.
+ */
+static void max7219_PlotPixel(int16_t x, int16_t y, MAX7219_COLOR_t color)
+{
+    const int16_t w = (int16_t)(MAX7219_NumDev * 8U);
+
+    if (x < 0 || x >= w || y < 0 || y >= 8)
+    {
+        return;
+    }
+
+    uint8_t*      col  = &MAX7219_Buffer[w - 1 - x];
+    const uint8_t mask = (uint8_t)(1U << (7 - y));
+
+    *col = (color == MAX7219_COLOR_ON) ? (uint8_t)(*col | mask) : (uint8_t)(*col & (uint8_t)~mask);
+}
+
 // ============================================================================
 // FUNCIONES PÚBLICAS
 // ============================================================================
@@ -312,24 +340,16 @@ MAX7219_Status_t MAX7219_SetSleep(uint8_t enable)
 /**
  * @brief Apaga todos los LEDs de la matriz.
  *
+ * Equivale a MAX7219_Fill(MAX7219_COLOR_OFF) seguido de MAX7219_UpdateScreen()
+ * (igual que SSD1306_Clear / SSD1681_Clear).
+ *
  * @return MAX7219_Status_t Estado de la operación.
  */
 MAX7219_Status_t MAX7219_Clear(void)
 {
-    // Verificar si ya se inicializó la librería
-    if(!MAX7219_Initialized)
-    {
-        return MAX7219_NOT_INITIALIZED;
-    }
-    
-    // Limpiar el buffer
-    for (int i = 0; i < MAX7219_NumDev * 8; i++)
-    {
-        MAX7219_Buffer[i] = 0;
-    }
+    MAX7219_Status_t status = MAX7219_Fill(MAX7219_COLOR_OFF);
 
-    // Actualizar la pantalla
-    return max7219_FlushBuffer();
+    return status ? status : max7219_FlushBuffer();
 }
 
 /**
@@ -431,37 +451,95 @@ MAX7219_Status_t MAX7219_PrintString(const char *str)
 /**
  * @brief Enciende o apaga un píxel individual de la matriz de LEDs.
  *
- * Modifica el buffer interno para permitir dibujar gráficos/iconos arbitrarios,
- * en lugar de limitarse a texto. La actualización de la pantalla es inmediata.
+ * Equivale a MAX7219_DrawPixel() seguido de MAX7219_UpdateScreen(): la actualización
+ * de la pantalla es inmediata. Origen (0,0) arriba a la izquierda (desde la v3.0.0).
  *
- * @param x Columna del píxel (0 a MAX7219_NumDev*8 - 1).
- * @param y Fila del píxel dentro de la columna (0 a 7), donde el bit y de MAX7219_Buffer[x] representa el píxel.
+ * @param x Columna del píxel: 0 = izquierda, hasta MAX7219_NumDev*8 - 1.
+ * @param y Fila del píxel: 0 = arriba, hasta 7.
  * @param state Distinto de 0 para encender el píxel, 0 para apagarlo.
  *
  * @return MAX7219_Status_t Estado de la operación.
  */
 MAX7219_Status_t MAX7219_SetPixel(uint16_t x, uint16_t y, uint8_t state)
 {
-    if(!MAX7219_Initialized)
-    {
-        return MAX7219_NOT_INITIALIZED;
-    }
+    MAX7219_Status_t status = MAX7219_DrawPixel(x, y, state ? MAX7219_COLOR_ON : MAX7219_COLOR_OFF);
 
-    if(x >= MAX7219_NumDev * 8U || y >= 8U)
+    return status ? status : max7219_FlushBuffer();
+}
+
+/**
+ * @brief Obtiene el ancho de la matriz configurado en MAX7219_Init.
+ *
+ * @return uint16_t Ancho en píxeles, o 0 si el módulo no ha sido inicializado.
+ */
+uint16_t MAX7219_GetWidth(void)
+{
+    if (!MAX7219_Initialized) { return 0U; }
+
+    return (uint16_t)(MAX7219_NumDev * 8U);
+}
+
+/**
+ * @brief Obtiene el alto de la matriz.
+ *
+ * @return uint16_t Alto en píxeles (8), o 0 si el módulo no ha sido inicializado.
+ */
+uint16_t MAX7219_GetHeight(void)
+{
+    if (!MAX7219_Initialized) { return 0U; }
+
+    return 8U;
+}
+
+/**
+ * @brief Envía el contenido del buffer interno a la matriz de LEDs.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_UpdateScreen(void)
+{
+    if (!MAX7219_Initialized) { return MAX7219_NOT_INITIALIZED; }
+
+    return max7219_FlushBuffer();
+}
+
+/**
+ * @brief Rellena todo el buffer interno con un color (no actualiza la pantalla).
+ *
+ * @param color Color de relleno.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_Fill(MAX7219_COLOR_t color)
+{
+    if (!MAX7219_Initialized) { return MAX7219_NOT_INITIALIZED; }
+
+    memset(MAX7219_Buffer, (color == MAX7219_COLOR_ON) ? 0xFF : 0x00, MAX7219_NumDev * 8U);
+
+    return MAX7219_OK;
+}
+
+/**
+ * @brief Enciende o apaga un píxel en el buffer interno (no actualiza la pantalla).
+ *
+ * @param x     Columna del píxel: 0 = izquierda.
+ * @param y     Fila del píxel: 0 = arriba.
+ * @param color Color del píxel.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_DrawPixel(uint16_t x, uint16_t y, MAX7219_COLOR_t color)
+{
+    if (!MAX7219_Initialized) { return MAX7219_NOT_INITIALIZED; }
+
+    if (x >= MAX7219_NumDev * 8U || y >= 8U)
     {
         return MAX7219_INVALID_PARAM;
     }
 
-    if(state)
-    {
-        MAX7219_Buffer[x] |= (1 << y);
-    }
-    else
-    {
-        MAX7219_Buffer[x] &= ~(1 << y);
-    }
+    max7219_PlotPixel((int16_t)x, (int16_t)y, color);
 
-    return max7219_FlushBuffer();
+    return MAX7219_OK;
 }
 
 /**

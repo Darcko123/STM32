@@ -44,6 +44,14 @@ typedef enum {
 	MAX7219_INVALID_PARAM = 4		/**< Parámetro inválido */
 }MAX7219_Status_t;
 
+/**
+ * @brief Estado de un LED de la matriz.
+ */
+typedef enum {
+	MAX7219_COLOR_OFF = 0x00,	/**< LED apagado */
+	MAX7219_COLOR_ON  = 0x01	/**< LED encendido */
+} MAX7219_COLOR_t;
+
 // ============================================================================
 // PROTOTIPOS DE FUNCIONES PÚBLICAS
 // ============================================================================
@@ -86,6 +94,9 @@ MAX7219_Status_t MAX7219_SetSleep(uint8_t enable);
 /**
  * @brief Apaga todos los LEDs de la matriz.
  *
+ * Equivale a MAX7219_Fill(MAX7219_COLOR_OFF) seguido de MAX7219_UpdateScreen():
+ * vacía el buffer interno y actualiza la pantalla de inmediato.
+ *
  * @return MAX7219_Status_t Estado de la operación.
  */
 MAX7219_Status_t MAX7219_Clear(void);
@@ -116,16 +127,82 @@ MAX7219_Status_t MAX7219_PrintString(const char *str);
 /**
  * @brief Enciende o apaga un píxel individual de la matriz de LEDs.
  *
- * Modifica el buffer interno para permitir dibujar gráficos/iconos arbitrarios,
- * en lugar de limitarse a texto. La actualización de la pantalla es inmediata.
+ * Equivale a MAX7219_DrawPixel() seguido de MAX7219_UpdateScreen(): la actualización
+ * de la pantalla es inmediata. Para dibujar varios píxeles, es más eficiente usar
+ * MAX7219_DrawPixel() y llamar una sola vez a MAX7219_UpdateScreen().
  *
- * @param x Columna del píxel (0 a número de dispositivos configurado en MAX7219_Init multiplicado por 8, menos 1).
- * @param y Fila del píxel dentro de la columna (0 a 7).
+ * @note Desde la versión 3.0.0 el origen (0,0) es la esquina superior izquierda, igual que en
+ *       el resto de pantallas del repositorio. En la versión 2.x era la esquina inferior derecha:
+ *       para conservar un dibujo antiguo, usar SetPixel(MAX7219_GetWidth() - 1 - x, 7 - y, state).
+ *
+ * @param x Columna del píxel: 0 = izquierda, hasta MAX7219_GetWidth() - 1.
+ * @param y Fila del píxel: 0 = arriba, hasta 7.
  * @param state Distinto de 0 para encender el píxel, 0 para apagarlo.
  *
- * @return MAX7219_Status_t Estado de la operación.
+ * @return MAX7219_Status_t
+ *         - MAX7219_OK              si el píxel se escribió y la pantalla se actualizó.
+ *         - MAX7219_NOT_INITIALIZED si no se ha llamado a MAX7219_Init.
+ *         - MAX7219_INVALID_PARAM   si @p x o @p y están fuera de la pantalla.
+ *         - MAX7219_ERROR / MAX7219_TIMEOUT si falló la transmisión SPI.
  */
 MAX7219_Status_t MAX7219_SetPixel(uint16_t x, uint16_t y, uint8_t state);
+
+/**
+ * @brief Obtiene el ancho de la matriz configurado en MAX7219_Init.
+ *
+ * @return uint16_t Ancho en píxeles (número de dispositivos × 8), o 0 si el módulo no ha sido inicializado.
+ */
+uint16_t MAX7219_GetWidth(void);
+
+/**
+ * @brief Obtiene el alto de la matriz.
+ *
+ * @return uint16_t Alto en píxeles (8), o 0 si el módulo no ha sido inicializado.
+ */
+uint16_t MAX7219_GetHeight(void);
+
+/**
+ * @brief Envía el contenido del buffer interno a la matriz de LEDs.
+ *
+ * Las funciones de dibujo (MAX7219_DrawPixel, MAX7219_Fill) solo escriben en el buffer;
+ * los cambios se ven al llamar a esta función.
+ *
+ * @return MAX7219_Status_t
+ *         - MAX7219_OK              si la pantalla se actualizó.
+ *         - MAX7219_NOT_INITIALIZED si no se ha llamado a MAX7219_Init.
+ *         - MAX7219_ERROR / MAX7219_TIMEOUT si falló la transmisión SPI.
+ */
+MAX7219_Status_t MAX7219_UpdateScreen(void);
+
+/**
+ * @brief Rellena todo el buffer interno con un color.
+ *
+ * Solo escribe en el buffer: llamar a MAX7219_UpdateScreen() para mostrar el resultado.
+ *
+ * @param color MAX7219_COLOR_ON para encender todos los LEDs, MAX7219_COLOR_OFF para apagarlos.
+ *
+ * @return MAX7219_Status_t
+ *         - MAX7219_OK              si el buffer se rellenó.
+ *         - MAX7219_NOT_INITIALIZED si no se ha llamado a MAX7219_Init.
+ */
+MAX7219_Status_t MAX7219_Fill(MAX7219_COLOR_t color);
+
+/**
+ * @brief Enciende o apaga un píxel en el buffer interno.
+ *
+ * Solo escribe en el buffer: llamar a MAX7219_UpdateScreen() para mostrar el resultado.
+ * El origen (0,0) es la esquina superior izquierda.
+ *
+ * @param x     Columna del píxel: 0 = izquierda, hasta MAX7219_GetWidth() - 1.
+ * @param y     Fila del píxel: 0 = arriba, hasta 7.
+ * @param color Color del píxel.
+ *
+ * @return MAX7219_Status_t
+ *         - MAX7219_OK              si el píxel se escribió en el buffer.
+ *         - MAX7219_NOT_INITIALIZED si no se ha llamado a MAX7219_Init.
+ *         - MAX7219_INVALID_PARAM   si @p x o @p y están fuera de la pantalla.
+ */
+MAX7219_Status_t MAX7219_DrawPixel(uint16_t x, uint16_t y, MAX7219_COLOR_t color);
 
 /**
  * @brief Conjunto de fuentes para la pantalla de matriz de puntos MAX7219.
