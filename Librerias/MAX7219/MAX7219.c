@@ -34,6 +34,14 @@ static uint8_t              MAX7219_Initialized = 0U;   /**< Bandera para verifi
 static uint8_t              MAX7219_NumDev      = 0U;   /**< Número de dispositivos MAX7219 conectados en cascada, configurado en MAX7219_Init */
 static uint8_t              MAX7219_Buffer[MAX7219_MAX_DEV * 8] = {0}; /**< Buffer de columnas de la matriz de LEDs */
 
+/** Estado interno del cursor de escritura (MAX7219_GotoXY / MAX7219_Putc) */
+typedef struct {
+    uint16_t CurrentX; /**< Columna del cursor: 0 = izquierda */
+    uint16_t CurrentY; /**< Fila del cursor: 0 = arriba */
+} MAX7219_State_t;
+
+static MAX7219_State_t MAX7219_State = {0}; /**< Cursor de escritura */
+
 // ============================================================================
 // FUNCIONES PRIVADAS
 // ============================================================================
@@ -807,6 +815,99 @@ MAX7219_Status_t MAX7219_DrawBitmap(int16_t x, int16_t y, const uint8_t* bitmap,
                 max7219_PlotPixel((int16_t)(x + i), (int16_t)(y + j), color);
             }
         }
+    }
+
+    return MAX7219_OK;
+}
+
+/**
+ * @brief Coloca el cursor de escritura de MAX7219_Putc / MAX7219_Puts (no dibuja ni actualiza la pantalla).
+ *
+ * @param x Columna del cursor: 0 = izquierda.
+ * @param y Fila del cursor: 0 = arriba.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_GotoXY(uint16_t x, uint16_t y)
+{
+    if (!MAX7219_Initialized) { return MAX7219_NOT_INITIALIZED; }
+
+    if (x >= MAX7219_NumDev * 8U || y >= 8U)
+    {
+        return MAX7219_INVALID_PARAM;
+    }
+
+    MAX7219_State.CurrentX = x;
+    MAX7219_State.CurrentY = y;
+
+    return MAX7219_OK;
+}
+
+/**
+ * @brief Escribe un carácter en el buffer interno en la posición del cursor (no actualiza la pantalla).
+ *
+ * Es opaco: pinta los píxeles apagados del glifo con el color contrario. Si el glifo no cabe entero
+ * se recorta en el borde y el cursor avanza igualmente. Avanza MAX7219_FONT_WIDTH - 1 columnas,
+ * el mismo ancho que MAX7219_PrintString.
+ *
+ * @param ch    Carácter a escribir (los 256 códigos de la fuente).
+ * @param color Color del carácter.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_Putc(char ch, MAX7219_COLOR_t color)
+{
+    const MAX7219_COLOR_t bg = (color == MAX7219_COLOR_ON) ? MAX7219_COLOR_OFF : MAX7219_COLOR_ON;
+
+    if (!MAX7219_Initialized) { return MAX7219_NOT_INITIALIZED; }
+
+    // Cursor fuera de la pantalla: no queda sitio para ningún carácter más
+    if (MAX7219_State.CurrentX >= MAX7219_NumDev * 8U)
+    {
+        return MAX7219_INVALID_PARAM;
+    }
+
+    // Fuente por columnas, bit r = fila r (LSB arriba); el glifo se recorta en el borde
+    for (uint32_t col = 0U; col < MAX7219_FONT_WIDTH - 1U; col++)
+    {
+        const uint8_t bits = MAX7219_Dot_Matrix_font[(uint8_t)ch][col];
+        for (uint32_t row = 0U; row < 8U; row++)
+        {
+            max7219_PlotPixel((int16_t)(MAX7219_State.CurrentX + col), (int16_t)(MAX7219_State.CurrentY + row),
+                              ((bits >> row) & 1U) ? color : bg);
+        }
+    }
+
+    MAX7219_State.CurrentX = (uint16_t)(MAX7219_State.CurrentX + MAX7219_FONT_WIDTH - 1U);
+
+    return MAX7219_OK;
+}
+
+/**
+ * @brief Escribe una cadena en el buffer interno desde la posición del cursor (no actualiza la pantalla).
+ *
+ * Se detiene en el primer carácter que MAX7219_Putc rechaza (cursor fuera de la pantalla).
+ *
+ * @param str   Cadena terminada en '\0'.
+ * @param color Color de los caracteres.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_Puts(const char* str, MAX7219_COLOR_t color)
+{
+    MAX7219_Status_t st;
+
+    if (!MAX7219_Initialized) { return MAX7219_NOT_INITIALIZED; }
+    if (str == NULL)          { return MAX7219_INVALID_PARAM;   }
+
+    while (*str)
+    {
+        st = MAX7219_Putc(*str, color);
+        if (st != MAX7219_OK)
+        {
+            return st;
+        }
+        str++;
     }
 
     return MAX7219_OK;

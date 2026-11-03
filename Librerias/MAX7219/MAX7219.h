@@ -336,6 +336,55 @@ MAX7219_Status_t MAX7219_DrawFilledRectangle(uint16_t x, uint16_t y, uint16_t w,
 MAX7219_Status_t MAX7219_DrawBitmap(int16_t x, int16_t y, const uint8_t* bitmap, int16_t w, int16_t h, MAX7219_COLOR_t color);
 
 /**
+ * @brief Coloca el cursor de escritura usado por MAX7219_Putc y MAX7219_Puts.
+ *
+ * No dibuja ni actualiza la pantalla. El cursor es la esquina superior izquierda del siguiente carácter.
+ *
+ * @param x Columna del cursor: 0 = izquierda.
+ * @param y Fila del cursor: 0 = arriba.
+ *
+ * @return MAX7219_Status_t
+ *         - MAX7219_OK              si el cursor se movió.
+ *         - MAX7219_NOT_INITIALIZED si no se ha llamado a MAX7219_Init.
+ *         - MAX7219_INVALID_PARAM   si (@p x, @p y) está fuera de la pantalla.
+ */
+MAX7219_Status_t MAX7219_GotoXY(uint16_t x, uint16_t y);
+
+/**
+ * @brief Escribe un carácter en el buffer interno en la posición del cursor.
+ *
+ * Solo escribe en el buffer: llamar a MAX7219_UpdateScreen() para mostrar el resultado.
+ * Es opaco (pinta el fondo del glifo con el color contrario). Si el glifo no cabe entero se recorta
+ * en el borde y el cursor avanza igualmente. Cada carácter avanza el cursor 7 columnas, como MAX7219_PrintString.
+ * A diferencia de MAX7219_PrintString, no borra el resto de la pantalla.
+ *
+ * @param ch    Carácter a escribir (los 256 códigos de la fuente).
+ * @param color Color del carácter.
+ *
+ * @return MAX7219_Status_t
+ *         - MAX7219_OK              si el carácter se escribió (aunque quedara recortado).
+ *         - MAX7219_NOT_INITIALIZED si no se ha llamado a MAX7219_Init.
+ *         - MAX7219_INVALID_PARAM   si el cursor ya está fuera de la pantalla (no se dibuja nada).
+ */
+MAX7219_Status_t MAX7219_Putc(char ch, MAX7219_COLOR_t color);
+
+/**
+ * @brief Escribe una cadena en el buffer interno desde la posición del cursor.
+ *
+ * Solo escribe en el buffer: llamar a MAX7219_UpdateScreen() para mostrar el resultado.
+ * El texto que sobrepasa el borde derecho se recorta, pero la función devuelve MAX7219_INVALID_PARAM.
+ *
+ * @param str   Cadena terminada en '\0'.
+ * @param color Color de los caracteres.
+ *
+ * @return MAX7219_Status_t
+ *         - MAX7219_OK              si toda la cadena se escribió.
+ *         - MAX7219_NOT_INITIALIZED si no se ha llamado a MAX7219_Init.
+ *         - MAX7219_INVALID_PARAM   si @p str es NULL o el texto llegó al borde antes de terminar.
+ */
+MAX7219_Status_t MAX7219_Puts(const char* str, MAX7219_COLOR_t color);
+
+/**
  * @brief Conjunto de fuentes para la pantalla de matriz de puntos MAX7219.
  *
  * Este array contiene el conjunto de fuentes de 8x8 para la pantalla de matriz de puntos MAX7219.
