@@ -942,6 +942,24 @@ MAX7219_Status_t MAX7219_Puts(const char* str, MAX7219_COLOR_t color)
 }
 
 /**
+ * @brief Calcula el ancho en columnas que ocupa una cadena escrita con MAX7219_Puts (no toca el buffer ni la pantalla).
+ *
+ * Es el avance del cursor: MAX7219_FONT_WIDTH - 1 columnas por carácter, sin tener en cuenta el recorte
+ * en el borde. No requiere MAX7219_Init. Para centrar: GotoXY((GetWidth() - GetStringWidth(s)) / 2, 0),
+ * comprobando antes que GetStringWidth(s) <= GetWidth() (la resta es sin signo).
+ *
+ * @param str Cadena terminada en '\0'.
+ *
+ * @return uint16_t Ancho en columnas; 0 si @p str es NULL o está vacía.
+ */
+uint16_t MAX7219_GetStringWidth(const char* str)
+{
+    if (str == NULL) { return 0U; }
+
+    return (uint16_t)(strlen(str) * (MAX7219_FONT_WIDTH - 1U));
+}
+
+/**
  * @brief Conjunto de fuentes para la pantalla de matriz de puntos MAX7219.
  *
  * Este array contiene el conjunto de fuentes de 8x8 para la pantalla de matriz de puntos MAX7219.
