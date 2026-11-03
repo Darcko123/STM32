@@ -131,14 +131,9 @@ static MAX7219_Status_t max7219_FlushBuffer(void)
     for (int row = 1; row <= (MAX7219_NumDev * 8); row++)
     {
         status = max7219_WriteRow(row, bufferRow[row - 1]);
-
-        if(status == MAX7219_TIMEOUT)
+        if(status != MAX7219_OK)
         {
-            return MAX7219_TIMEOUT;
-        }
-        else if (status != MAX7219_OK)
-        {
-            return MAX7219_ERROR;
+            return status;
         }
     }
 
@@ -244,39 +239,14 @@ MAX7219_Status_t MAX7219_Init(SPI_HandleTypeDef* hspi, GPIO_TypeDef* GPIOx, uint
     MAX7219_NumDev      = numDevices;
     MAX7219_Initialized = 0;    // Marcar como no inicializada hasta que se termine el proceso
 
-    // Sin decodificación (modo gráfico)
-    status = max7219_SendCommand(MAX7219_REG_DECODE_MODE, 0x00);
+    status = max7219_SendCommand(MAX7219_REG_DECODE_MODE, 0x00);                     // Sin decodificación (modo gráfico)
+    status = status ? status : max7219_SendCommand(MAX7219_REG_INTENSITY, 0x01);    // Brillo 3/32
+    status = status ? status : max7219_SendCommand(MAX7219_REG_SCAN_LIMIT, 0x07);   // Escaneo de 8 columnas
+    status = status ? status : max7219_SendCommand(MAX7219_REG_SHUTDOWN, 0x01);     // Operación normal
+    status = status ? status : max7219_SendCommand(MAX7219_REG_DISPLAY_TEST, 0x00); // Sin test de display
     if(status != MAX7219_OK)
     {
-        return MAX7219_ERROR;
-    }
-
-    // Intensidad de brillo en 3/32
-    status = max7219_SendCommand(MAX7219_REG_INTENSITY, 0x01);
-    if(status != MAX7219_OK)
-    {
-        return MAX7219_ERROR;
-    }
-
-    // Escaneo de las 8 columnas
-    status = max7219_SendCommand(MAX7219_REG_SCAN_LIMIT, 0x07);
-    if(status != MAX7219_OK)
-    {
-        return MAX7219_ERROR;
-    }
-
-    // Modo operación normal
-    status = max7219_SendCommand(MAX7219_REG_SHUTDOWN, 0x01);
-    if(status != MAX7219_OK)
-    {
-        return MAX7219_ERROR;
-    }
-
-    // Deshabilitar test de display
-    status = max7219_SendCommand(MAX7219_REG_DISPLAY_TEST, 0x00);
-    if(status != MAX7219_OK)
-    {
-        return MAX7219_ERROR;
+        return status;
     }
 
     // MAX7219_ClearDisplay() exige el módulo inicializado; se marca antes y se
@@ -297,7 +267,9 @@ MAX7219_Status_t MAX7219_Init(SPI_HandleTypeDef* hspi, GPIO_TypeDef* GPIOx, uint
 /**
  * @brief Desinicializa el módulo MAX7219, apagando la pantalla y liberando la configuración almacenada.
  *
- * @return MAX7219_Status_t Estado de la operación.
+ * La configuración se libera aunque falle el envío del comando de apagado.
+ *
+ * @return MAX7219_Status_t Estado del envío del comando de apagado.
  */
 MAX7219_Status_t MAX7219_DeInit(void)
 {
@@ -310,19 +282,15 @@ MAX7219_Status_t MAX7219_DeInit(void)
 
     // Apagar la pantalla (modo shutdown)
     status = max7219_SendCommand(MAX7219_REG_SHUTDOWN, 0x00);
-    if(status != MAX7219_OK)
-    {
-        return status;
-    }
 
-    // Liberar configuración almacenada
+    // Liberar configuración almacenada (siempre, aunque falle el apagado)
     MAX7219_hspi        = NULL;
     MAX7219_CS_Port     = NULL;
-    MAX7219_CS_Pin      = 0;
-    MAX7219_NumDev      = 0;
-    MAX7219_Initialized = 0;
+    MAX7219_CS_Pin      = 0U;
+    MAX7219_NumDev      = 0U;
+    MAX7219_Initialized = 0U;
 
-    return MAX7219_OK;
+    return status;
 }
 
 /**
