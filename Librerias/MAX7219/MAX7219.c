@@ -186,15 +186,8 @@ static MAX7219_Status_t max7219_ShiftChar(uint8_t ch, int delay)
         }
         
         bufferCol[0] = data;  // Almacenar el byte modificado en la primera posición del buffer
-        
-        // Actualizar la pantalla con el nuevo dato
-        status = max7219_FlushBuffer();
-        if(status != MAX7219_OK)
-        {
-            return status;
-        }
 
-        // Desplazar la imagen a la izquierda
+        // Desplazar la imagen a la izquierda (max7219_ShiftLeft ya actualiza la pantalla)
         status = max7219_ShiftLeft();
         if(status != MAX7219_OK)
         {
@@ -379,8 +372,8 @@ MAX7219_Status_t MAX7219_ScrollString(char *str, int delay)
  * 
  * Esta función toma una cadena de texto y la convierte en una representación de bytes
  * para visualizarla en la matriz de LEDs. Cada carácter se almacena en el buffer de
- * columnas y se muestra en la pantalla.
- * 
+ * columnas y se muestra en la pantalla. Las columnas no ocupadas por el texto se apagan.
+ *
  * @param str Puntero a la cadena de caracteres que se mostrará.
  * 
  * @return MAX7219_Status_t Estado de la operación.
@@ -399,10 +392,10 @@ MAX7219_Status_t MAX7219_PrintString(const char *str)
         return MAX7219_INVALID_PARAM;
     }
 
-    int strindx = 0; // Índice de caracteres de la cadena de entrada
-    
+    int k = MAX7219_NumDev * 8 - 1; // Columna actual del buffer (de izquierda a derecha)
+
     // Detenerse al final de la cadena o al llenar el buffer (el texto sobrante se recorta)
-    for (int k = MAX7219_NumDev * 8 - 1; k >= 0 && str[strindx] != '\0'; strindx++)
+    for (int strindx = 0; k >= 0 && str[strindx] != '\0'; strindx++)
     {
         int indx = 0; // Índice dentro de la fuente de caracteres
 
@@ -422,6 +415,12 @@ MAX7219_Status_t MAX7219_PrintString(const char *str)
             bufferCol[k--] = data;  // Almacenar el byte modificado en el buffer de columnas
             indx++;
         }
+    }
+
+    // Apagar las columnas no ocupadas por el texto (restos del contenido anterior)
+    while (k >= 0)
+    {
+        bufferCol[k--] = 0;
     }
 
     return max7219_FlushBuffer(); // Actualizar la pantalla con el nuevo contenido

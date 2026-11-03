@@ -108,8 +108,8 @@ MAX7219_Status_t MAX7219_ScrollString (char *str, int delay);
  * 
  * Esta función toma una cadena de texto y la convierte en una representación de bytes
  * para visualizarla en la matriz de LEDs. Cada carácter se almacena en el buffer de
- * columnas y se muestra en la pantalla.
- * 
+ * columnas y se muestra en la pantalla. Las columnas no ocupadas por el texto se apagan.
+ *
  * @param str Puntero a la cadena de caracteres que se mostrará.
  *
  * @return MAX7219_Status_t Estado de la operación.
