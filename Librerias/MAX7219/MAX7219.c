@@ -304,21 +304,23 @@ MAX7219_Status_t MAX7219_Init(SPI_HandleTypeDef* hspi, GPIO_TypeDef* GPIOx, uint
     }
 
     // Deshabilitar test de display
-    max7219_cmd(0x0F, 0);
+    status = max7219_cmd(0x0F, 0);
     if(status != MAX7219_OK)
     {
         return MAX7219_ERROR;
     }
 
+    // MAX7219_ClearDisplay() exige el módulo inicializado; se marca antes y se
+    // revierte si falla, para no dejar el driver reportando MAX7219_OK a futuras llamadas.
+    MAX7219_Initialized = 1;
+
     // Limpiar la pantalla
     status = MAX7219_ClearDisplay();
     if(status != MAX7219_OK)
     {
+        MAX7219_Initialized = 0;
         return status;
     }
-
-    // Marcar como inicializada
-    MAX7219_Initialized = 1;
 
     return MAX7219_OK;
 }
