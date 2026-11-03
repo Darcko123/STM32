@@ -464,11 +464,12 @@ MAX7219_Status_t MAX7219_PrintString(const char *str)
 
     int strindx = 0; // Índice de caracteres de la cadena de entrada
     
-    for (int k = NumDev * 8 - 1; k >= 0; )
+    // Detenerse al final de la cadena o al llenar el buffer (el texto sobrante se recorta)
+    for (int k = NumDev * 8 - 1; k >= 0 && str[strindx] != '\0'; strindx++)
     {
         int indx = 0; // Índice dentro de la fuente de caracteres
-        
-        for (int i = 0; i < FONT_WIDTH - 1; i++)  // Iterar sobre los bytes de la fuente
+
+        for (int i = 0; i < FONT_WIDTH - 1 && k >= 0; i++)  // Iterar sobre los bytes de la fuente
         {
             uint8_t data = 0;
             
@@ -484,11 +485,6 @@ MAX7219_Status_t MAX7219_PrintString(const char *str)
             bufferCol[k--] = data;  // Almacenar el byte modificado en el buffer de columnas
             indx++;
         }
-
-        strindx++;  // Moverse al siguiente carácter en la cadena
-        
-        if (str[strindx] == '\0')
-            break; // Importante: detenerse al final de la cadena
     }
 
     return flushBuffer(); // Actualizar la pantalla con el nuevo contenido
