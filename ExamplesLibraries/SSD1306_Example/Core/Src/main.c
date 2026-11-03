@@ -635,6 +635,7 @@ static void SSD1306_TestReInit(void)
 	SSD_CHECK(SSD1306_Puts("Re-Init OK", &Font_11x18, SSD1306_COLOR_WHITE));
 	SSD_CHECK(SSD1306_UpdateScreen());
 }
+
 /* USER CODE END 4 */
 
 /**
