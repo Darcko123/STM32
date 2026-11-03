@@ -34,13 +34,14 @@ static uint8_t              MAX7219_Initialized = 0U;   /**< Bandera para verifi
 static uint8_t              MAX7219_NumDev      = 0U;   /**< Número de dispositivos MAX7219 conectados en cascada, configurado en MAX7219_Init */
 static uint8_t              MAX7219_Buffer[MAX7219_MAX_DEV * 8] = {0}; /**< Buffer de columnas de la matriz de LEDs */
 
-/** Estado interno del cursor de escritura (MAX7219_GotoXY / MAX7219_Putc) */
+/** Estado interno: cursor de escritura (MAX7219_GotoXY / MAX7219_Putc) e inversión (MAX7219_ToggleInvert) */
 typedef struct {
     uint16_t CurrentX; /**< Columna del cursor: 0 = izquierda */
     uint16_t CurrentY; /**< Fila del cursor: 0 = arriba */
+    uint8_t  Inverted; /**< Distinto de 0 si la inversión por software (MAX7219_ToggleInvert) está activa */
 } MAX7219_State_t;
 
-static MAX7219_State_t MAX7219_State = {0}; /**< Cursor de escritura */
+static MAX7219_State_t MAX7219_State = {0}; /**< Cursor de escritura e inversión */
 
 // ============================================================================
 // FUNCIONES PRIVADAS
@@ -236,6 +237,8 @@ static void max7219_PlotPixel(int16_t x, int16_t y, MAX7219_COLOR_t color)
     uint8_t*      col  = &MAX7219_Buffer[w - 1 - x];
     const uint8_t mask = (uint8_t)(1U << (7 - y));
 
+    if (MAX7219_State.Inverted) { color = (color == MAX7219_COLOR_ON) ? MAX7219_COLOR_OFF : MAX7219_COLOR_ON; }
+
     *col = (color == MAX7219_COLOR_ON) ? (uint8_t)(*col | mask) : (uint8_t)(*col & (uint8_t)~mask);
 }
 
@@ -307,6 +310,7 @@ MAX7219_Status_t MAX7219_Init(SPI_HandleTypeDef* hspi, GPIO_TypeDef* GPIOx, uint
     MAX7219_CS_Pin      = GPIO_PIN;
     MAX7219_NumDev      = numDevices;
     MAX7219_Initialized = 0;    // Marcar como no inicializada hasta que se termine el proceso
+    MAX7219_State.Inverted = 0U; // Arrancar sin inversión
 
     status = max7219_SendCommand(MAX7219_REG_DECODE_MODE, 0x00);                     // Sin decodificación (modo gráfico)
     status = status ? status : max7219_SendCommand(MAX7219_REG_INTENSITY, 0x01);    // Brillo 3/32
@@ -581,7 +585,31 @@ MAX7219_Status_t MAX7219_Fill(MAX7219_COLOR_t color)
 {
     if (!MAX7219_Initialized) { return MAX7219_NOT_INITIALIZED; }
 
+    if (MAX7219_State.Inverted) { color = (color == MAX7219_COLOR_ON) ? MAX7219_COLOR_OFF : MAX7219_COLOR_ON; }
+
     memset(MAX7219_Buffer, (color == MAX7219_COLOR_ON) ? 0xFF : 0x00, MAX7219_NumDev * 8U);
+
+    return MAX7219_OK;
+}
+
+/**
+ * @brief Invierte por software el estado de todos los LEDs del buffer (no actualiza la pantalla).
+ *
+ * El MAX7219 no puede invertir por hardware: se invierten los bytes del buffer y se alterna una bandera
+ * que hace que DrawPixel, Fill y el resto de primitivas pinten con el color contrario.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_ToggleInvert(void)
+{
+    if (!MAX7219_Initialized) { return MAX7219_NOT_INITIALIZED; }
+
+    MAX7219_State.Inverted = (uint8_t)!MAX7219_State.Inverted;
+
+    for (uint8_t i = 0U; i < MAX7219_NumDev * 8U; i++)
+    {
+        MAX7219_Buffer[i] = (uint8_t)~MAX7219_Buffer[i];
+    }
 
     return MAX7219_OK;
 }

@@ -206,6 +206,26 @@ MAX7219_Status_t MAX7219_UpdateScreen(void);
 MAX7219_Status_t MAX7219_Fill(MAX7219_COLOR_t color);
 
 /**
+ * @brief Invierte por software el estado de todos los LEDs del buffer interno.
+ *
+ * El MAX7219 no tiene inversión por hardware (como SSD1681_ToggleInvert, se hace sobre el buffer).
+ * Cada llamada invierte el contenido actual del buffer y alterna una bandera: mientras esté activa,
+ * MAX7219_Fill, MAX7219_DrawPixel y el resto de primitivas pintan con el color contrario (COLOR_ON apaga
+ * el LED y COLOR_OFF lo enciende), de modo que el dibujo conserva su aspecto invertido. La bandera
+ * se desactiva en MAX7219_Init.
+ * Solo escribe en el buffer: llamar a MAX7219_UpdateScreen() para mostrar el resultado.
+ *
+ * @note MAX7219_Clear y MAX7219_SetPixel también siguen la bandera (con la inversión activa, Clear deja
+ *       todos los LEDs encendidos). MAX7219_PrintString y MAX7219_ScrollString no la respetan:
+ *       escriben el buffer sin invertir.
+ *
+ * @return MAX7219_Status_t
+ *         - MAX7219_OK              si el buffer se invirtió.
+ *         - MAX7219_NOT_INITIALIZED si no se ha llamado a MAX7219_Init.
+ */
+MAX7219_Status_t MAX7219_ToggleInvert(void);
+
+/**
  * @brief Enciende o apaga un píxel en el buffer interno.
  *
  * Solo escribe en el buffer: llamar a MAX7219_UpdateScreen() para mostrar el resultado.
