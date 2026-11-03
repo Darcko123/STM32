@@ -29,6 +29,7 @@
 #ifndef MAX7219_SPI_TIMEOUT_MS
 #define MAX7219_SPI_TIMEOUT_MS 100U /**< Timeout de cada transmisión SPI [ms] */
 #endif
+#define MAX7219_INTENSITY_MAX  15U  /**< Nivel máximo de MAX7219_SetIntensity (registro 0x0A: 0x0 a 0xF) */
 
 // ============================================================================
 // ENUMERACIONES Y ESTRUCTURAS
@@ -90,6 +91,23 @@ MAX7219_Status_t MAX7219_DeInit(void);
  * @return MAX7219_Status_t Estado de la operación.
  */
 MAX7219_Status_t MAX7219_SetSleep(uint8_t enable);
+
+/**
+ * @brief Ajusta el brillo de la matriz de LEDs.
+ *
+ * Escribe directamente en el registro de intensidad (0x0A) de todos los MAX7219 de la cascada;
+ * no usa el buffer ni requiere MAX7219_UpdateScreen(). El nivel 0 equivale a 1/32 de la corriente
+ * máxima y el 15 a 31/32 (datasheet del MAX7219). MAX7219_Init arranca en el nivel 1.
+ *
+ * @param level Nivel de brillo, de 0 a MAX7219_INTENSITY_MAX (15).
+ *
+ * @return MAX7219_Status_t
+ *         - MAX7219_OK              si el brillo se actualizó.
+ *         - MAX7219_NOT_INITIALIZED si no se ha llamado a MAX7219_Init.
+ *         - MAX7219_INVALID_PARAM   si @p level es mayor que MAX7219_INTENSITY_MAX.
+ *         - MAX7219_ERROR / MAX7219_TIMEOUT si falló la transmisión SPI.
+ */
+MAX7219_Status_t MAX7219_SetIntensity(uint8_t level);
 
 /**
  * @brief Apaga todos los LEDs de la matriz.

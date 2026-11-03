@@ -338,6 +338,27 @@ MAX7219_Status_t MAX7219_SetSleep(uint8_t enable)
 }
 
 /**
+ * @brief Ajusta el brillo de la matriz de LEDs (escribe en el registro de intensidad; no usa el buffer).
+ *
+ * El nivel 0 equivale a 1/32 de la corriente máxima y el 15 a 31/32. MAX7219_Init arranca en el nivel 1.
+ *
+ * @param level Nivel de brillo, de 0 a MAX7219_INTENSITY_MAX (15).
+ *
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_SetIntensity(uint8_t level)
+{
+    if (!MAX7219_Initialized) { return MAX7219_NOT_INITIALIZED; }
+
+    if (level > MAX7219_INTENSITY_MAX)
+    {
+        return MAX7219_INVALID_PARAM;
+    }
+
+    return max7219_SendCommand(MAX7219_REG_INTENSITY, level);
+}
+
+/**
  * @brief Apaga todos los LEDs de la matriz.
  *
  * Equivale a MAX7219_Fill(MAX7219_COLOR_OFF) seguido de MAX7219_UpdateScreen()
