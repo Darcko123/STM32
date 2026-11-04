@@ -28,7 +28,7 @@ Este repositorio está dividido en cuatro secciones principales:
 | [ILI9341](./Librerias/ILI9341/) | v2.0.0 | Pantalla TFT LCD ILI9341 para STM32 en general |
 | [ILI9341_Disc1](./Librerias/ILI9341_Disc1/) | v2.0.0 | Pantalla TFT LCD ILI9341 para STM32F429-Discovery |
 | [LIS3DH](./Librerias/LIS3DH/) | v1.0.0 | Acelerómetro de 3 ejes (I2C) |
-| [MAX7219](./Librerias/MAX7219/) | v2.1.0 | Control de matrices de LEDs y displays de 7 segmentos |
+| [MAX7219](./Librerias/MAX7219/) | v3.0.0 | Control de matrices de LEDs y displays de 7 segmentos |
 | [MPU6050](./Librerias/MPU6050/) | v2.1.0 | Acelerómetro y giroscopio de 6 ejes |
 | [NEO_6M](./Librerias/NEO_6M/) | v1.1.0 | Módulo GPS NEO-6M |
 | [NV3007](./Librerias/NV3007/) | v1.0.0 | Pantalla TFT LCD NV3007 de 142x428 (SPI) |
