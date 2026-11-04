@@ -4,23 +4,45 @@
  * @brief Implementación de la librería para el control de una matriz de LEDs usando MAX7219 en STM32 mediante SPI.
  *
  * @author Daniel Ruiz
- * @date Junio 18, 2026
- * @version 2.1.0
+ * @date Noviembre 03, 2026
+ * @version 3.0.0
  */
 
 #include "MAX7219.h"
+#include <string.h>
+
+// ============================================================================
+// REGISTROS DEL MAX7219
+// ============================================================================
+#define MAX7219_REG_NOOP          0x00U /**< Sin operación (resto de dispositivos de la cascada) */
+#define MAX7219_REG_DECODE_MODE   0x09U /**< Modo de decodificación BCD */
+#define MAX7219_REG_INTENSITY     0x0AU /**< Intensidad de brillo */
+#define MAX7219_REG_SCAN_LIMIT    0x0BU /**< Número de dígitos/columnas escaneados */
+#define MAX7219_REG_SHUTDOWN      0x0CU /**< 0x00 = shutdown, 0x01 = operación normal */
+#define MAX7219_REG_DISPLAY_TEST  0x0FU /**< Test de display */
+
+#define MAX7219_FONT_WIDTH 8U /**< Ancho en columnas de cada carácter */
 
 // ============================================================================
 // VARIABLES PRIVADAS
 // ============================================================================
 
-static SPI_HandleTypeDef*   MAX7219_hspi = NULL;     /**< Manejador de la interfaz SPI utilizada para cominucarse con el módulo*/
-static GPIO_TypeDef*        CS_GPIO_Port = NULL;     /**< Puerto GPIO del pin de datos del MAX7219 */
-static uint16_t             CS_Pin       = 0;        /**< Pin GPIO del pin de datos del MAX7219 */   
-static uint8_t              MAX7219_Initialized = 0; /**< Bandera para verificar si el módulo está inicializado */
-static uint8_t              NumDev = 0;            /**< Número de dispositivos MAX7219 conectados en cascada, configurado en MAX7219_Init */
+static SPI_HandleTypeDef*   MAX7219_hspi        = NULL; /**< Manejador de la interfaz SPI utilizada para comunicarse con el módulo */
+static GPIO_TypeDef*        MAX7219_CS_Port     = NULL; /**< Puerto GPIO del pin CS del MAX7219 */
+static uint16_t             MAX7219_CS_Pin      = 0U;   /**< Pin GPIO del pin CS del MAX7219 */
+static uint8_t              MAX7219_Initialized = 0U;   /**< Bandera para verificar si el módulo está inicializado */
+static uint8_t              MAX7219_NumDev      = 0U;   /**< Número de dispositivos MAX7219 conectados en cascada, configurado en MAX7219_Init */
+static uint8_t              MAX7219_Buffer[MAX7219_MAX_DEV * 8] = {0}; /**< Buffer de columnas de la matriz de LEDs */
 
-uint8_t              bufferCol[MAX7219_MAX_DEV*8] = {0}; /**< Buffer de columnas para la matriz de LEDs */
+/** Estado interno: cursor de escritura (MAX7219_GotoXY / MAX7219_Putc) e inversión (MAX7219_ToggleInvert) */
+typedef struct {
+    uint16_t CurrentX; /**< Columna del cursor: 0 = izquierda */
+    uint16_t CurrentY; /**< Fila del cursor: 0 = arriba */
+    uint8_t  Inverted; /**< Distinto de 0 si la inversión por software (MAX7219_ToggleInvert) está activa */
+} MAX7219_State_t;
+
+static MAX7219_State_t MAX7219_State = {0}; /**< Cursor de escritura e inversión */
+
 // ============================================================================
 // FUNCIONES PRIVADAS
 // ============================================================================
@@ -33,29 +55,29 @@ uint8_t              bufferCol[MAX7219_MAX_DEV*8] = {0}; /**< Buffer de columnas
  * 
  * @return MAX7219_Status_t Estado de la operación.
  */
-static MAX7219_Status_t max7219_cmd(uint8_t Addr, uint8_t data)
+static MAX7219_Status_t max7219_SendCommand(uint8_t Addr, uint8_t data)
 {
     HAL_StatusTypeDef hal_status;
 
     uint16_t writeData = (Addr << 8) | data;
-    HAL_GPIO_WritePin(CS_GPIO_Port, CS_Pin, 0);
+    HAL_GPIO_WritePin(MAX7219_CS_Port, MAX7219_CS_Pin, GPIO_PIN_RESET);
     
-    for (int i = 0; i < NumDev; i++)
+    for (int i = 0; i < MAX7219_NumDev; i++)
     {
-        hal_status = HAL_SPI_Transmit(MAX7219_hspi, (uint8_t *)&writeData, 1, 100);
+        hal_status = HAL_SPI_Transmit(MAX7219_hspi, (uint8_t *)&writeData, 1, MAX7219_SPI_TIMEOUT_MS);
         if(hal_status == HAL_TIMEOUT)
         {
-            HAL_GPIO_WritePin(CS_GPIO_Port, CS_Pin, GPIO_PIN_SET);
+            HAL_GPIO_WritePin(MAX7219_CS_Port, MAX7219_CS_Pin, GPIO_PIN_SET);
             return MAX7219_TIMEOUT;
         }
         else if(hal_status != HAL_OK)
         {
-            HAL_GPIO_WritePin(CS_GPIO_Port, CS_Pin, GPIO_PIN_SET);
+            HAL_GPIO_WritePin(MAX7219_CS_Port, MAX7219_CS_Pin, GPIO_PIN_SET);
             return MAX7219_ERROR;
         }
     }
 
-    HAL_GPIO_WritePin(CS_GPIO_Port, CS_Pin, 1);
+    HAL_GPIO_WritePin(MAX7219_CS_Port, MAX7219_CS_Pin, GPIO_PIN_SET);
 
     return MAX7219_OK;
 }
@@ -63,57 +85,32 @@ static MAX7219_Status_t max7219_cmd(uint8_t Addr, uint8_t data)
 /**
  * @brief Escribe un byte de datos en una fila específica de la matriz de LEDs.
  * 
- * @param row La fila en la que se escribirá el dato (1 a NumDev*8).
+ * @param row La fila en la que se escribirá el dato (1 a MAX7219_NumDev*8).
  * @param data El byte de datos que se escribirá en la fila.
  * 
  * @return MAX7219_Status_t Estado de la operación.
  */
-static MAX7219_Status_t max7219_write(int row, uint8_t data)
+static MAX7219_Status_t max7219_WriteRow(int row, uint8_t data)
 {
     HAL_StatusTypeDef hal_status;
 
     int devTarget = (row - 1) / 8;  // Determina en qué MAX7219 se escribirá el dato
     int offset = devTarget * 8;     // Calcula el offset de la fila en el buffer
-    uint16_t writeData = 0;
 
-    HAL_GPIO_WritePin(CS_GPIO_Port, CS_Pin, 0);  // Habilitar el esclavo
-    for (int dev = 0; dev < NumDev; dev++)
+    HAL_GPIO_WritePin(MAX7219_CS_Port, MAX7219_CS_Pin, GPIO_PIN_RESET);  // Habilitar el esclavo
+    for (int dev = 0; dev < MAX7219_NumDev; dev++)
     {
-        if (dev == devTarget)
+        // Fila y dato para el dispositivo objetivo; no-operación para el resto
+        uint16_t writeData = (dev == devTarget) ? (uint16_t)(((row - offset) << 8) | data) : MAX7219_REG_NOOP;
+        hal_status = HAL_SPI_Transmit(MAX7219_hspi, (uint8_t *)&writeData, 1, MAX7219_SPI_TIMEOUT_MS);
+        if (hal_status != HAL_OK)
         {
-            writeData = ((row - offset) << 8) | data;  // Enviar número de fila y datos
-            hal_status = HAL_SPI_Transmit(MAX7219_hspi, (uint8_t *)&writeData, 1, 1000);
-            
-            if(hal_status == HAL_TIMEOUT)
-            {
-                HAL_GPIO_WritePin(CS_GPIO_Port, CS_Pin, GPIO_PIN_SET);
-                return MAX7219_TIMEOUT;
-            }
-            else if (hal_status != HAL_OK)
-            {
-                HAL_GPIO_WritePin(CS_GPIO_Port, CS_Pin, GPIO_PIN_SET);
-                return MAX7219_ERROR;
-            }
-        }
-        else
-        {
-            writeData = 0;  // No operación en los otros dispositivos
-            hal_status = HAL_SPI_Transmit(MAX7219_hspi, (uint8_t *)&writeData, 1, 1000);
-
-            if(hal_status == HAL_TIMEOUT)
-            {
-                HAL_GPIO_WritePin(CS_GPIO_Port, CS_Pin, GPIO_PIN_SET);
-                return MAX7219_TIMEOUT;
-            }
-            else if (hal_status != HAL_OK)
-            {
-                HAL_GPIO_WritePin(CS_GPIO_Port, CS_Pin, GPIO_PIN_SET);
-                return MAX7219_ERROR;
-            }
+            HAL_GPIO_WritePin(MAX7219_CS_Port, MAX7219_CS_Pin, GPIO_PIN_SET);
+            return (hal_status == HAL_TIMEOUT) ? MAX7219_TIMEOUT : MAX7219_ERROR;
         }
     }
 
-    HAL_GPIO_WritePin(CS_GPIO_Port, CS_Pin, 1);  // Deshabilitar el esclavo
+    HAL_GPIO_WritePin(MAX7219_CS_Port, MAX7219_CS_Pin, GPIO_PIN_SET);  // Deshabilitar el esclavo
     
     return MAX7219_OK;
 }
@@ -123,19 +120,19 @@ static MAX7219_Status_t max7219_write(int row, uint8_t data)
  * 
  * @return MAX7219_Status_t Estado de la operación
  */
-static MAX7219_Status_t flushBuffer(void)
+static MAX7219_Status_t max7219_FlushBuffer(void)
 {
     MAX7219_Status_t status;
 
     uint8_t bufferRow[MAX7219_MAX_DEV * 8] = {0};
 
     // Convertir columnas en filas
-    for (int i = 0; i < NumDev * 8; i++)
+    for (int i = 0; i < MAX7219_NumDev * 8; i++)
     {
         int dev = i / 8;
         for (int j = 0; j < 8; j++)
         {
-            if (bufferCol[i] & (1 << j))
+            if (MAX7219_Buffer[i] & (1 << j))
             {
                 bufferRow[j + (8 * dev)] |= (1 << (7 - (i - (8 * dev))));
             }
@@ -143,17 +140,12 @@ static MAX7219_Status_t flushBuffer(void)
     }
 
     // Escribir cada fila
-    for (int row = 1; row <= (NumDev * 8); row++)
+    for (int row = 1; row <= (MAX7219_NumDev * 8); row++)
     {
-        status = max7219_write(row, bufferRow[row - 1]);
-
-        if(status == MAX7219_TIMEOUT)
+        status = max7219_WriteRow(row, bufferRow[row - 1]);
+        if(status != MAX7219_OK)
         {
-            return MAX7219_TIMEOUT;
-        }
-        else if (status != MAX7219_OK)
-        {
-            return MAX7219_ERROR;
+            return status;
         }
     }
 
@@ -165,31 +157,15 @@ static MAX7219_Status_t flushBuffer(void)
  * 
  * @return MAX7219_Status_t Estado de la operación
  */
-static MAX7219_Status_t ShiftLeft(void)
+static MAX7219_Status_t max7219_ShiftLeft(void)
 {
-    for (int cnt = NumDev * 8 - 2; cnt >= 0; cnt--)
+    for (int cnt = MAX7219_NumDev * 8 - 2; cnt >= 0; cnt--)
     {
-        bufferCol[cnt + 1] = bufferCol[cnt];
+        MAX7219_Buffer[cnt + 1] = MAX7219_Buffer[cnt];
     }
-    bufferCol[0] = 0;
+    MAX7219_Buffer[0] = 0;
 
-    return flushBuffer();
-}
-
-/**
- * @brief Desplaza el contenido de la matriz hacia la derecha.
- * 
- * @return MAX7219_Status_t Estado de la operación.
- */
-static MAX7219_Status_t ShiftRight(void)
-{
-    for (int cnt = 0; cnt < NumDev * 8 - 1; cnt++)
-    {
-        bufferCol[cnt] = bufferCol[cnt + 1];
-    }
-    bufferCol[NumDev * 8 - 1] = 0;
-    
-    return flushBuffer();
+    return max7219_FlushBuffer();
 }
 
 /**
@@ -203,12 +179,12 @@ static MAX7219_Status_t ShiftRight(void)
  * 
  * @return MAX7219_Status_t Estado de la operación.
  */
-static MAX7219_Status_t shiftchar(uint8_t ch, int delay)
+static MAX7219_Status_t max7219_ShiftChar(uint8_t ch, uint32_t delay)
 {
     MAX7219_Status_t status;
     int indx = 0;
     
-    for (int i = 0; i < FONT_WIDTH - 1; i++)  // Iterar sobre los bytes de la fuente de caracteres
+    for (uint32_t i = 0; i < MAX7219_FONT_WIDTH - 1; i++)  // Iterar sobre los bytes de la fuente de caracteres
     {
         uint8_t data = 0;
         
@@ -221,17 +197,10 @@ static MAX7219_Status_t shiftchar(uint8_t ch, int delay)
             }
         }
         
-        bufferCol[0] = data;  // Almacenar el byte modificado en la primera posición del buffer
-        
-        // Actualizar la pantalla con el nuevo dato
-        status = flushBuffer();
-        if(status != MAX7219_OK)
-        {
-            return status;
-        }
+        MAX7219_Buffer[0] = data;  // Almacenar el byte modificado en la primera posición del buffer
 
-        // Desplazar la imagen a la izquierda
-        status = ShiftLeft();
+        // Desplazar la imagen a la izquierda (max7219_ShiftLeft ya actualiza la pantalla)
+        status = max7219_ShiftLeft();
         if(status != MAX7219_OK)
         {
             return status;
@@ -242,6 +211,73 @@ static MAX7219_Status_t shiftchar(uint8_t ch, int delay)
     }
 
     return MAX7219_OK;
+}
+
+/**
+ * @brief Escribe un píxel en el buffer traduciendo las coordenadas públicas.
+ *
+ * Origen (0,0) arriba a la izquierda, como en el resto de pantallas del repo.
+ * El buffer guarda las columnas de derecha a izquierda y el bit 7 es la fila superior.
+ * Los píxeles fuera de la pantalla se ignoran (igual que ssd1681_PlotPixel), por lo que
+ * esta función no puede fallar y no devuelve estado.
+ *
+ * @param x     Columna (0 = izquierda); puede quedar fuera de la pantalla.
+ * @param y     Fila (0 = arriba); puede quedar fuera de la pantalla.
+ * @param color Color del píxel.
+ */
+static void max7219_PlotPixel(int16_t x, int16_t y, MAX7219_COLOR_t color)
+{
+    const int16_t w = (int16_t)(MAX7219_NumDev * 8U);
+
+    if (x < 0 || x >= w || y < 0 || y >= 8)
+    {
+        return;
+    }
+
+    uint8_t*      col  = &MAX7219_Buffer[w - 1 - x];
+    const uint8_t mask = (uint8_t)(1U << (7 - y));
+
+    if (MAX7219_State.Inverted) { color = (color == MAX7219_COLOR_ON) ? MAX7219_COLOR_OFF : MAX7219_COLOR_ON; }
+
+    *col = (color == MAX7219_COLOR_ON) ? (uint8_t)(*col | mask) : (uint8_t)(*col & (uint8_t)~mask);
+}
+
+/**
+ * @brief Dibuja una línea horizontal entre dos columnas (extremos incluidos) en el buffer.
+ *
+ * No puede fallar: el recorte lo hace max7219_PlotPixel.
+ *
+ * @param x0    Columna de un extremo.
+ * @param x1    Columna del otro extremo.
+ * @param y     Fila de la línea.
+ * @param color Color de la línea.
+ */
+static void max7219_FillHLine(int16_t x0, int16_t x1, int16_t y, MAX7219_COLOR_t color)
+{
+    if (x0 > x1) { int16_t tmp = x0; x0 = x1; x1 = tmp; }
+    for (int16_t x = x0; x <= x1; x++)
+    {
+        max7219_PlotPixel(x, y, color);
+    }
+}
+
+/**
+ * @brief Dibuja una línea vertical entre dos filas (extremos incluidos) en el buffer.
+ *
+ * No puede fallar: el recorte lo hace max7219_PlotPixel.
+ *
+ * @param x     Columna de la línea.
+ * @param y0    Fila de un extremo.
+ * @param y1    Fila del otro extremo.
+ * @param color Color de la línea.
+ */
+static void max7219_FillVLine(int16_t x, int16_t y0, int16_t y1, MAX7219_COLOR_t color)
+{
+    if (y0 > y1) { int16_t tmp = y0; y0 = y1; y1 = tmp; }
+    for (int16_t y = y0; y <= y1; y++)
+    {
+        max7219_PlotPixel(x, y, color);
+    }
 }
 
 // ============================================================================
@@ -269,56 +305,34 @@ MAX7219_Status_t MAX7219_Init(SPI_HandleTypeDef* hspi, GPIO_TypeDef* GPIOx, uint
     }
 
     // Almacenar configuración para uso en funciones posteriores
-    MAX7219_hspi = hspi;
-    CS_GPIO_Port = GPIOx;
-    CS_Pin       = GPIO_PIN;
-    NumDev       = numDevices;
+    MAX7219_hspi        = hspi;
+    MAX7219_CS_Port     = GPIOx;
+    MAX7219_CS_Pin      = GPIO_PIN;
+    MAX7219_NumDev      = numDevices;
     MAX7219_Initialized = 0;    // Marcar como no inicializada hasta que se termine el proceso
+    MAX7219_State.Inverted = 0U; // Arrancar sin inversión
 
-    // Sin decodificación (modo gráfico)
-    status = max7219_cmd(0x09, 0);
-    if(status != MAX7219_OK)
-    {
-        return MAX7219_ERROR;
-    }
-
-    // Intensidad de brillo en 3/32
-    status = max7219_cmd(0x0A, 0x01);
-    if(status != MAX7219_OK)
-    {
-        return MAX7219_ERROR;
-    }
-
-    // Escaneo de las 8 columnas
-    status = max7219_cmd(0x0B, 0x07);
-    if(status != MAX7219_OK)
-    {
-        return MAX7219_ERROR;
-    }
-
-    // Modo operación normal
-    status = max7219_cmd(0x0C, 0x01);
-    if(status != MAX7219_OK)
-    {
-        return MAX7219_ERROR;
-    }
-
-    // Deshabilitar test de display
-    max7219_cmd(0x0F, 0);
-    if(status != MAX7219_OK)
-    {
-        return MAX7219_ERROR;
-    }
-
-    // Limpiar la pantalla
-    status = MAX7219_ClearDisplay();
+    status = max7219_SendCommand(MAX7219_REG_DECODE_MODE, 0x00);                     // Sin decodificación (modo gráfico)
+    status = status ? status : max7219_SendCommand(MAX7219_REG_INTENSITY, 0x01);    // Brillo 3/32
+    status = status ? status : max7219_SendCommand(MAX7219_REG_SCAN_LIMIT, 0x07);   // Escaneo de 8 columnas
+    status = status ? status : max7219_SendCommand(MAX7219_REG_SHUTDOWN, 0x01);     // Operación normal
+    status = status ? status : max7219_SendCommand(MAX7219_REG_DISPLAY_TEST, 0x00); // Sin test de display
     if(status != MAX7219_OK)
     {
         return status;
     }
 
-    // Marcar como inicializada
+    // MAX7219_Clear() exige el módulo inicializado; se marca antes y se
+    // revierte si falla, para no dejar el driver reportando MAX7219_OK a futuras llamadas.
     MAX7219_Initialized = 1;
+
+    // Limpiar la pantalla
+    status = MAX7219_Clear();
+    if(status != MAX7219_OK)
+    {
+        MAX7219_Initialized = 0;
+        return status;
+    }
 
     return MAX7219_OK;
 }
@@ -326,7 +340,9 @@ MAX7219_Status_t MAX7219_Init(SPI_HandleTypeDef* hspi, GPIO_TypeDef* GPIOx, uint
 /**
  * @brief Desinicializa el módulo MAX7219, apagando la pantalla y liberando la configuración almacenada.
  *
- * @return MAX7219_Status_t Estado de la operación.
+ * La configuración se libera aunque falle el envío del comando de apagado.
+ *
+ * @return MAX7219_Status_t Estado del envío del comando de apagado.
  */
 MAX7219_Status_t MAX7219_DeInit(void)
 {
@@ -338,20 +354,16 @@ MAX7219_Status_t MAX7219_DeInit(void)
     }
 
     // Apagar la pantalla (modo shutdown)
-    status = max7219_cmd(0x0C, 0x00);
-    if(status != MAX7219_OK)
-    {
-        return status;
-    }
+    status = max7219_SendCommand(MAX7219_REG_SHUTDOWN, 0x00);
 
-    // Liberar configuración almacenada
-    MAX7219_hspi = NULL;
-    CS_GPIO_Port = NULL;
-    CS_Pin       = 0;
-    NumDev       = 0;
-    MAX7219_Initialized = 0;
+    // Liberar configuración almacenada (siempre, aunque falle el apagado)
+    MAX7219_hspi        = NULL;
+    MAX7219_CS_Port     = NULL;
+    MAX7219_CS_Pin      = 0U;
+    MAX7219_NumDev      = 0U;
+    MAX7219_Initialized = 0U;
 
-    return MAX7219_OK;
+    return status;
 }
 
 /**
@@ -364,49 +376,62 @@ MAX7219_Status_t MAX7219_DeInit(void)
  *
  * @return MAX7219_Status_t Estado de la operación.
  */
-MAX7219_Status_t MAX7219_Set_Sleep(uint8_t enable)
+MAX7219_Status_t MAX7219_SetSleep(uint8_t enable)
 {
     if(!MAX7219_Initialized)
     {
         return MAX7219_NOT_INITIALIZED;
     }
 
-    // Registro 0x0C: 0x00 = modo shutdown, 0x01 = modo operación normal
-    return max7219_cmd(0x0C, enable ? 0x00 : 0x01);
+    // Registro MAX7219_REG_SHUTDOWN: 0x00 = modo shutdown, 0x01 = modo operación normal
+    return max7219_SendCommand(MAX7219_REG_SHUTDOWN, enable ? 0x00 : 0x01);
+}
+
+/**
+ * @brief Ajusta el brillo de la matriz de LEDs (escribe en el registro de intensidad; no usa el buffer).
+ *
+ * El nivel 0 equivale a 1/32 de la corriente máxima y el 15 a 31/32. MAX7219_Init arranca en el nivel 1.
+ *
+ * @param level Nivel de brillo, de 0 a MAX7219_INTENSITY_MAX (15).
+ *
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_SetIntensity(uint8_t level)
+{
+    if (!MAX7219_Initialized) { return MAX7219_NOT_INITIALIZED; }
+
+    if (level > MAX7219_INTENSITY_MAX)
+    {
+        return MAX7219_INVALID_PARAM;
+    }
+
+    return max7219_SendCommand(MAX7219_REG_INTENSITY, level);
 }
 
 /**
  * @brief Apaga todos los LEDs de la matriz.
  *
+ * Equivale a MAX7219_Fill(MAX7219_COLOR_OFF) seguido de MAX7219_UpdateScreen()
+ * (igual que SSD1306_Clear / SSD1681_Clear).
+ *
  * @return MAX7219_Status_t Estado de la operación.
  */
-MAX7219_Status_t MAX7219_ClearDisplay(void)
+MAX7219_Status_t MAX7219_Clear(void)
 {
-    // Verificar si ya se inicializó la librería
-    if(!MAX7219_Initialized)
-    {
-        return MAX7219_NOT_INITIALIZED;
-    }
-    
-    // Limpiar el buffer
-    for (int i = 0; i < NumDev * 8; i++)
-    {
-        bufferCol[i] = 0;
-    }
+    MAX7219_Status_t status = MAX7219_Fill(MAX7219_COLOR_OFF);
 
-    // Actualizar la pantalla
-    return flushBuffer();
+    return status ? status : max7219_FlushBuffer();
 }
 
 /**
  * @brief Muestra una cadena de caracteres en la matriz de LEDs con desplazamiento.
  * 
  * @param str Cadena de caracteres a mostrar.
- * @param delay Tiempo de retardo entre cada desplazamiento.
- * 
+ * @param delay Tiempo de retardo entre cada desplazamiento [ms].
+ *
  * @return MAX7219_Status_t Estado de la operación.
  */
-MAX7219_Status_t MAX7219_ScrollString(char *str, int delay)
+MAX7219_Status_t MAX7219_ScrollString(const char *str, uint32_t delay)
 {
     MAX7219_Status_t status;
 
@@ -424,7 +449,7 @@ MAX7219_Status_t MAX7219_ScrollString(char *str, int delay)
 
     while (*str)
     {
-        status = shiftchar(*str, delay);
+        status = max7219_ShiftChar(*str, delay);
         if(status != MAX7219_OK)
         {
             return status;
@@ -440,8 +465,8 @@ MAX7219_Status_t MAX7219_ScrollString(char *str, int delay)
  * 
  * Esta función toma una cadena de texto y la convierte en una representación de bytes
  * para visualizarla en la matriz de LEDs. Cada carácter se almacena en el buffer de
- * columnas y se muestra en la pantalla.
- * 
+ * columnas y se muestra en la pantalla. Las columnas no ocupadas por el texto se apagan.
+ *
  * @param str Puntero a la cadena de caracteres que se mostrará.
  * 
  * @return MAX7219_Status_t Estado de la operación.
@@ -460,13 +485,14 @@ MAX7219_Status_t MAX7219_PrintString(const char *str)
         return MAX7219_INVALID_PARAM;
     }
 
-    int strindx = 0; // Índice de caracteres de la cadena de entrada
-    
-    for (int k = NumDev * 8 - 1; k >= 0; )
+    int k = MAX7219_NumDev * 8 - 1; // Columna actual del buffer (de izquierda a derecha)
+
+    // Detenerse al final de la cadena o al llenar el buffer (el texto sobrante se recorta)
+    for (int strindx = 0; k >= 0 && str[strindx] != '\0'; strindx++)
     {
         int indx = 0; // Índice dentro de la fuente de caracteres
-        
-        for (int i = 0; i < FONT_WIDTH - 1; i++)  // Iterar sobre los bytes de la fuente
+
+        for (uint32_t i = 0; i < MAX7219_FONT_WIDTH - 1 && k >= 0; i++)  // Iterar sobre los bytes de la fuente
         {
             uint8_t data = 0;
             
@@ -479,53 +505,458 @@ MAX7219_Status_t MAX7219_PrintString(const char *str)
                 }
             }
             
-            bufferCol[k--] = data;  // Almacenar el byte modificado en el buffer de columnas
+            MAX7219_Buffer[k--] = data;  // Almacenar el byte modificado en el buffer de columnas
             indx++;
         }
-
-        strindx++;  // Moverse al siguiente carácter en la cadena
-        
-        if (str[strindx] == '\0')
-            break; // Importante: detenerse al final de la cadena
     }
 
-    return flushBuffer(); // Actualizar la pantalla con el nuevo contenido
+    // Apagar las columnas no ocupadas por el texto (restos del contenido anterior)
+    while (k >= 0)
+    {
+        MAX7219_Buffer[k--] = 0;
+    }
+
+    return max7219_FlushBuffer(); // Actualizar la pantalla con el nuevo contenido
 }
 
 /**
  * @brief Enciende o apaga un píxel individual de la matriz de LEDs.
  *
- * Manipula directamente bufferCol para permitir dibujar gráficos/iconos arbitrarios,
- * en lugar de limitarse a texto. La actualización de la pantalla es inmediata.
+ * Equivale a MAX7219_DrawPixel() seguido de MAX7219_UpdateScreen(): la actualización
+ * de la pantalla es inmediata. Origen (0,0) arriba a la izquierda (desde la v3.0.0).
  *
- * @param x Columna del píxel (0 a NumDev*8 - 1).
- * @param y Fila del píxel dentro de la columna (0 a 7), donde el bit y de bufferCol[x] representa el píxel.
+ * @param x Columna del píxel: 0 = izquierda, hasta MAX7219_NumDev*8 - 1.
+ * @param y Fila del píxel: 0 = arriba, hasta 7.
  * @param state Distinto de 0 para encender el píxel, 0 para apagarlo.
  *
  * @return MAX7219_Status_t Estado de la operación.
  */
-MAX7219_Status_t MAX7219_SetPixel(int x, int y, uint8_t state)
+MAX7219_Status_t MAX7219_SetPixel(uint16_t x, uint16_t y, uint8_t state)
 {
-    if(!MAX7219_Initialized)
+    MAX7219_Status_t status = MAX7219_DrawPixel(x, y, state ? MAX7219_COLOR_ON : MAX7219_COLOR_OFF);
+
+    return status ? status : max7219_FlushBuffer();
+}
+
+/**
+ * @brief Obtiene el ancho de la matriz configurado en MAX7219_Init.
+ *
+ * @return uint16_t Ancho en píxeles, o 0 si el módulo no ha sido inicializado.
+ */
+uint16_t MAX7219_GetWidth(void)
+{
+    if (!MAX7219_Initialized) { return 0U; }
+
+    return (uint16_t)(MAX7219_NumDev * 8U);
+}
+
+/**
+ * @brief Obtiene el alto de la matriz.
+ *
+ * @return uint16_t Alto en píxeles (8), o 0 si el módulo no ha sido inicializado.
+ */
+uint16_t MAX7219_GetHeight(void)
+{
+    if (!MAX7219_Initialized) { return 0U; }
+
+    return 8U;
+}
+
+/**
+ * @brief Envía el contenido del buffer interno a la matriz de LEDs.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_UpdateScreen(void)
+{
+    if (!MAX7219_Initialized) { return MAX7219_NOT_INITIALIZED; }
+
+    return max7219_FlushBuffer();
+}
+
+/**
+ * @brief Rellena todo el buffer interno con un color (no actualiza la pantalla).
+ *
+ * @param color Color de relleno.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_Fill(MAX7219_COLOR_t color)
+{
+    if (!MAX7219_Initialized) { return MAX7219_NOT_INITIALIZED; }
+
+    if (MAX7219_State.Inverted) { color = (color == MAX7219_COLOR_ON) ? MAX7219_COLOR_OFF : MAX7219_COLOR_ON; }
+
+    memset(MAX7219_Buffer, (color == MAX7219_COLOR_ON) ? 0xFF : 0x00, MAX7219_NumDev * 8U);
+
+    return MAX7219_OK;
+}
+
+/**
+ * @brief Invierte por software el estado de todos los LEDs del buffer (no actualiza la pantalla).
+ *
+ * El MAX7219 no puede invertir por hardware: se invierten los bytes del buffer y se alterna una bandera
+ * que hace que DrawPixel, Fill y el resto de primitivas pinten con el color contrario.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_ToggleInvert(void)
+{
+    if (!MAX7219_Initialized) { return MAX7219_NOT_INITIALIZED; }
+
+    MAX7219_State.Inverted = (uint8_t)!MAX7219_State.Inverted;
+
+    for (uint8_t i = 0U; i < MAX7219_NumDev * 8U; i++)
     {
-        return MAX7219_NOT_INITIALIZED;
+        MAX7219_Buffer[i] = (uint8_t)~MAX7219_Buffer[i];
     }
 
-    if(x < 0 || x >= NumDev * 8 || y < 0 || y >= 8)
+    return MAX7219_OK;
+}
+
+/**
+ * @brief Enciende o apaga un píxel en el buffer interno (no actualiza la pantalla).
+ *
+ * @param x     Columna del píxel: 0 = izquierda.
+ * @param y     Fila del píxel: 0 = arriba.
+ * @param color Color del píxel.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_DrawPixel(uint16_t x, uint16_t y, MAX7219_COLOR_t color)
+{
+    if (!MAX7219_Initialized) { return MAX7219_NOT_INITIALIZED; }
+
+    if (x >= MAX7219_NumDev * 8U || y >= 8U)
     {
         return MAX7219_INVALID_PARAM;
     }
 
-    if(state)
+    max7219_PlotPixel((int16_t)x, (int16_t)y, color);
+
+    return MAX7219_OK;
+}
+
+/**
+ * @brief Dibuja una línea horizontal en el buffer interno (no actualiza la pantalla).
+ *
+ * @param x     Columna inicial: 0 = izquierda.
+ * @param y     Fila de la línea: 0 = arriba.
+ * @param w     Ancho de la línea (puede ser negativo: se dibuja hacia la izquierda de @p x).
+ * @param color Color de la línea.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_DrawFastHLine(int16_t x, int16_t y, int16_t w, MAX7219_COLOR_t color)
+{
+    if (!MAX7219_Initialized) { return MAX7219_NOT_INITIALIZED; }
+
+    if (w == 0) { return MAX7219_OK; }
+    if (w < 0)  { x += w + 1; w = -w; }
+
+    max7219_FillHLine(x, x + w - 1, y, color);
+
+    return MAX7219_OK;
+}
+
+/**
+ * @brief Dibuja una línea vertical en el buffer interno (no actualiza la pantalla).
+ *
+ * @param x     Columna de la línea: 0 = izquierda.
+ * @param y     Fila inicial: 0 = arriba.
+ * @param h     Alto de la línea (puede ser negativo: se dibuja hacia arriba de @p y).
+ * @param color Color de la línea.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_DrawFastVLine(int16_t x, int16_t y, int16_t h, MAX7219_COLOR_t color)
+{
+    if (!MAX7219_Initialized) { return MAX7219_NOT_INITIALIZED; }
+
+    if (h == 0) { return MAX7219_OK; }
+    if (h < 0)  { y += h + 1; h = -h; }
+
+    max7219_FillVLine(x, y, y + h - 1, color);
+
+    return MAX7219_OK;
+}
+
+/**
+ * @brief Dibuja una línea entre dos puntos en el buffer interno (Bresenham; no actualiza la pantalla).
+ *
+ * Los extremos fuera de la pantalla dan MAX7219_INVALID_PARAM, igual que en SSD1681.
+ *
+ * @param x0 Columna del primer extremo.
+ * @param y0 Fila del primer extremo.
+ * @param x1 Columna del segundo extremo.
+ * @param y1 Fila del segundo extremo.
+ * @param c  Color de la línea.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_DrawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, MAX7219_COLOR_t c)
+{
+    int16_t dx, dy, sx, sy, err, e2;
+
+    if (!MAX7219_Initialized) { return MAX7219_NOT_INITIALIZED; }
+
+    // Extremos fuera de pantalla: mismo criterio que MAX7219_DrawPixel
+    if (x0 >= MAX7219_NumDev * 8U || x1 >= MAX7219_NumDev * 8U || y0 >= 8U || y1 >= 8U)
     {
-        bufferCol[x] |= (1 << y);
-    }
-    else
-    {
-        bufferCol[x] &= ~(1 << y);
+        return MAX7219_INVALID_PARAM;
     }
 
-    return flushBuffer();
+    dx = (int16_t)((x0 < x1) ? (x1 - x0) : (x0 - x1));
+    dy = (int16_t)((y0 < y1) ? (y1 - y0) : (y0 - y1));
+    sx = (x0 < x1) ? 1 : -1;
+    sy = (y0 < y1) ? 1 : -1;
+    err = (int16_t)(((dx > dy) ? dx : -dy) / 2);
+
+    // Bresenham cubre también líneas horizontales, verticales y un punto
+    while (1)
+    {
+        max7219_PlotPixel((int16_t)x0, (int16_t)y0, c);
+        if (x0 == x1 && y0 == y1)
+        {
+            break;
+        }
+        e2 = err;
+        if (e2 > -dx) { err = (int16_t)(err - dy); x0 = (uint16_t)(x0 + sx); }
+        if (e2 < dy)  { err = (int16_t)(err + dx); y0 = (uint16_t)(y0 + sy); }
+    }
+
+    return MAX7219_OK;
+}
+
+/**
+ * @brief Dibuja el borde de un rectángulo en el buffer interno (no actualiza la pantalla).
+ *
+ * Recibe dos esquinas opuestas, en cualquier orden, como SSD1681_DrawRectangle.
+ *
+ * @param x0 Columna de la primera esquina.
+ * @param y0 Fila de la primera esquina.
+ * @param x1 Columna de la esquina opuesta.
+ * @param y1 Fila de la esquina opuesta.
+ * @param c  Color del borde.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_DrawRectangle(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, MAX7219_COLOR_t c)
+{
+    MAX7219_Status_t st;
+    uint16_t tmp;
+
+    if (!MAX7219_Initialized) { return MAX7219_NOT_INITIALIZED; }
+
+    if (x0 >= MAX7219_NumDev * 8U || x1 >= MAX7219_NumDev * 8U || y0 >= 8U || y1 >= 8U)
+    {
+        return MAX7219_INVALID_PARAM;
+    }
+
+    if (x0 > x1) { tmp = x0; x0 = x1; x1 = tmp; }
+    if (y0 > y1) { tmp = y0; y0 = y1; y1 = tmp; }
+
+    const int16_t w = (int16_t)(x1 - x0 + 1U);
+    const int16_t h = (int16_t)(y1 - y0 + 1U);
+
+    st = MAX7219_DrawFastHLine((int16_t)x0, (int16_t)y0, w, c);            // Línea superior
+    st = st ? st : MAX7219_DrawFastHLine((int16_t)x0, (int16_t)y1, w, c);  // Línea inferior
+    st = st ? st : MAX7219_DrawFastVLine((int16_t)x0, (int16_t)y0, h, c);  // Línea izquierda
+    st = st ? st : MAX7219_DrawFastVLine((int16_t)x1, (int16_t)y0, h, c);  // Línea derecha
+
+    return st;
+}
+
+/**
+ * @brief Dibuja un rectángulo relleno en el buffer interno (no actualiza la pantalla).
+ *
+ * Recibe esquina superior izquierda, ancho y alto, como SSD1681_DrawFilledRectangle.
+ * Lo que sobresale de la pantalla se recorta.
+ *
+ * @param x Columna de la esquina superior izquierda.
+ * @param y Fila de la esquina superior izquierda.
+ * @param w Ancho en píxeles.
+ * @param h Alto en píxeles.
+ * @param c Color del relleno.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_DrawFilledRectangle(uint16_t x, uint16_t y, uint16_t w, uint16_t h, MAX7219_COLOR_t c)
+{
+    if (!MAX7219_Initialized) { return MAX7219_NOT_INITIALIZED; }
+
+    if (x >= MAX7219_NumDev * 8U || y >= 8U)
+    {
+        return MAX7219_INVALID_PARAM;
+    }
+
+    if (w == 0U || h == 0U)
+    {
+        return MAX7219_OK;
+    }
+
+    // Recorta al borde de la pantalla
+    if ((uint32_t)x + w > MAX7219_NumDev * 8U) { w = (uint16_t)(MAX7219_NumDev * 8U - x); }
+    if ((uint32_t)y + h > 8U)                  { h = (uint16_t)(8U - y); }
+
+    for (uint16_t i = 0U; i < h; i++)
+    {
+        max7219_FillHLine((int16_t)x, (int16_t)(x + w - 1U), (int16_t)(y + i), c);
+    }
+
+    return MAX7219_OK;
+}
+
+/**
+ * @brief Dibuja un bitmap monocromo en el buffer interno (no actualiza la pantalla).
+ *
+ * Mismo formato que SSD1681_DrawBitmap: por filas, bit 7 = píxel de la izquierda,
+ * (w + 7) / 8 bytes por fila. Es transparente (solo se pintan los bits a 1) y recorta
+ * en los bordes, así que un sprite parcialmente fuera de la pantalla devuelve MAX7219_OK.
+ *
+ * @param x      Columna de la esquina superior izquierda (puede ser negativa).
+ * @param y      Fila de la esquina superior izquierda (puede ser negativa).
+ * @param bitmap Datos del bitmap.
+ * @param w      Ancho del bitmap en píxeles.
+ * @param h      Alto del bitmap en píxeles.
+ * @param color  Color de los píxeles activos.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_DrawBitmap(int16_t x, int16_t y, const uint8_t* bitmap, int16_t w, int16_t h, MAX7219_COLOR_t color)
+{
+    const int16_t byteWidth = (int16_t)((w + 7) / 8); // Cada fila ocupa bytes completos
+    uint8_t byte = 0U;
+
+    if (!MAX7219_Initialized) { return MAX7219_NOT_INITIALIZED; }
+    if (bitmap == NULL)       { return MAX7219_INVALID_PARAM;   }
+
+    for (int16_t j = 0; j < h; j++)
+    {
+        for (int16_t i = 0; i < w; i++)
+        {
+            // Un byte nuevo cada 8 píxeles; si no, desplaza al siguiente bit
+            byte = (i & 7) ? (uint8_t)(byte << 1) : bitmap[j * byteWidth + i / 8];
+
+            if (byte & 0x80U)
+            {
+                max7219_PlotPixel((int16_t)(x + i), (int16_t)(y + j), color);
+            }
+        }
+    }
+
+    return MAX7219_OK;
+}
+
+/**
+ * @brief Coloca el cursor de escritura de MAX7219_Putc / MAX7219_Puts (no dibuja ni actualiza la pantalla).
+ *
+ * @param x Columna del cursor: 0 = izquierda.
+ * @param y Fila del cursor: 0 = arriba.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_GotoXY(uint16_t x, uint16_t y)
+{
+    if (!MAX7219_Initialized) { return MAX7219_NOT_INITIALIZED; }
+
+    if (x >= MAX7219_NumDev * 8U || y >= 8U)
+    {
+        return MAX7219_INVALID_PARAM;
+    }
+
+    MAX7219_State.CurrentX = x;
+    MAX7219_State.CurrentY = y;
+
+    return MAX7219_OK;
+}
+
+/**
+ * @brief Escribe un carácter en el buffer interno en la posición del cursor (no actualiza la pantalla).
+ *
+ * Es opaco: pinta los píxeles apagados del glifo con el color contrario. Si el glifo no cabe entero
+ * se recorta en el borde y el cursor avanza igualmente. Avanza MAX7219_FONT_WIDTH - 1 columnas,
+ * el mismo ancho que MAX7219_PrintString.
+ *
+ * @param ch    Carácter a escribir (los 256 códigos de la fuente).
+ * @param color Color del carácter.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_Putc(char ch, MAX7219_COLOR_t color)
+{
+    const MAX7219_COLOR_t bg = (color == MAX7219_COLOR_ON) ? MAX7219_COLOR_OFF : MAX7219_COLOR_ON;
+
+    if (!MAX7219_Initialized) { return MAX7219_NOT_INITIALIZED; }
+
+    // Cursor fuera de la pantalla: no queda sitio para ningún carácter más
+    if (MAX7219_State.CurrentX >= MAX7219_NumDev * 8U)
+    {
+        return MAX7219_INVALID_PARAM;
+    }
+
+    // Fuente por columnas, bit r = fila r (LSB arriba); el glifo se recorta en el borde
+    for (uint32_t col = 0U; col < MAX7219_FONT_WIDTH - 1U; col++)
+    {
+        const uint8_t bits = MAX7219_Dot_Matrix_font[(uint8_t)ch][col];
+        for (uint32_t row = 0U; row < 8U; row++)
+        {
+            max7219_PlotPixel((int16_t)(MAX7219_State.CurrentX + col), (int16_t)(MAX7219_State.CurrentY + row),
+                              ((bits >> row) & 1U) ? color : bg);
+        }
+    }
+
+    MAX7219_State.CurrentX = (uint16_t)(MAX7219_State.CurrentX + MAX7219_FONT_WIDTH - 1U);
+
+    return MAX7219_OK;
+}
+
+/**
+ * @brief Escribe una cadena en el buffer interno desde la posición del cursor (no actualiza la pantalla).
+ *
+ * Se detiene en el primer carácter que MAX7219_Putc rechaza (cursor fuera de la pantalla).
+ *
+ * @param str   Cadena terminada en '\0'.
+ * @param color Color de los caracteres.
+ *
+ * @return MAX7219_Status_t Estado de la operación.
+ */
+MAX7219_Status_t MAX7219_Puts(const char* str, MAX7219_COLOR_t color)
+{
+    MAX7219_Status_t st;
+
+    if (!MAX7219_Initialized) { return MAX7219_NOT_INITIALIZED; }
+    if (str == NULL)          { return MAX7219_INVALID_PARAM;   }
+
+    while (*str)
+    {
+        st = MAX7219_Putc(*str, color);
+        if (st != MAX7219_OK)
+        {
+            return st;
+        }
+        str++;
+    }
+
+    return MAX7219_OK;
+}
+
+/**
+ * @brief Calcula el ancho en columnas que ocupa una cadena escrita con MAX7219_Puts (no toca el buffer ni la pantalla).
+ *
+ * Es el avance del cursor: MAX7219_FONT_WIDTH - 1 columnas por carácter, sin tener en cuenta el recorte
+ * en el borde. No requiere MAX7219_Init. Para centrar: GotoXY((GetWidth() - GetStringWidth(s)) / 2, 0),
+ * comprobando antes que GetStringWidth(s) <= GetWidth() (la resta es sin signo).
+ *
+ * @param str Cadena terminada en '\0'.
+ *
+ * @return uint16_t Ancho en columnas; 0 si @p str es NULL o está vacía.
+ */
+uint16_t MAX7219_GetStringWidth(const char* str)
+{
+    if (str == NULL) { return 0U; }
+
+    return (uint16_t)(strlen(str) * (MAX7219_FONT_WIDTH - 1U));
 }
 
 /**
