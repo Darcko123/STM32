@@ -32,9 +32,9 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 /* -- Parámetros de la batería de pruebas -- */
-#define TEST_NUM_DEV     4U                   /**< Módulos 8x8 en cascada (1 a MAX7219_MAX_DEV) */
-#define TEST_WIDTH       (TEST_NUM_DEV * 8U)  /**< Columnas totales de la matriz */
-#define TEST_SCROLL_MS   60U                  /**< Retardo entre pasos del scroll */
+#define TEST_NUM_DEV     4U    /**< Módulos 8x8 en cascada (1 a MAX7219_MAX_DEV); los tests asumen 4 */
+#define TEST_SCROLL_MS   60U   /**< Retardo entre pasos del scroll */
+#define TEST_BRILLO      1U    /**< Nivel de brillo de trabajo (el mismo con el que arranca MAX7219_Init) */
 
 /* USER CODE END PD */
 
@@ -60,9 +60,16 @@ static void MX_SPI2_Init(void);
 /* USER CODE BEGIN PFP */
 static void MAX7219_TestSuite(void);
 static void MAX7219_TestPrint(void);
-static void MAX7219_TestScroll(void);
+static void MAX7219_TestFonts(void);
+static void MAX7219_TestPutc(void);
 static void MAX7219_TestPixeles(void);
 static void MAX7219_TestBarrido(void);
+static void MAX7219_TestLineas(void);
+static void MAX7219_TestRectangulos(void);
+static void MAX7219_TestBitmap(void);
+static void MAX7219_TestInversion(void);
+static void MAX7219_TestBrillo(void);
+static void MAX7219_TestScroll(void);
 static void MAX7219_TestSleep(void);
 static void MAX7219_TestErrores(void);
 static void MAX7219_TestPreInit(void);
@@ -264,13 +271,34 @@ static void MAX7219_TestSuite(void)
 	MAX7219_TestPrint();
 	HAL_Delay(2000);
 
-	MAX7219_TestScroll();
+	MAX7219_TestFonts();
+	HAL_Delay(2000);
+
+	MAX7219_TestPutc();
 	HAL_Delay(2000);
 
 	MAX7219_TestPixeles();
 	HAL_Delay(2000);
 
 	MAX7219_TestBarrido();
+	HAL_Delay(2000);
+
+	MAX7219_TestLineas();
+	HAL_Delay(2000);
+
+	MAX7219_TestRectangulos();
+	HAL_Delay(2000);
+
+	MAX7219_TestBitmap();
+	HAL_Delay(2000);
+
+	MAX7219_TestInversion();
+	HAL_Delay(2000);
+
+	MAX7219_TestBrillo();
+	HAL_Delay(2000);
+
+	MAX7219_TestScroll();
 	HAL_Delay(2000);
 
 	MAX7219_TestSleep();
@@ -285,142 +313,351 @@ static void MAX7219_TestSuite(void)
 
 static void MAX7219_TestPrint(void)
 {
-	/* -- Texto estático: cada carácter ocupa 7 columnas, con 4 módulos caben 4 caracteres.
-	 *    PrintString no borra las columnas que no escribe: se limpia antes de cada texto -- */
-	MAX_CHECK(MAX7219_ClearDisplay());
+	/* -- PrintString: cada carácter ocupa 7 columnas, con 4 módulos caben 4 caracteres -- */
 	MAX_CHECK(MAX7219_PrintString("1234"));
 	HAL_Delay(1500);
 
-	MAX_CHECK(MAX7219_ClearDisplay());
-	MAX_CHECK(MAX7219_PrintString("Hola"));
+	/* -- Un solo carácter: queda pegado al borde izquierdo y apaga los restos de "1234" -- */
+	MAX_CHECK(MAX7219_PrintString("A"));
 	HAL_Delay(1500);
 
-	/* -- Un solo carácter: debe quedar pegado al borde izquierdo y el resto apagado -- */
-	MAX_CHECK(MAX7219_ClearDisplay());
-	MAX_CHECK(MAX7219_PrintString("A"));
+	/* -- Texto más largo que la matriz: se recorta en el borde derecho sin error
+	 *    (debe verse "ABCD" y las 4 primeras columnas de la "E") -- */
+	MAX_CHECK(MAX7219_PrintString("ABCDEFGH"));
 }
 
-static void MAX7219_TestScroll(void)
+static void MAX7219_TestFonts(void)
 {
-	/* -- Scroll: el texto entra por la derecha y se desplaza hacia la izquierda -- */
-	MAX_CHECK(MAX7219_ClearDisplay());
-	MAX_CHECK(MAX7219_ScrollString("Matriz de LEDs  ", TEST_SCROLL_MS));
+	const uint16_t w = MAX7219_GetWidth();
+
+	/* -- Texto centrado con GetStringWidth: "Hi" ocupa 14 columnas, sobran 9 a cada lado -- */
+	MAX_CHECK(MAX7219_Fill(MAX7219_COLOR_OFF));
+	MAX_CHECK(MAX7219_GotoXY((w - MAX7219_GetStringWidth("Hi")) / 2, 0));
+	MAX_CHECK(MAX7219_Puts("Hi", MAX7219_COLOR_ON));
+	MAX_CHECK(MAX7219_UpdateScreen());
+	HAL_Delay(1500);
+
+	/* -- Texto apagado sobre fondo encendido: Putc es opaco y pinta la celda con el color contrario -- */
+	MAX_CHECK(MAX7219_Fill(MAX7219_COLOR_ON));
+	MAX_CHECK(MAX7219_GotoXY(2, 0));
+	MAX_CHECK(MAX7219_Puts("Inv", MAX7219_COLOR_OFF));
+	MAX_CHECK(MAX7219_UpdateScreen());
+}
+
+static void MAX7219_TestPutc(void)
+{
+	const uint16_t w = MAX7219_GetWidth();
+
+	/* -- Puts recorta el último carácter que empieza dentro de la pantalla y devuelve OK:
+	 *    "12345" -> la "5" empieza en x = 28 y solo se ven sus 4 primeras columnas -- */
+	MAX_CHECK(MAX7219_Fill(MAX7219_COLOR_OFF));
+	MAX_CHECK(MAX7219_GotoXY(0, 0));
+	MAX_CHECK(MAX7219_Puts("12345", MAX7219_COLOR_ON));
+	MAX_CHECK(MAX7219_UpdateScreen());
+	HAL_Delay(1500);
+
+	/* -- Con el cursor ya fuera de la pantalla, el siguiente carácter se rechaza -- */
+	MAX_EXPECT(MAX7219_Putc('6', MAX7219_COLOR_ON), MAX7219_INVALID_PARAM);
+	MAX_CHECK(MAX7219_GotoXY(0, 0));
+	MAX_EXPECT(MAX7219_Puts("123456", MAX7219_COLOR_ON), MAX7219_INVALID_PARAM);
+
+	/* -- Cursor desplazado hacia abajo: la "A" baja 3 filas y pierde su parte inferior -- */
+	MAX_CHECK(MAX7219_Fill(MAX7219_COLOR_OFF));
+	MAX_CHECK(MAX7219_GotoXY(w / 2, 3));
+	MAX_CHECK(MAX7219_Putc('A', MAX7219_COLOR_ON));
+
+	/* -- Errores: cadena NULL -- */
+	MAX_EXPECT(MAX7219_Puts(NULL, MAX7219_COLOR_ON), MAX7219_INVALID_PARAM);
+	MAX_CHECK(MAX7219_UpdateScreen());
 }
 
 static void MAX7219_TestPixeles(void)
 {
-	/* Con el texto legible, x = 0 es la columna derecha (por donde entra el scroll)
-	 * e y = 0 la fila inferior */
-	const int w = (int)TEST_WIDTH;
+	const uint16_t w = MAX7219_GetWidth();
+	const uint16_t h = MAX7219_GetHeight();
 
-	/* -- Marco: bordes superior/inferior a lo ancho de todos los módulos y laterales -- */
-	MAX_CHECK(MAX7219_ClearDisplay());
-	for (int x = 0; x < w; x++)
+	if (w != TEST_NUM_DEV * 8U || h != 8U)
 	{
-		MAX_CHECK(MAX7219_SetPixel(x, 0, 1));
-		MAX_CHECK(MAX7219_SetPixel(x, 7, 1));
-	}
-	for (int y = 1; y < 7; y++)
-	{
-		MAX_CHECK(MAX7219_SetPixel(0, y, 1));
-		MAX_CHECK(MAX7219_SetPixel(w - 1, y, 1));
+		Error_Handler();
 	}
 
-	/* -- Una diagonal por módulo: debe verse la misma "\" en cada uno (orden de la cascada) -- */
-	for (int dev = 0; dev < (int)TEST_NUM_DEV; dev++)
+	/* -- Un píxel en cada esquina: deben verse los cuatro, pegados al borde -- */
+	MAX_CHECK(MAX7219_Fill(MAX7219_COLOR_OFF));
+	MAX_CHECK(MAX7219_DrawPixel(0, 0, MAX7219_COLOR_ON));
+	MAX_CHECK(MAX7219_DrawPixel(w - 1, 0, MAX7219_COLOR_ON));
+	MAX_CHECK(MAX7219_DrawPixel(0, h - 1, MAX7219_COLOR_ON));
+	MAX_CHECK(MAX7219_DrawPixel(w - 1, h - 1, MAX7219_COLOR_ON));
+
+	/* -- Orden de la cascada: el módulo n (de izquierda a derecha) muestra n + 1 puntos en la fila central -- */
+	for (uint16_t dev = 0; dev < TEST_NUM_DEV; dev++)
 	{
-		for (int i = 1; i < 7; i++)
+		for (uint16_t i = 0; i <= dev; i++)
 		{
-			MAX_CHECK(MAX7219_SetPixel(dev * 8 + i, i, 1));
+			MAX_CHECK(MAX7219_DrawPixel(dev * 8U + 1U + 2U * i, h / 2, MAX7219_COLOR_ON));
 		}
 	}
-	HAL_Delay(1500);
 
-	/* -- Apagado: se borra la diagonal del primer módulo, el resto debe quedar igual -- */
-	for (int i = 1; i < 7; i++)
-	{
-		MAX_CHECK(MAX7219_SetPixel(i, i, 0));
-	}
-
-	/* -- Fuera de rango: a diferencia de un recorte, SetPixel lo rechaza -- */
-	MAX_EXPECT(MAX7219_SetPixel(-1, 0, 1), MAX7219_INVALID_PARAM);
-	MAX_EXPECT(MAX7219_SetPixel(w, 0, 1), MAX7219_INVALID_PARAM);
-	MAX_EXPECT(MAX7219_SetPixel(0, -1, 1), MAX7219_INVALID_PARAM);
-	MAX_EXPECT(MAX7219_SetPixel(0, 8, 1), MAX7219_INVALID_PARAM);
+	/* -- Fuera de pantalla: DrawPixel no recorta y lo rechaza -- */
+	MAX_EXPECT(MAX7219_DrawPixel(w, 0, MAX7219_COLOR_ON), MAX7219_INVALID_PARAM);
+	MAX_EXPECT(MAX7219_DrawPixel(0, h, MAX7219_COLOR_ON), MAX7219_INVALID_PARAM);
+	MAX_CHECK(MAX7219_UpdateScreen());
 }
 
 static void MAX7219_TestBarrido(void)
 {
-	/* -- Barrido de columnas desde x = 0: debe avanzar de derecha a izquierda sin saltos
-	 *    al pasar de un módulo al siguiente, y luego apagarse en el mismo orden -- */
-	MAX_CHECK(MAX7219_ClearDisplay());
+	const uint16_t w = MAX7219_GetWidth();
+	const uint16_t h = MAX7219_GetHeight();
+
+	/* -- Barrido con SetPixel (actualiza al instante): las columnas avanzan de izquierda a
+	 *    derecha sin saltos entre módulos y luego se apagan en el mismo orden -- */
+	MAX_CHECK(MAX7219_Clear());
 	for (uint8_t pasada = 0; pasada < 2; pasada++)
 	{
 		const uint8_t state = (pasada == 0) ? 1 : 0;
 
-		for (int x = 0; x < (int)TEST_WIDTH; x++)
+		for (uint16_t x = 0; x < w; x++)
 		{
-			for (int y = 0; y < 8; y++)
+			for (uint16_t y = 0; y < h; y++)
 			{
 				MAX_CHECK(MAX7219_SetPixel(x, y, state));
 			}
 			HAL_Delay(30);
 		}
 	}
+
+	/* -- Fuera de pantalla -- */
+	MAX_EXPECT(MAX7219_SetPixel(w, 0, 1), MAX7219_INVALID_PARAM);
+	MAX_EXPECT(MAX7219_SetPixel(0, h, 1), MAX7219_INVALID_PARAM);
+}
+
+static void MAX7219_TestLineas(void)
+{
+	const int16_t w = (int16_t)MAX7219_GetWidth();
+	const int16_t h = (int16_t)MAX7219_GetHeight();
+
+	/* -- Lineas: marco y diagonales de esquina a esquina -- */
+	MAX_CHECK(MAX7219_Fill(MAX7219_COLOR_OFF));
+	MAX_CHECK(MAX7219_DrawRectangle(0, 0, w - 1, h - 1, MAX7219_COLOR_ON));
+	MAX_CHECK(MAX7219_DrawLine(0, 0, w - 1, h - 1, MAX7219_COLOR_ON));
+	MAX_CHECK(MAX7219_DrawLine(0, h - 1, w - 1, 0, MAX7219_COLOR_ON));
+	MAX_CHECK(MAX7219_UpdateScreen());
+	HAL_Delay(1500);
+
+	/* -- Recorte: las tres líneas deben cruzar la matriz completa (sin error ni huecos):
+	 *    horizontal que sobresale 20 px por cada lado, horizontal con ancho negativo
+	 *    y vertical con alto negativo -- */
+	MAX_CHECK(MAX7219_Fill(MAX7219_COLOR_OFF));
+	MAX_CHECK(MAX7219_DrawFastHLine(-20, 1, w + 40, MAX7219_COLOR_ON));
+	MAX_CHECK(MAX7219_DrawFastHLine(w - 1, h - 2, -w, MAX7219_COLOR_ON));
+	MAX_CHECK(MAX7219_DrawFastVLine(w / 2, h - 1, -h, MAX7219_COLOR_ON));
+	MAX_CHECK(MAX7219_UpdateScreen());
+}
+
+static void MAX7219_TestRectangulos(void)
+{
+	const uint16_t w = MAX7219_GetWidth();
+	const uint16_t h = MAX7219_GetHeight();
+
+	/* -- Rectangulos: contorno a la izquierda (esquinas pasadas en orden inverso) y relleno
+	 *    a la derecha con un ancho mayor que el disponible: se recorta en el borde derecho -- */
+	MAX_CHECK(MAX7219_Fill(MAX7219_COLOR_OFF));
+	MAX_CHECK(MAX7219_DrawRectangle(w / 2 - 2, h - 1, 0, 0, MAX7219_COLOR_ON));
+	MAX_CHECK(MAX7219_DrawFilledRectangle(w / 2 + 1, 0, w, h, MAX7219_COLOR_ON));
+
+	/* -- Hueco: rectángulo apagado dentro del relleno -- */
+	MAX_CHECK(MAX7219_DrawFilledRectangle(w / 2 + 4, 2, 4, 4, MAX7219_COLOR_OFF));
+
+	/* -- Tamaño 0: no dibuja nada y devuelve OK -- */
+	MAX_CHECK(MAX7219_DrawFilledRectangle(2, 2, 0, 4, MAX7219_COLOR_ON));
+	MAX_CHECK(MAX7219_UpdateScreen());
+}
+
+static void MAX7219_TestBitmap(void)
+{
+	const int16_t w = (int16_t)MAX7219_GetWidth();
+
+	/* "F" de 6x8: asimétrica para detectar espejos. Ancho no múltiplo de 8 -> los
+	 * 2 bits de relleno (0x03) van en 1 a propósito: si aparecen columnas extra a la
+	 * derecha de la F, el relleno no se ignora. */
+	static const uint8_t bmpF[] = {
+		0xFF,
+		0xFF,
+		0xC3,
+		0xF3,
+		0xF3,
+		0xC3,
+		0xC3,
+		0xC3,
+	};
+	const int16_t bw = 6;
+	const int16_t bh = 8;
+
+	/* -- Bitmaps: F pegada al borde izquierdo y F pegada al borde derecho -- */
+	MAX_CHECK(MAX7219_Fill(MAX7219_COLOR_OFF));
+	MAX_CHECK(MAX7219_DrawBitmap(0, 0, bmpF, bw, bh, MAX7219_COLOR_ON));
+	MAX_CHECK(MAX7219_DrawBitmap(w - bw, 0, bmpF, bw, bh, MAX7219_COLOR_ON));
+
+	/* -- Recorte: F a medio salir por arriba (solo se ve su mitad inferior, sin error) -- */
+	MAX_CHECK(MAX7219_DrawBitmap(w / 2 - 8, -bh / 2, bmpF, bw, bh, MAX7219_COLOR_ON));
+
+	/* -- Color: F apagada sobre un recuadro encendido (los bits en 0 no pintan) -- */
+	MAX_CHECK(MAX7219_DrawFilledRectangle(w / 2, 0, bw + 2, bh, MAX7219_COLOR_ON));
+	MAX_CHECK(MAX7219_DrawBitmap(w / 2 + 1, 0, bmpF, bw, bh, MAX7219_COLOR_OFF));
+
+	/* -- Parámetro inválido: NULL debe rechazarse -- */
+	MAX_EXPECT(MAX7219_DrawBitmap(0, 0, NULL, bw, bh, MAX7219_COLOR_ON), MAX7219_INVALID_PARAM);
+	MAX_CHECK(MAX7219_UpdateScreen());
+}
+
+static void MAX7219_TestInversion(void)
+{
+	const uint16_t w = MAX7219_GetWidth();
+	const uint16_t h = MAX7219_GetHeight();
+
+	/* -- Mitad izquierda con texto, mitad derecha encendida -- */
+	MAX_CHECK(MAX7219_Fill(MAX7219_COLOR_OFF));
+	MAX_CHECK(MAX7219_GotoXY(0, 0));
+	MAX_CHECK(MAX7219_Puts("ab", MAX7219_COLOR_ON));
+	MAX_CHECK(MAX7219_DrawFilledRectangle(w / 2, 0, w / 2, h, MAX7219_COLOR_ON));
+	MAX_CHECK(MAX7219_UpdateScreen());
+	HAL_Delay(1500);
+
+	/* -- ToggleInvert: el MAX7219 no invierte por hardware, se invierte el buffer y hace falta UpdateScreen -- */
+	MAX_CHECK(MAX7219_ToggleInvert());
+	MAX_CHECK(MAX7219_UpdateScreen());
+	HAL_Delay(1500);
+
+	/* -- Mientras está activa, los colores se invierten: Clear deja todos los LEDs encendidos -- */
+	MAX_CHECK(MAX7219_Clear());
+	HAL_Delay(1500);
+
+	/* -- Segunda llamada: vuelve al estado normal (buffer invertido de nuevo -> todo apagado) -- */
+	MAX_CHECK(MAX7219_ToggleInvert());
+	MAX_CHECK(MAX7219_UpdateScreen());
+}
+
+static void MAX7219_TestBrillo(void)
+{
+	/* -- Rampa de brillo 0 -> 15 -> 0 sobre texto (no con la matriz llena: a brillo máximo
+	 *    los 4 módulos encendidos pueden pedir más de 1 A a la fuente de 5 V) -- */
+	MAX_CHECK(MAX7219_PrintString("Luz"));
+	for (uint8_t nivel = 0; nivel <= MAX7219_INTENSITY_MAX; nivel++)
+	{
+		MAX_CHECK(MAX7219_SetIntensity(nivel));
+		HAL_Delay(150);
+	}
+	for (int8_t nivel = MAX7219_INTENSITY_MAX; nivel >= 0; nivel--)
+	{
+		MAX_CHECK(MAX7219_SetIntensity((uint8_t)nivel));
+		HAL_Delay(150);
+	}
+
+	/* -- Fuera de rango -- */
+	MAX_EXPECT(MAX7219_SetIntensity(MAX7219_INTENSITY_MAX + 1U), MAX7219_INVALID_PARAM);
+
+	/* Restaura el brillo de trabajo para el resto de los tests */
+	MAX_CHECK(MAX7219_SetIntensity(TEST_BRILLO));
+}
+
+static void MAX7219_TestScroll(void)
+{
+	/* -- Scroll: el texto entra por la derecha y se desplaza hacia la izquierda -- */
+	MAX_CHECK(MAX7219_Clear());
+	MAX_CHECK(MAX7219_ScrollString("Matriz de LEDs  ", TEST_SCROLL_MS));
 }
 
 static void MAX7219_TestSleep(void)
 {
-	/* -- Set_Sleep: la matriz se apaga 1.5 s y al despertar vuelve la misma imagen
+	/* -- SetSleep: la matriz se apaga 1.5 s y al despertar vuelve la misma imagen
 	 *    (los registros de dígito se conservan en shutdown, no hace falta redibujar) -- */
-	MAX_CHECK(MAX7219_ClearDisplay());
 	MAX_CHECK(MAX7219_PrintString("Zzz"));
 	HAL_Delay(1000);
 
-	MAX_CHECK(MAX7219_Set_Sleep(1));
+	MAX_CHECK(MAX7219_SetSleep(1));
 	HAL_Delay(1500);
-	MAX_CHECK(MAX7219_Set_Sleep(0));
+	MAX_CHECK(MAX7219_SetSleep(0));
 }
 
 static void MAX7219_TestErrores(void)
 {
-	/* -- Cadenas NULL -- */
+	const uint16_t w = MAX7219_GetWidth();
+	const uint16_t h = MAX7219_GetHeight();
+
+	/* -- Coordenadas fuera de pantalla: no recortan y se rechazan sin dibujar nada -- */
+	MAX_EXPECT(MAX7219_GotoXY(w, 0), MAX7219_INVALID_PARAM);
+	MAX_EXPECT(MAX7219_GotoXY(0, h), MAX7219_INVALID_PARAM);
+	MAX_EXPECT(MAX7219_DrawLine(0, 0, w, 0, MAX7219_COLOR_ON), MAX7219_INVALID_PARAM);
+	MAX_EXPECT(MAX7219_DrawRectangle(0, 0, 4, h, MAX7219_COLOR_ON), MAX7219_INVALID_PARAM);
+	MAX_EXPECT(MAX7219_DrawFilledRectangle(w, 0, 4, 4, MAX7219_COLOR_ON), MAX7219_INVALID_PARAM);
+
+	/* -- Cadenas NULL (GetStringWidth no falla: devuelve 0) -- */
 	MAX_EXPECT(MAX7219_PrintString(NULL), MAX7219_INVALID_PARAM);
 	MAX_EXPECT(MAX7219_ScrollString(NULL, TEST_SCROLL_MS), MAX7219_INVALID_PARAM);
+	if (MAX7219_GetStringWidth(NULL) != 0U || MAX7219_GetStringWidth("") != 0U)
+	{
+		Error_Handler();
+	}
 
 	/* -- Init con parámetros inválidos: se rechaza antes de tocar el estado del driver -- */
 	MAX_EXPECT(MAX7219_Init(NULL, GPIOB, GPIO_PIN_1, TEST_NUM_DEV), MAX7219_INVALID_PARAM);
 	MAX_EXPECT(MAX7219_Init(&hspi2, NULL, GPIO_PIN_1, TEST_NUM_DEV), MAX7219_INVALID_PARAM);
 	MAX_EXPECT(MAX7219_Init(&hspi2, GPIOB, 0, TEST_NUM_DEV), MAX7219_INVALID_PARAM);
 	MAX_EXPECT(MAX7219_Init(&hspi2, GPIOB, GPIO_PIN_1, 0), MAX7219_INVALID_PARAM);
-	MAX_EXPECT(MAX7219_Init(&hspi2, GPIOB, GPIO_PIN_1, MAX7219_MAX_DEV + 1), MAX7219_INVALID_PARAM);
+	MAX_EXPECT(MAX7219_Init(&hspi2, GPIOB, GPIO_PIN_1, MAX7219_MAX_DEV + 1U), MAX7219_INVALID_PARAM);
 
 	/* El driver sigue operativo tras los rechazos */
-	MAX_CHECK(MAX7219_ClearDisplay());
 	MAX_CHECK(MAX7219_PrintString("Err"));
 }
 
 static void MAX7219_TestPreInit(void)
 {
 	/* -- Antes de Init: todo debe devolver NOT_INITIALIZED sin tocar el bus -- */
-	MAX_EXPECT(MAX7219_ClearDisplay(), MAX7219_NOT_INITIALIZED);
+	if (MAX7219_GetWidth() != 0U || MAX7219_GetHeight() != 0U)
+	{
+		Error_Handler();
+	}
+	MAX_EXPECT(MAX7219_Clear(), MAX7219_NOT_INITIALIZED);
+	MAX_EXPECT(MAX7219_Fill(MAX7219_COLOR_ON), MAX7219_NOT_INITIALIZED);
+	MAX_EXPECT(MAX7219_DrawPixel(0, 0, MAX7219_COLOR_ON), MAX7219_NOT_INITIALIZED);
+	MAX_EXPECT(MAX7219_Putc('X', MAX7219_COLOR_ON), MAX7219_NOT_INITIALIZED);
+	MAX_EXPECT(MAX7219_UpdateScreen(), MAX7219_NOT_INITIALIZED);
 	MAX_EXPECT(MAX7219_PrintString("X"), MAX7219_NOT_INITIALIZED);
 	MAX_EXPECT(MAX7219_ScrollString("X", TEST_SCROLL_MS), MAX7219_NOT_INITIALIZED);
 	MAX_EXPECT(MAX7219_SetPixel(0, 0, 1), MAX7219_NOT_INITIALIZED);
-	MAX_EXPECT(MAX7219_Set_Sleep(1), MAX7219_NOT_INITIALIZED);
+	MAX_EXPECT(MAX7219_SetIntensity(TEST_BRILLO), MAX7219_NOT_INITIALIZED);
+	MAX_EXPECT(MAX7219_SetSleep(1), MAX7219_NOT_INITIALIZED);
+	MAX_EXPECT(MAX7219_ToggleInvert(), MAX7219_NOT_INITIALIZED);
 	MAX_EXPECT(MAX7219_DeInit(), MAX7219_NOT_INITIALIZED);
+
+	/* -- GetStringWidth no depende de Init: 7 columnas por carácter -- */
+	if (MAX7219_GetStringWidth("Hola") != 28U)
+	{
+		Error_Handler();
+	}
 }
 
 static void MAX7219_TestDeInit(void)
 {
+	/* -- Re-Init sobre un driver ya inicializado: reconfigura la matriz y la limpia -- */
+	MAX_CHECK(MAX7219_PrintString("Re"));
+	HAL_Delay(1000);
+	MAX_CHECK(MAX7219_Init(&hspi2, GPIOB, GPIO_PIN_1, TEST_NUM_DEV));
+	HAL_Delay(1000);
+
 	/* -- DeInit apaga la matriz y libera la configuración: las llamadas posteriores
 	 *    deben devolver NOT_INITIALIZED sin tocar el bus -- */
+	MAX_CHECK(MAX7219_PrintString("Off"));
+	HAL_Delay(1000);
 	MAX_CHECK(MAX7219_DeInit());
 	MAX_EXPECT(MAX7219_DeInit(), MAX7219_NOT_INITIALIZED);
-	MAX_EXPECT(MAX7219_ClearDisplay(), MAX7219_NOT_INITIALIZED);
+	MAX_EXPECT(MAX7219_Clear(), MAX7219_NOT_INITIALIZED);
 	MAX_EXPECT(MAX7219_PrintString("X"), MAX7219_NOT_INITIALIZED);
 	MAX_EXPECT(MAX7219_SetPixel(0, 0, 1), MAX7219_NOT_INITIALIZED);
-	MAX_EXPECT(MAX7219_Set_Sleep(0), MAX7219_NOT_INITIALIZED);
+	MAX_EXPECT(MAX7219_SetSleep(0), MAX7219_NOT_INITIALIZED);
+	if (MAX7219_GetWidth() != 0U)
+	{
+		Error_Handler();
+	}
 	HAL_Delay(1500);
 
 	/* -- Re-Init: el driver debe poder arrancar de nuevo tras un DeInit -- */
