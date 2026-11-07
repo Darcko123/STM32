@@ -29,4 +29,21 @@
 		<nature>org.eclipse.cdt.managedbuilder.core.managedBuildNature</nature>
 		<nature>org.eclipse.cdt.managedbuilder.core.ScannerConfigNature</nature>
 	</natures>
+	<linkedResources>
+		<link>
+			<name>Core/Src/PCA9685.c</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Librerias/PCA9685/PCA9685.c</locationURI>
+		</link>
+		<link>
+			<name>Core/Inc/PCA9685.h</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Librerias/PCA9685/PCA9685.h</locationURI>
+		</link>
+		<link>
+			<name>Core/Inc/ANSII_Codes.h</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Librerias/ANSII_Codes/ANSII_Codes.h</locationURI>
+		</link>
+	</linkedResources>
 </projectDescription>
