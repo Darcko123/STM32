@@ -50,6 +50,17 @@ typedef enum {
     BME688_INVALID_PARAM    = 4     /**< Parámetro inválido */
 } BME688_Status_t;
 
+/**
+ * @brief Datos de medición del BME688.
+ */
+typedef struct {
+    float   temperatura;    /**< Temperatura [°C] */
+    float   presion;        /**< Presión [hPa] */
+    float   humedad;        /**< Humedad relativa [%RH] */
+    float   gas;            /**< Resistencia del sensor de gas [Ω] */
+    uint8_t gas_valido;     /**< 1 si la medición de gas es válida y el calentador se estabilizó */
+} BME688_Data_t;
+
 // ============================================================================
 // PROTOTIPOS DE FUNCIONES PÚBLICAS
 // ============================================================================
@@ -70,10 +81,16 @@ extern "C" {
 BME688_Status_t BME688_Init(I2C_HandleTypeDef* hi2c);
 
 /**
- * @brief Lee temperatura, presión y altitud compensadas del BMP280.
+ * @brief Realiza una medición en forced mode y retorna temperatura, presión, humedad y gas compensados.
+ *
+ * @note Bloquea durante la medición y el calentamiento (~145 ms con la configuración por defecto).
  *
  * @param[out] data Puntero a la estructura donde se guardarán los datos.
  * @return BME688_Status_t
+ *         - BME688_OK              si la lectura fue exitosa.
+ *         - BME688_TIMEOUT         si no hubo datos nuevos o el sensor no volvió a sleep.
+ *         - BME688_NOT_INITIALIZED si no se llamó a BME688_Init().
+ *         - BME688_INVALID_PARAM   si @p data es NULL.
  */
 BME688_Status_t BME688_Get(BME688_Data_t* data);
 
