@@ -211,11 +211,13 @@ static BME688_Status_t bme688_ReadCalibration(void)
     return BME688_OK;
 }
 
-/* El modo solo puede cambiarse desde sleep: forzar sleep y luego escribir el modo pedido */
+/* El modo solo puede cambiarse desde sleep: forzar sleep y luego escribir el modo pedido.
+ * Bosch reintenta sin límite; aquí la espera se acota a una medición forced completa,
+ * por si se pide sleep con una conversión en curso. */
 static BME688_Status_t bme688_SetMode(uint8_t mode)
 {
-    uint8_t ctrl    = 0U;
-    uint8_t retries = BME688_POLL_RETRIES;
+    uint8_t  ctrl    = 0U;
+    uint32_t retries = (bme688_GetMeasDuration() / BME688_POLL_PERIOD_MS) + 1U;
     BME688_Status_t status;
 
     while (1) {
@@ -490,6 +492,32 @@ BME688_Status_t BME688_Init(I2C_HandleTypeDef* hi2c)
 }
 
 /**
+ * @brief Desinicializa el driver BME688: deja el sensor en sleep y libera el handle de I2C.
+ *
+ * @note El estado se libera siempre, aunque falle el paso a sleep; para volver a usar
+ *       el sensor se debe llamar a BME688_Init().
+ *
+ * @return BME688_Status_t
+ *         - BME688_OK              si el sensor quedó en sleep y el driver se liberó.
+ *         - BME688_ERROR           si ocurrió un error de comunicación al pasar a sleep.
+ *         - BME688_TIMEOUT         si el sensor no entró en sleep dentro de una medición completa.
+ *         - BME688_NOT_INITIALIZED si no se llamó a BME688_Init().
+ */
+BME688_Status_t BME688_DeInit(void)
+{
+    if (BME688_Initialized != 1U) { return BME688_NOT_INITIALIZED; }
+
+    /* Dejar el sensor en mínimo consumo antes de soltar el bus */
+    BME688_Status_t status = bme688_SetMode(BME688_MODE_SLEEP);
+
+    /* Liberar el estado siempre, aunque falle el paso a sleep */
+    BME688_hi2c        = NULL;
+    BME688_Initialized = 0U;
+
+    return status;
+}
+
+/**
  * @brief Realiza una medición en forced mode y retorna temperatura, presión, humedad y gas compensados.
  *
  * @param[out] data Puntero a la estructura donde se guardarán los datos.
@@ -507,4 +535,25 @@ BME688_Status_t BME688_Get(BME688_Data_t* data)
     HAL_Delay(bme688_GetMeasDuration());
 
     return bme688_ReadField(data);
+}
+
+/**
+ * @brief Lleva el sensor a modo sleep (mínimo consumo, calentador apagado).
+ *
+ * @details Tras cada BME688_Get() el sensor ya vuelve solo a sleep; esta función sirve para
+ *          garantizarlo o para abortar una medición en curso. La configuración y la calibración
+ *          se conservan, por lo que la siguiente llamada a BME688_Get() lo despierta sin
+ *          volver a llamar a BME688_Init().
+ *
+ * @return BME688_Status_t
+ *         - BME688_OK              si el sensor quedó en sleep (o ya lo estaba).
+ *         - BME688_ERROR           si ocurrió un error de comunicación.
+ *         - BME688_TIMEOUT         si el sensor no entró en sleep dentro de una medición completa.
+ *         - BME688_NOT_INITIALIZED si no se llamó a BME688_Init().
+ */
+BME688_Status_t BME688_Sleep(void)
+{
+    if (BME688_Initialized != 1U) { return BME688_NOT_INITIALIZED; }
+
+    return bme688_SetMode(BME688_MODE_SLEEP);
 }

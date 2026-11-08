@@ -81,6 +81,19 @@ extern "C" {
 BME688_Status_t BME688_Init(I2C_HandleTypeDef* hi2c);
 
 /**
+ * @brief Desinicializa el driver BME688: deja el sensor en sleep y libera el handle de I2C.
+ *
+ * @note El estado se libera siempre, aunque falle el paso a sleep.
+ *
+ * @return BME688_Status_t
+ *         - BME688_OK              si el sensor quedó en sleep y el driver se liberó.
+ *         - BME688_ERROR           si ocurrió un error de comunicación al pasar a sleep.
+ *         - BME688_TIMEOUT         si el sensor no entró en sleep dentro de una medición completa.
+ *         - BME688_NOT_INITIALIZED si no se llamó a BME688_Init().
+ */
+BME688_Status_t BME688_DeInit(void);
+
+/**
  * @brief Realiza una medición en forced mode y retorna temperatura, presión, humedad y gas compensados.
  *
  * @note Bloquea durante la medición y el calentamiento (~145 ms con la configuración por defecto).
@@ -93,6 +106,20 @@ BME688_Status_t BME688_Init(I2C_HandleTypeDef* hi2c);
  *         - BME688_INVALID_PARAM   si @p data es NULL.
  */
 BME688_Status_t BME688_Get(BME688_Data_t* data);
+
+/**
+ * @brief Lleva el sensor a modo sleep (mínimo consumo, calentador apagado).
+ *
+ * @note Tras cada BME688_Get() el sensor ya vuelve solo a sleep; la siguiente llamada a
+ *       BME688_Get() lo despierta sin necesidad de BME688_Init().
+ *
+ * @return BME688_Status_t
+ *         - BME688_OK              si el sensor quedó en sleep (o ya lo estaba).
+ *         - BME688_ERROR           si ocurrió un error de comunicación.
+ *         - BME688_TIMEOUT         si el sensor no entró en sleep dentro de una medición completa.
+ *         - BME688_NOT_INITIALIZED si no se llamó a BME688_Init().
+ */
+BME688_Status_t BME688_Sleep(void);
 
 #ifdef __cplusplus
 }
