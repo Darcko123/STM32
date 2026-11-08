@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <projectDescription>
-	<name>RTC_Example</name>
+	<name>DS3231_Example</name>
 	<comment></comment>
 	<projects>
 	</projects>
@@ -29,4 +29,21 @@
 		<nature>org.eclipse.cdt.managedbuilder.core.managedBuildNature</nature>
 		<nature>org.eclipse.cdt.managedbuilder.core.ScannerConfigNature</nature>
 	</natures>
+	<linkedResources>
+		<link>
+			<name>Core/Src/DS3231.c</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Librerias/DS3231(RTC_Module)/DS3231.c</locationURI>
+		</link>
+		<link>
+			<name>Core/Inc/DS3231.h</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Librerias/DS3231(RTC_Module)/DS3231.h</locationURI>
+		</link>
+		<link>
+			<name>Core/Inc/ANSII_Codes.h</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Librerias/ANSII_Codes/ANSII_Codes.h</locationURI>
+		</link>
+	</linkedResources>
 </projectDescription>
