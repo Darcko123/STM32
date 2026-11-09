@@ -1,3 +1,13 @@
+/**
+ * @file BME688.c
+ * 
+ * @brief Librería para el sensor ambiental BME688 (gas, presión, temperatura y humedad) utilizando I2C en STM32
+ * 
+ * @author Daniel Ruiz
+ * @date Noviembre 08, 2026
+ * @version 1.0.0
+ */
+
 #include "BME688.h"
 
 // ============================================================================
