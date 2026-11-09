@@ -29,4 +29,21 @@
 		<nature>org.eclipse.cdt.managedbuilder.core.managedBuildNature</nature>
 		<nature>org.eclipse.cdt.managedbuilder.core.ScannerConfigNature</nature>
 	</natures>
+	<linkedResources>
+		<link>
+			<name>Core/Src/SI7021.c</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Librerias/Si7021/SI7021.c</locationURI>
+		</link>
+		<link>
+			<name>Core/Inc/SI7021.h</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Librerias/Si7021/SI7021.h</locationURI>
+		</link>
+		<link>
+			<name>Core/Inc/ANSII_Codes.h</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Librerias/ANSII_Codes/ANSII_Codes.h</locationURI>
+		</link>
+	</linkedResources>
 </projectDescription>
