@@ -20,6 +20,7 @@ Este repositorio está dividido en cuatro secciones principales:
 |----------|---------|-------------|
 | [AHT10](./Librerias/AHT10/) | v1.0.0 | Sensor de temperatura y humedad (I2C) |
 | [ANSII_Codes](./Librerias/ANSII_Codes/) | v1.0.0 | Códigos de escape ANSI para formato de salida por terminal/UART |
+| [BME688](./Librerias/BME688/) | v1.0.0 | Sensor ambiental de gas, presión, temperatura y humedad (I2C) |
 | [BMP280](./Librerias/BMP280/) | v1.0.0 | Sensor de presión barométrica y temperatura (I2C) |
 | [CME6005](./Librerias/CME6005/) | v0.1.0 | Receptor de señal horaria WWVB / 60 kHz |
 | [DHT11](./Librerias/DHT11/) | v1.0.0 | Sensor de temperatura y humedad |
@@ -47,6 +48,7 @@ STM32/
 ├── Librerias/               # Librerías para periféricos y módulos externos
 │   ├── AHT10/               # Sensor de temperatura y humedad
 │   ├── ANSII_Codes/         # Códigos de escape ANSI
+│   ├── BME688/              # Sensor de gas, presión, temperatura y humedad
 │   ├── BMP280/              # Sensor de presión y temperatura
 │   ├── CME6005/             # Receptor de señal horaria WWVB/60 kHz
 │   ├── DHT11/               # Sensor de temperatura y humedad
