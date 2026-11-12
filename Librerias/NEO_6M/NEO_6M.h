@@ -1,5 +1,5 @@
 /**
- * @file NEO6M_GPS.h
+ * @file NEO_6M.h
  * @brief Librería para la gestión de un módulo GPS NEO6M
  *
  * @details Recibe sentencias NMEA ($GPGGA, $GPGLL, $GPRMC) a través de UART mediante
@@ -9,7 +9,7 @@
  * Protocolo: UART a 9600 baudios, 8N1.
  *
  * @author Daniel Ruiz
- * @date Jun 5, 2026
+ * @date Junio 05, 2026
  * @version 1.1.0
  */
 
@@ -26,10 +26,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 // ============================================================================
 // MACROS Y CONSTANTES [NEO6M_GPS]
@@ -48,7 +44,7 @@ extern "C" {
 typedef enum {
     NEO6M_GPS_OK              = 0,  /**< Operación exitosa */
     NEO6M_GPS_ERROR           = 1,  /**< Error en la operación */
-    NEO6M_TIMEOUT             = 2,  /**< Timeoute en la operación */
+    NEO6M_GPS_TIMEOUT         = 2,  /**< Timeout en la operación */
     NEO6M_GPS_NOT_INITIALIZED = 3,  /**< Módulo no inicializado */
     NEO6M_GPS_INVALID_PARAM   = 4   /**< Parámetro inválido */
 } NEO6M_GPS_Status_t;
@@ -96,6 +92,10 @@ typedef struct {
 // ============================================================================
 // PROTOTIPOS DE FUNCIONES PÚBLICAS
 // ============================================================================
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /**
  * @brief Inicializa el driver NEO6M_GPS e inicia la recepción por interrupciones UART.
@@ -167,4 +167,4 @@ void NEO6M_GPS_UART_RxCpltCallback(UART_HandleTypeDef* huart);
 }
 #endif
 
-#endif /* NEO6M_GPS_H */
+#endif /* NEO_6M_H */
