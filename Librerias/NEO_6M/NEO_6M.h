@@ -9,8 +9,8 @@
  * Protocolo: UART a 9600 baudios, 8N1.
  *
  * @author Daniel Ruiz
- * @date Junio 05, 2026
- * @version 1.1.0
+ * @date Noviembre 11, 2026
+ * @version 2.0.0
  */
 
 #ifndef NEO_6M_H

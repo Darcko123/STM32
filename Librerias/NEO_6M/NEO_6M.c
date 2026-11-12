@@ -3,8 +3,8 @@
  * @brief Implementación de la librería NEO-6M.
  *
  * @author Daniel Ruiz
- * @date Junio 05, 2026
- * @version 1.1.0
+ * @date Noviembre 11, 2026
+ * @version 2.0.0
  */
 
 #include "NEO_6M.h"
