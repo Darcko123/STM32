@@ -1,13 +1,14 @@
-# DHT11 Library
+# Librería para el módulo DHT11 en STM32
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![STM32](https://img.shields.io/badge/Platform-STM32F411-black)](https://www.st.com/en/microcontrollers-microprocessors/stm32f4-series.html)
 [![Version](https://img.shields.io/badge/Version-1.0.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/DHT11)
+[![Protocol](https://img.shields.io/badge/Protocol-Single--Wire-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/DHT11)
 
 ---
 
 ## Tabla de Contenidos
-- [DHT11 Library](#dht11-library)
+- [Librería para el módulo DHT11 en STM32](#librería-para-el-módulo-dht11-en-stm32)
 	- [Tabla de Contenidos](#tabla-de-contenidos)
 	- [Descripción](#descripción)
 	- [Características](#características)
@@ -27,11 +28,12 @@
 	- [API Reference](#api-reference)
 		- [1. Tipos de Datos](#1-tipos-de-datos)
 			- [`DHT11_Status_t` - Estados de Retorno](#dht11_status_t---estados-de-retorno)
-			- [`DHT11_Handles_t` - Estructura de Mediciones](#dht11_handles_t---estructura-de-mediciones)
+			- [`DHT11_Data_t` - Estructura de Mediciones](#dht11_data_t---estructura-de-mediciones)
 		- [2. Funciones del Driver](#2-funciones-del-driver)
 			- [`DHT11_Init()` - Inicialización del Driver](#dht11_init---inicialización-del-driver)
-			- [`DHT11_Read_Data()` - Lectura de Mediciones](#dht11_read_data---lectura-de-mediciones)
-	- [📄 Licencia](#-licencia)
+			- [`DHT11_DeInit()` - Desinicialización del Driver](#dht11_deinit---desinicialización-del-driver)
+			- [`DHT11_Get()` - Lectura de Mediciones](#dht11_get---lectura-de-mediciones)
+	- [Licencia](#licencia)
 	- [Changelog](#changelog)
 		- [\[1.0.0\] - 21-01-2026](#100---21-01-2026)
 			- [Added](#added)
@@ -82,16 +84,16 @@ El sensor responde con una señal de reconocimiento (*acknowledge signal*): un p
 ![StartSignal](/Librerias/DHT11/Images/StartSignal.jpg)
 
 ```C
-static DHT11_Status_t DHT11_Start_Communication(void)
+static DHT11_Status_t dht11_StartCommunication(void)
 {
-	Set_DHT11Pin_Output();							// Configurar el pin como salida
-	HAL_GPIO_WritePin(DHT11_Port, DHT11_Pin, 0);	// Pin bajo
-	delayUs(DHT11_START_SIGNAL_US);					// Esperar por 18 ms		
-	HAL_GPIO_WritePin(DHT11_Port, DHT11_Pin, 1);	// Pin alto
-	delayUs(DHT11_START_WAIT_US);					// Esperar 20 us
-	Set_DHT11Pin_Input();							// Configurar el pin como entrada
+	dht11_SetPinOutput();							// Configurar el pin como salida
+	HAL_GPIO_WritePin(DHT11_Port, DHT11_Pin, GPIO_PIN_RESET);	// Pin bajo
+	dht11_DelayUs(DHT11_START_SIGNAL_US);					// Esperar por 18 ms		
+	HAL_GPIO_WritePin(DHT11_Port, DHT11_Pin, GPIO_PIN_SET);	// Pin alto
+	dht11_DelayUs(DHT11_START_WAIT_US);					// Esperar 20 us
+	dht11_SetPinInput();							// Configurar el pin como entrada
 
-	delayUs(2);		// Pequeña espera para estabilización del pin
+	dht11_DelayUs(2);		// Pequeña espera para estabilización del pin
 
 	return DHT11_OK;
 }
@@ -102,15 +104,15 @@ static DHT11_Status_t DHT11_Start_Communication(void)
 ![ResponseSignal](/Librerias/DHT11/Images/ResponseSignal.jpg)
 
 ```C
-static DHT11_Status_t DHT11_Check_Response(void)
+static DHT11_Status_t dht11_CheckResponse(void)
 {   
 	uint32_t start = 0;
 
 	// Esperar señal de bajo inicial (sensor toma control del bus)
-	start = __HAL_TIM_GET_COUNTER(DHT11_tim);
+	start = __HAL_TIM_GET_COUNTER(DHT11_htim);
 	while(HAL_GPIO_ReadPin(DHT11_Port, DHT11_Pin))		// Esperar mientras esté ALTO
 	{
-		if((__HAL_TIM_GET_COUNTER(DHT11_tim) - start) > DHT11_RESPONSE_TIMEOUT_US)
+		if((__HAL_TIM_GET_COUNTER(DHT11_htim) - start) > DHT11_RESPONSE_TIMEOUT_US)
 			return DHT11_TIMEOUT;
 	}
 
@@ -118,18 +120,18 @@ static DHT11_Status_t DHT11_Check_Response(void)
 	if(!(HAL_GPIO_ReadPin(DHT11_Port, DHT11_Pin)))
 	{
 		// Esperar transición a alto (~80μs)
-		start = __HAL_TIM_GET_COUNTER(DHT11_tim);
+		start = __HAL_TIM_GET_COUNTER(DHT11_htim);
 		while(!HAL_GPIO_ReadPin(DHT11_Port, DHT11_Pin))
 		{
-			if((__HAL_TIM_GET_COUNTER(DHT11_tim) - start) > DHT11_RESPONSE_TIMEOUT_US)
+			if((__HAL_TIM_GET_COUNTER(DHT11_htim) - start) > DHT11_RESPONSE_TIMEOUT_US)
 				return DHT11_TIMEOUT;
 		}
 
 		// Esperar segundo pulso bajo (~80μs)
-		start = __HAL_TIM_GET_COUNTER(DHT11_tim);
+		start = __HAL_TIM_GET_COUNTER(DHT11_htim);
 		while(HAL_GPIO_ReadPin(DHT11_Port, DHT11_Pin))
 		{
-			if((__HAL_TIM_GET_COUNTER(DHT11_tim) - start) > DHT11_RESPONSE_TIMEOUT_US)
+			if((__HAL_TIM_GET_COUNTER(DHT11_htim) - start) > DHT11_RESPONSE_TIMEOUT_US)
 				return DHT11_TIMEOUT;
 		}
 
@@ -181,7 +183,7 @@ La verificación de integridad se realiza mediante el byte de checksum, que corr
 $Checksum=(HumedadEntera+HumedadDecimal+TemperaturaEntera+TemperaturaDecimal) mod 256$
 
 ```C
-static DHT11_Status_t DHT11_Read_Byte(uint8_t* byte)
+static DHT11_Status_t dht11_ReadByte(uint8_t* byte)
 {
 	uint8_t i = 0;
 	uint32_t start;
@@ -192,15 +194,15 @@ static DHT11_Status_t DHT11_Read_Byte(uint8_t* byte)
 	for (uint8_t j = 0; j < 8; j++)
 	{
 		// Esperar inicio del bit (transición a alto)
-		start = __HAL_TIM_GET_COUNTER(DHT11_tim);
+		start = __HAL_TIM_GET_COUNTER(DHT11_htim);
 		while(!(HAL_GPIO_ReadPin(DHT11_Port, DHT11_Pin)))
 		{
-			if((__HAL_TIM_GET_COUNTER(DHT11_tim) - start) > DHT11_BIT_TIMEOUT_US)
+			if((__HAL_TIM_GET_COUNTER(DHT11_htim) - start) > DHT11_BIT_TIMEOUT_US)
 				return DHT11_TIMEOUT;
 		}
 
 		// Esperar tiempo crítico para diferenciar 0 de 1
-		delayUs(DHT11_BIT_READ_DELAY_US);
+		dht11_DelayUs(DHT11_BIT_READ_DELAY_US);
 
 		// Determinar valor del bit según nivel del pin
 		if(!(HAL_GPIO_ReadPin(DHT11_Port, DHT11_Pin)))
@@ -213,10 +215,10 @@ static DHT11_Status_t DHT11_Read_Byte(uint8_t* byte)
 		}
 
 		// Esperar fin del bit (transición a bajo)
-		start = __HAL_TIM_GET_COUNTER(DHT11_tim);
+		start = __HAL_TIM_GET_COUNTER(DHT11_htim);
 		while(HAL_GPIO_ReadPin(DHT11_Port, DHT11_Pin))
 		{
-			if((__HAL_TIM_GET_COUNTER(DHT11_tim) - start) > DHT11_BIT_TIMEOUT_US)
+			if((__HAL_TIM_GET_COUNTER(DHT11_htim) - start) > DHT11_BIT_TIMEOUT_US)
 				return DHT11_TIMEOUT;
 		}
 	}
@@ -232,33 +234,33 @@ static DHT11_Status_t DHT11_Read_Byte(uint8_t* byte)
     // --- SECUENCIA DE COMUNICACIÓN ---
 
 	// 1. Iniciar comunicación
-	status = DHT11_Start_Communication();
+	status = dht11_StartCommunication();
 	if (status != DHT11_OK)
 		return status;
 
 	// 2. Verificar respuesta del sensor
-	status = DHT11_Check_Response();
+	status = dht11_CheckResponse();
 	if (status != DHT11_OK)
 		return status;
 
 	// 3. Leer los 5 bytes de datos
-	status = DHT11_Read_Byte(&humedad_entero);
+	status = dht11_ReadByte(&humedad_entero);
 	if (status != DHT11_OK)
 		return status;
 
-	status = DHT11_Read_Byte(&humedad_decimal);
+	status = dht11_ReadByte(&humedad_decimal);
 	if (status != DHT11_OK)
 		return status;
 
-	status = DHT11_Read_Byte(&temp_entero);
+	status = dht11_ReadByte(&temp_entero);
 	if (status != DHT11_OK)
 		return status;
 
-	status = DHT11_Read_Byte(&temp_decimal);
+	status = dht11_ReadByte(&temp_decimal);
 	if (status != DHT11_OK)
 		return status;
 
-	status = DHT11_Read_Byte(&checksum);
+	status = dht11_ReadByte(&checksum);
 	if (status != DHT11_OK)
 		return status;
 
@@ -267,8 +269,8 @@ static DHT11_Status_t DHT11_Read_Byte(uint8_t* byte)
 		return DHT11_CHECKSUM_ERROR;
 
 	// 5. Convertir bytes a valores flotantes
-	values->Humidity = (float)humedad_entero + ((float)humedad_decimal / 10.0f);
-	values->Temperature = (float)temp_entero + ((float)temp_decimal / 10.0f);
+	environment->humedad = (float)humedad_entero + ((float)humedad_decimal / 10.0f);
+	environment->temperatura = (float)temp_entero + ((float)temp_decimal / 10.0f);
 ```
 
 ## Ejemplo de Implementación
@@ -339,11 +341,11 @@ El pin de datos requiere configuración dinámica como salida push-pull durante 
 
 ### Declaración e Inicialización del Driver
 
-Declare una variable de tipo `DHT11_Handles_t` para almacenar las mediciones y llame a la función de inicialización con los parámetros adecuados:
+Declare una variable de tipo `DHT11_Data_t` para almacenar las mediciones y llame a la función de inicialización con los parámetros adecuados:
 
 ```C
 /* USER CODE BEGIN PV */
-DHT11_Handles_t Environment;
+DHT11_Data_t Environment;
 /* USER CODE END PV */
 ```
 
@@ -352,7 +354,7 @@ DHT11_Handles_t Environment;
 ```C
 /* USER CODE BEGIN PV */
 
-DHT11_Handles_t Environment;
+DHT11_Data_t Environment;
 
 /* USER CODE END PV */
 
@@ -377,7 +379,7 @@ int main()
 	while (1)
 	{
         // Lectura de sensor
-		DHT11_Status_t status = DHT11_Read_Data(&Environment);
+		DHT11_Status_t status = DHT11_Get(&Environment);
 
 		if(status != DHT11_OK)
 		{
@@ -411,26 +413,27 @@ Enumeración que define todos los códigos de retorno posibles para las operacio
  * @brief Enumeración para estados de retorno del DHT11.
  */
 typedef enum {
-	DHT11_OK = 0,				/** Operación exitosa */
-	DHT11_ERROR = 1,			/** Error en la operación */
-	DHT11_TIMEOUT = 2,			/** Timeout en la operación */
-	DHT11_CHECKSUM_ERROR = 3,	/** Error en el checksum */
-	DHT11_NOT_INITIALIZED = 4	/** Sensor no inicializado */
+	DHT11_OK = 0,				/**< Operación exitosa */
+	DHT11_ERROR = 1,			/**< Error en la operación */
+	DHT11_TIMEOUT = 2,			/**< Timeout en la operación */
+	DHT11_NOT_INITIALIZED = 3,	/**< Módulo no inicializado */
+	DHT11_INVALID_PARAM = 4,	/**< Parámetro inválido */
+	DHT11_CHECKSUM_ERROR = 5	/**< Error en el checksum */
 }DHT11_Status_t;
 ```
 
-#### `DHT11_Handles_t` - Estructura de Mediciones
+#### `DHT11_Data_t` - Estructura de Mediciones
 Estructura que almacena las mediciones de temperatura y humedad obtenidas del sensor.
 
 ```C
-/*
- * @brief Estructura para almacenar mediciones del sensor DHT11.
- * @note Temperatura en grados Celsius (°C), humedad en porcentaje (%RH).
+/**
+ * @brief Estructura para almacenar los datos de temperatura y humedad.
  */
-typedef struct {
-    float Temperature;          /**< Valor de temperatura en °C */
-    float Humidity;             /**< Valor de humedad relativa en % */
-} DHT11_Handles_t;
+typedef struct
+{
+	float humedad;		/**< Humedad relativa (%RH) */
+	float temperatura;	/**< Temperatura en grados Celsius (°C) */
+} DHT11_Data_t;
 ```
 
 ### 2. Funciones del Driver
@@ -449,34 +452,48 @@ DHT11_Status_t DHT11_Init(
 ```
 
 **Parámetros:**
-- `htim`: Puntero a la estructura del manejador TIM.
-- `GPIO_TypeDef`: Puntero al puerto GPIO.
-- `GPIO_PIN`: Pin GPIO del puerto.
+- `htim`: Puntero al handle del timer (1 MHz, 1 µs por cuenta). Si no está en marcha, la función lo arranca.
+- `GPIOx`: Puerto GPIO del pin de datos.
+- `GPIO_PIN`: Pin GPIO del pin de datos.
 
-**Retorna:** 
-- `DHT11_Status_t` indicando el estado de la operación.
+**Retorna:**
+- `DHT11_OK`: Inicialización exitosa
+- `DHT11_INVALID_PARAM`: `htim` o `GPIOx` es `NULL`
 
 ---
 
-#### `DHT11_Read_Data()` - Lectura de Mediciones
+#### `DHT11_DeInit()` - Desinicialización del Driver
+Libera el timer y el pin, y marca el driver como no inicializado. No detiene el timer (puede estar compartido).
+
+```C
+DHT11_Status_t DHT11_DeInit(void);
+```
+
+**Retorna:**
+- `DHT11_OK` siempre.
+
+---
+
+#### `DHT11_Get()` - Lectura de Mediciones
 
 Realiza la secuencia completa de comunicación con el sensor DHT11 y obtiene las mediciones de temperatura y humedad.
 
 ```C
-DHT11_Status_t DHT11_Read_Data(
-    DHT11_Values* values
+DHT11_Status_t DHT11_Get(
+    DHT11_Data_t* environment
     );
 ```
 
 **Parámetros:**
-- `values`: Puntero a la estructura `DHT11_Values` donde se almacenarán los datos leídos.
+- `environment`: Puntero a la estructura `DHT11_Data_t` donde se almacenarán los datos leídos.
 
 **Retorna:** 
-- `DHT11_OK`: Lectura exitosa, datos válidos en values
+- `DHT11_OK`: Lectura exitosa, datos válidos en `environment`
 - `DHT11_NOT_INITIALIZED`: Driver no inicializado previamente
+- `DHT11_INVALID_PARAM`: `environment` es `NULL`
 - `DHT11_TIMEOUT`: Sensor no responde dentro del tiempo esperado
 - `DHT11_CHECKSUM_ERROR`: Datos corruptos (checksum inválido)
-- `DHT11_ERROR`: Error durante la comunicación
+- `DHT11_ERROR`: Respuesta inválida del sensor
 
 >[!CAUTION]
 >- No debe llamarse más frecuentemente que cada 1 segundo (limitación del DHT11)
@@ -484,7 +501,7 @@ DHT11_Status_t DHT11_Read_Data(
 >- Función bloqueante (~4ms de duración típica)
 ---
 
-## 📄 Licencia
+## Licencia
 Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](/LICENSE.md) para más detalles.
 
 ---
@@ -501,10 +518,10 @@ El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1
 #### Added
 - Versión inicial de la librería DHT11 para STM32.
 - Comunicación single-wire con temporización precisa mediante Timers de hardware.
-- Funciones públicas: `DHT11_Init()` y `DHT11_Read_Data()`.
+- Funciones públicas: `DHT11_Init()` y `DHT11_Get()`.
 - Sistema de gestión de errores con tipo `DHT11_Status_t` (OK, ERROR, TIMEOUT,
   CHECKSUM_ERROR, NOT_INITIALIZED).
 - Verificación de integridad de datos mediante checksum de 8 bits.
-- Estructura `DHT11_Handles_t` para almacenamiento de temperatura y humedad.
+- Estructura `DHT11_Data_t` para almacenamiento de temperatura y humedad.
 - Documentación completa con comentarios Doxygen, ejemplos de uso y diagramas
   de señal del protocolo.
