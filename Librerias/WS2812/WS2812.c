@@ -109,6 +109,40 @@ WS2812_Status_t WS2812_SetPixelColor(uint16_t n, uint8_t r, uint8_t g, uint8_t b
 }
 
 /**
+ * @brief Rellena un rango de píxeles con un mismo color.
+ *
+ * @param r     Valor de rojo.
+ * @param g     Valor de verde.
+ * @param b     Valor de azul.
+ * @param first Índice del primer píxel a rellenar.
+ * @param count Cantidad de píxeles a rellenar (0 o excedente = hasta el final de la tira).
+ *
+ * @return WS2812_Status_t Estado de la operación.
+ */
+WS2812_Status_t WS2812_Fill(uint8_t r, uint8_t g, uint8_t b, uint16_t first, uint16_t count)
+{
+    if (!WS2812_Initialized)
+    {
+        return WS2812_NOT_INITIALIZED;
+    }
+
+    if (first >= WS2812_NUM_LEDS)
+    {
+        return WS2812_INVALID_PARAM;
+    }
+
+    // Como en Adafruit: count = 0 o fuera de rango -> hasta el último píxel
+    uint16_t end = (count == 0U || count > (uint16_t)(WS2812_NUM_LEDS - first)) ? WS2812_NUM_LEDS : (uint16_t)(first + count);
+
+    for (uint16_t i = first; i < end; i++)
+    {
+        WS2812_SetPixelColor(i, r, g, b);
+    }
+
+    return WS2812_OK;
+}
+
+/**
  * @brief Establece el brillo del módulo WS2812.
  * 
  * @param brightness Valor de brillo (0-255).
@@ -117,16 +151,26 @@ WS2812_Status_t WS2812_SetPixelColor(uint16_t n, uint8_t r, uint8_t g, uint8_t b
  */
 WS2812_Status_t WS2812_SetBrightness(uint8_t brightness)
 {
-    WS2812_Status_t status;
-
     if (!WS2812_Initialized)
     {
         return WS2812_NOT_INITIALIZED;
     }
 
-    if (brightness > 255U)
+    if (brightness == WS2812_Brightness)
     {
-        return WS2812_INVALID_PARAM;
+        return WS2812_OK;
+    }
+
+    // Como en Adafruit, se reescalan los píxeles ya almacenados (proceso con pérdida al subir el brillo).
+    // Los datos en RAM ya están escalados por (WS2812_Brightness + 1), se re-escalan a (brightness + 1).
+    // Con brillo = 255 -> (256 << 8) - 1 = 65535, sin overflow porque la aritmética se promueve a int.
+    uint8_t  old = WS2812_Brightness;
+    uint16_t scale = (old == 0U) ? 0U : (uint16_t)(((((uint16_t)brightness + 1U) << 8) - 1U) / old); // Evita /0
+
+    uint8_t* ptr = &WS2812_Pixels[0][0];
+    for (uint16_t i = 0; i < sizeof(WS2812_Pixels); i++)
+    {
+        ptr[i] = (uint8_t)((ptr[i] * scale) >> 8);
     }
 
     WS2812_Brightness = brightness;
