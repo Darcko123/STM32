@@ -41,13 +41,13 @@
 
 /* -- Parámetros de la batería de pruebas -- */
 #define DHT_ARRANQUE_MS     1000U      /**< El DHT11 necesita ~1 s tras alimentarse antes de la primera lectura */
-#define DHT_PERIODO_MS      2000U      /**< Entre lecturas (el datasheet pide >= 1 s) */
+#define DHT_PERIODO_MS      DHT11_MIN_INTERVAL_MS  /**< Entre lecturas: por debajo, Get devuelve la caché sin tocar el bus */
 #define DHT_MUESTRAS        10U        /**< Lecturas seguidas del test de muestras */
 #define DHT_SENTINEL        1000.0f    /**< Fuera de escala: delata campos que Get no escribió */
 
-/* Rango de funcionamiento del DHT11 según datasheet */
-#define DHT_TEMP_MIN        0.0f
-#define DHT_TEMP_MAX        50.0f
+/* Rango de funcionamiento del DHT11 según datasheet (temperatura: DHT11 nuevos con bit de signo) */
+#define DHT_TEMP_MIN        -20.0f
+#define DHT_TEMP_MAX        60.0f
 #define DHT_HUM_MIN         20.0f
 #define DHT_HUM_MAX         90.0f
 
@@ -366,31 +366,32 @@ static void DHT11_CheckSinTocar(const DHT11_Data_t* m)
 }
 
 /* El proyecto no enlaza -u _printf_float: se imprime en décimas con enteros
- * (el DHT11 resuelve 0.1 y Leer ya garantizó valores >= 0) */
+ * (el DHT11 resuelve 0.1; la temperatura puede ser negativa, la humedad no) */
 static void DHT11_Print(const DHT11_Data_t* m)
 {
-	const uint32_t t = (uint32_t)(m->temperatura * 10.0f + 0.5f);
+	const uint32_t t = (uint32_t)(fabsf(m->temperatura) * 10.0f + 0.5f);
 	const uint32_t h = (uint32_t)(m->humedad * 10.0f + 0.5f);
 
-	printf("T=%lu.%lu C  H=%lu.%lu %%\r\n", t / 10, t % 10, h / 10, h % 10);
+	printf("T=%s%lu.%lu C  H=%lu.%lu %%\r\n", (m->temperatura < 0.0f) ? "-" : "",
+		   t / 10, t % 10, h / 10, h % 10);
 }
 
 static void DHT11_TestSuite(void)
 {
 	DHT11_TestLectura();
-	HAL_Delay(2000);
+	HAL_Delay(DHT_PERIODO_MS);
 
 	DHT11_TestMuestras();
-	HAL_Delay(2000);
+	HAL_Delay(DHT_PERIODO_MS);
 
 	DHT11_TestErrores();
-	HAL_Delay(2000);
+	HAL_Delay(DHT_PERIODO_MS);
 
 	DHT11_TestTimeout();
-	HAL_Delay(2000);
+	HAL_Delay(DHT_PERIODO_MS);
 
 	DHT11_TestDeInit();
-	HAL_Delay(2000);
+	HAL_Delay(DHT_PERIODO_MS);
 }
 
 static void DHT11_TestPreInit(void)
@@ -413,6 +414,16 @@ static void DHT11_TestLectura(void)
 	printf(COLOR_YELLOW "[Lectura]" COLOR_RESET "\r\n");
 	DHT11_Leer(&m);
 	DHT11_Print(&m);
+
+	/* -- Get inmediato (< DHT11_MIN_INTERVAL_MS): no toca el bus, devuelve al instante
+	 *    la misma medición guardada -- */
+	DHT11_Data_t r;
+	const uint32_t t0 = HAL_GetTick();
+	DHT11_Leer(&r);
+	if (r.temperatura != m.temperatura || r.humedad != m.humedad || HAL_GetTick() - t0 > 1U)
+	{
+		Error_Handler();
+	}
 }
 
 static void DHT11_TestMuestras(void)
@@ -441,14 +452,17 @@ static void DHT11_TestMuestras(void)
 static void DHT11_TestErrores(void)
 {
 	DHT11_Data_t m;
+	TIM_HandleTypeDef sin_instancia = {0};
 
-	/* -- Puntero de salida NULL, y Init con timer o puerto NULL: se rechazan con INVALID_PARAM
-	 *    sin tocar el bus ni la configuración vigente -- */
+	/* -- Puntero de salida NULL, y Init con timer, instancia, puerto NULL o pin 0: se rechazan
+	 *    con INVALID_PARAM sin tocar el bus ni la configuración vigente -- */
 	printf(COLOR_YELLOW "[Errores]" COLOR_RESET "\r\n");
 	DHT11_Centinela(&m);
 	DHT_EXPECT(DHT11_Get(NULL), DHT11_INVALID_PARAM);
 	DHT_EXPECT(DHT11_Init(NULL, DHT_PUERTO, DHT_PIN), DHT11_INVALID_PARAM);
+	DHT_EXPECT(DHT11_Init(&sin_instancia, DHT_PUERTO, DHT_PIN), DHT11_INVALID_PARAM);
 	DHT_EXPECT(DHT11_Init(&htim2, NULL, DHT_PIN), DHT11_INVALID_PARAM);
+	DHT_EXPECT(DHT11_Init(&htim2, DHT_PUERTO, 0U), DHT11_INVALID_PARAM);
 	DHT11_CheckSinTocar(&m);
 
 	/* El driver conserva la configuración anterior y sigue leyendo */
@@ -461,7 +475,9 @@ static void DHT11_TestTimeout(void)
 	DHT11_Data_t m;
 
 	/* -- Sensor ausente: apuntando a un pin libre (pull-up, siempre en alto) el sensor nunca
-	 *    responde y Get debe agotar el tiempo con TIMEOUT sin escribir la muestra -- */
+	 *    responde y Get debe agotar el tiempo con TIMEOUT sin escribir la muestra.
+	 *    También prueba que Init descarta la caché: si no, Get devolvería OK con la medición
+	 *    del pin anterior -- */
 	printf(COLOR_YELLOW "[Timeout]" COLOR_RESET "\r\n");
 	DHT11_Centinela(&m);
 	DHT_CHECK(DHT11_Init(&htim2, DHT_PUERTO, DHT_PIN_LIBRE));
