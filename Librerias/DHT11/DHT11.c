@@ -21,6 +21,10 @@ static uint8_t				DHT11_Initialized	= 0U;	/**< Bandera para verificar si el mód
 
 static uint8_t humedad_entero, humedad_decimal, temp_entero, temp_decimal, checksum;
 
+static DHT11_Data_t			DHT11_LastData;				/**< Última medición válida */
+static uint32_t				DHT11_LastTick		= 0U;	/**< HAL_GetTick() de la última medición válida */
+static uint8_t				DHT11_HasData		= 0U;	/**< Indica si DHT11_LastData es válida */
+
 // ============================================================================
 // PROTOTIPOS DE FUNCIONES PRIVADAS
 // ============================================================================
@@ -235,6 +239,7 @@ DHT11_Status_t DHT11_Init(TIM_HandleTypeDef* htim, GPIO_TypeDef* GPIOx, uint16_t
 	DHT11_Port	= GPIOx;
 	DHT11_Pin	= GPIO_PIN;
 
+	DHT11_HasData = 0U;		// Descartar mediciones de una configuración anterior
 	DHT11_Initialized = 1U;
 
 	return DHT11_OK;
@@ -292,6 +297,13 @@ DHT11_Status_t DHT11_Get(DHT11_Data_t *environment)
 		return DHT11_INVALID_PARAM;
 	}
 
+	// El DHT11 necesita ~2 s entre lecturas: antes de eso, devolver la última medición válida
+	if (DHT11_HasData && (HAL_GetTick() - DHT11_LastTick) < DHT11_MIN_INTERVAL_MS)
+	{
+		*environment = DHT11_LastData;
+		return DHT11_OK;
+	}
+
 	// --- SECUENCIA DE COMUNICACIÓN ---
 
 	// 1. Iniciar comunicación
@@ -332,6 +344,11 @@ DHT11_Status_t DHT11_Get(DHT11_Data_t *environment)
 	// 5. Convertir bytes a valores flotantes
 	environment->humedad = (float)humedad_entero + ((float)humedad_decimal / 10.0f);
 	environment->temperatura = (float)temp_entero + ((float)temp_decimal / 10.0f);
+
+	// 6. Guardar medición y marca de tiempo para respetar el intervalo mínimo
+	DHT11_LastData	= *environment;
+	DHT11_LastTick	= HAL_GetTick();
+	DHT11_HasData	= 1U;
 
 	return DHT11_OK;
 }

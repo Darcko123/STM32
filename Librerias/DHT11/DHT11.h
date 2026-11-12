@@ -28,6 +28,7 @@
 #define DHT11_BIT_READ_DELAY_US     40      /**< Retardo para lectura de bit */
 #define DHT11_RESPONSE_TIMEOUT_US   100     /**< Timeout para respuesta del sensor */
 #define DHT11_BIT_TIMEOUT_US        150     /**< Timeout para lectura de bits */
+#define DHT11_MIN_INTERVAL_MS       2000U   /**< Intervalo mínimo entre lecturas reales del sensor */
 
 // ============================================================================
 // ENUMERACIONES Y ESTRUCTURAS
@@ -93,6 +94,9 @@ DHT11_Status_t DHT11_DeInit(void);
  *         - DHT11_TIMEOUT         si el sensor no responde a tiempo.
  *         - DHT11_CHECKSUM_ERROR  si la trama recibida está corrupta.
  *         - DHT11_ERROR           si la respuesta del sensor es inválida.
+ *
+ * @note Si no han pasado DHT11_MIN_INTERVAL_MS desde la última lectura válida,
+ *       no se consulta al sensor: se devuelve la medición guardada con DHT11_OK.
  */
 DHT11_Status_t DHT11_Get(DHT11_Data_t *environment);
 
