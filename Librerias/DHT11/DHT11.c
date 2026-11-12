@@ -50,8 +50,8 @@ static void dht11_DelayUs(uint16_t time)
 	uint32_t start = __HAL_TIM_GET_COUNTER(DHT11_htim);
 
 	// Esperar hasta que el contador avance la cantidad especificada
-	// Se utiliza aritmética modular para manejar correctamente el desbordamiento del timer
-	while((__HAL_TIM_GET_COUNTER(DHT11_htim) - start) < time);
+	// La resta se trunca a 16 bits: maneja el desbordamiento con timers de 16 y 32 bits (ARR al máximo)
+	while((uint16_t)(__HAL_TIM_GET_COUNTER(DHT11_htim) - start) < time);
 }
 
 /**
@@ -93,7 +93,7 @@ static DHT11_Status_t dht11_CheckResponse(void)
 	start = __HAL_TIM_GET_COUNTER(DHT11_htim);
 	while(HAL_GPIO_ReadPin(DHT11_Port, DHT11_Pin))		// Esperar mientras esté ALTO
 	{
-		if((__HAL_TIM_GET_COUNTER(DHT11_htim) - start) > DHT11_RESPONSE_TIMEOUT_US)
+		if((uint16_t)(__HAL_TIM_GET_COUNTER(DHT11_htim) - start) > DHT11_RESPONSE_TIMEOUT_US)
 			return DHT11_TIMEOUT;
 	}
 
@@ -104,7 +104,7 @@ static DHT11_Status_t dht11_CheckResponse(void)
 		start = __HAL_TIM_GET_COUNTER(DHT11_htim);
 		while(!HAL_GPIO_ReadPin(DHT11_Port, DHT11_Pin))
 		{
-			if((__HAL_TIM_GET_COUNTER(DHT11_htim) - start) > DHT11_RESPONSE_TIMEOUT_US)
+			if((uint16_t)(__HAL_TIM_GET_COUNTER(DHT11_htim) - start) > DHT11_RESPONSE_TIMEOUT_US)
 				return DHT11_TIMEOUT;
 		}
 
@@ -112,7 +112,7 @@ static DHT11_Status_t dht11_CheckResponse(void)
 		start = __HAL_TIM_GET_COUNTER(DHT11_htim);
 		while(HAL_GPIO_ReadPin(DHT11_Port, DHT11_Pin))
 		{
-			if((__HAL_TIM_GET_COUNTER(DHT11_htim) - start) > DHT11_RESPONSE_TIMEOUT_US)
+			if((uint16_t)(__HAL_TIM_GET_COUNTER(DHT11_htim) - start) > DHT11_RESPONSE_TIMEOUT_US)
 				return DHT11_TIMEOUT;
 		}
 
@@ -146,7 +146,7 @@ static DHT11_Status_t dht11_ReadByte(uint8_t* byte)
 		start = __HAL_TIM_GET_COUNTER(DHT11_htim);
 		while(!(HAL_GPIO_ReadPin(DHT11_Port, DHT11_Pin)))
 		{
-			if((__HAL_TIM_GET_COUNTER(DHT11_htim) - start) > DHT11_BIT_TIMEOUT_US)
+			if((uint16_t)(__HAL_TIM_GET_COUNTER(DHT11_htim) - start) > DHT11_BIT_TIMEOUT_US)
 				return DHT11_TIMEOUT;
 		}
 
@@ -167,7 +167,7 @@ static DHT11_Status_t dht11_ReadByte(uint8_t* byte)
 		start = __HAL_TIM_GET_COUNTER(DHT11_htim);
 		while(HAL_GPIO_ReadPin(DHT11_Port, DHT11_Pin))
 		{
-			if((__HAL_TIM_GET_COUNTER(DHT11_htim) - start) > DHT11_BIT_TIMEOUT_US)
+			if((uint16_t)(__HAL_TIM_GET_COUNTER(DHT11_htim) - start) > DHT11_BIT_TIMEOUT_US)
 				return DHT11_TIMEOUT;
 		}
 	}

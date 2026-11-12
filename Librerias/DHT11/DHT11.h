@@ -66,6 +66,11 @@ extern "C" {
 /**
  * @brief Inicializa el sensor DHT11.
  *
+ * @note  El timer debe contar a 1 MHz y tener el Counter Period (ARR) al máximo:
+ *        0xFFFF en timers de 16 bits o 0xFFFFFFFF en timers de 32 bits. Las diferencias
+ *        de tiempo se calculan en 16 bits, así que cualquier otro ARR rompe el manejo
+ *        del desbordamiento.
+ *
  * @param[in] htim     Puntero al handle del timer utilizado para retardos en microsegundos (1 MHz).
  * @param[in] GPIOx    Puerto GPIO del pin de datos del DHT11.
  * @param[in] GPIO_PIN Pin GPIO del pin de datos del DHT11.
