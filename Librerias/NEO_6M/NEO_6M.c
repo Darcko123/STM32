@@ -41,6 +41,7 @@ static uint8_t neo_6m_SplitFields(char* s, char* fields[], uint8_t maxFields);
 static void    neo_6m_SetPosition(const char* lat, const char* ns, const char* lon, const char* ew);
 static void    neo_6m_ParseNmea(char* strParse);
 static int     neo_6m_ValidateChecksum(char* nmea);
+static int     neo_6m_ValidLatLon(double lat, double lon);
 
 // ============================================================================
 // FUNCIONES PRIVADAS
@@ -281,6 +282,17 @@ static int neo_6m_ValidateChecksum(char* nmea)
     return ((calculatedString[0] == check[0]) && (calculatedString[1] == check[1])) ? 1 : 0;
 }
 
+/**
+ * @brief Comprueba que una latitud/longitud está en rango.
+ *
+ * @return int 1 si es válida, 0 si está fuera de rango o es NaN.
+ */
+static int neo_6m_ValidLatLon(double lat, double lon)
+{
+    /* NaN falla todas las comparaciones, así que también se rechaza */
+    return (lat >= -90.0 && lat <= 90.0 && lon >= -180.0 && lon <= 180.0) ? 1 : 0;
+}
+
 // ============================================================================
 // FUNCIONES PÚBLICAS
 // ============================================================================
@@ -516,6 +528,78 @@ NEO_6M_Status_t NEO_6M_DecimalToUTM(double latitude, double longitude, NEO_6M_UT
     utm->northing   = (uint32_t)(northing + 0.5);
     utm->zone       = bands[idx];
     utm->zoneNumber = (uint16_t)zoneNum;
+
+    return NEO_6M_OK;
+}
+
+/**
+ * @brief Distancia sobre la superficie terrestre entre dos puntos (fórmula de haversine).
+ *
+ * @param[in]  lat1   Latitud del punto 1 en grados decimales.
+ * @param[in]  lon1   Longitud del punto 1 en grados decimales.
+ * @param[in]  lat2   Latitud del punto 2 en grados decimales.
+ * @param[in]  lon2   Longitud del punto 2 en grados decimales.
+ * @param[out] meters Distancia en metros.
+ * @return NEO_6M_Status_t
+ *         - NEO_6M_OK            si el cálculo fue exitoso.
+ *         - NEO_6M_INVALID_PARAM si @p meters es NULL o alguna coordenada está fuera de rango.
+ */
+NEO_6M_Status_t NEO_6M_Distance(double lat1, double lon1, double lat2, double lon2, double* meters)
+{
+    if (meters == NULL || !neo_6m_ValidLatLon(lat1, lon1) || !neo_6m_ValidLatLon(lat2, lon2))
+    {
+        return NEO_6M_INVALID_PARAM;
+    }
+
+    const double deg2rad = M_PI / 180.0;
+    double sinDLat = sin((lat2 - lat1) * deg2rad / 2.0);
+    double sinDLon = sin((lon2 - lon1) * deg2rad / 2.0);
+
+    double h = sinDLat * sinDLat +
+               cos(lat1 * deg2rad) * cos(lat2 * deg2rad) * sinDLon * sinDLon;
+
+    /* El redondeo puede dejar h un pelo fuera de [0, 1] en puntos antipodales → sqrt(<0) = NaN */
+    if (h > 1.0) h = 1.0;
+
+    /* Forma atan2: precisa también a distancias cortas, donde asin pierde resolución */
+    *meters = 2.0 * NEO_6M_EARTH_RADIUS_M * atan2(sqrt(h), sqrt(1.0 - h));
+
+    return NEO_6M_OK;
+}
+
+/**
+ * @brief Rumbo inicial (azimut) del punto 1 al punto 2 sobre el círculo máximo.
+ *
+ * @param[in]  lat1    Latitud de origen en grados decimales.
+ * @param[in]  lon1    Longitud de origen en grados decimales.
+ * @param[in]  lat2    Latitud de destino en grados decimales.
+ * @param[in]  lon2    Longitud de destino en grados decimales.
+ * @param[out] degrees Rumbo en grados, rango [0, 360). 0 si ambos puntos coinciden.
+ * @return NEO_6M_Status_t
+ *         - NEO_6M_OK            si el cálculo fue exitoso.
+ *         - NEO_6M_INVALID_PARAM si @p degrees es NULL o alguna coordenada está fuera de rango.
+ */
+NEO_6M_Status_t NEO_6M_Bearing(double lat1, double lon1, double lat2, double lon2, double* degrees)
+{
+    if (degrees == NULL || !neo_6m_ValidLatLon(lat1, lon1) || !neo_6m_ValidLatLon(lat2, lon2))
+    {
+        return NEO_6M_INVALID_PARAM;
+    }
+
+    const double deg2rad = M_PI / 180.0;
+    double phi1 = lat1 * deg2rad;
+    double phi2 = lat2 * deg2rad;
+    double dLon = (lon2 - lon1) * deg2rad;
+
+    double y = sin(dLon) * cos(phi2);
+    double x = cos(phi1) * sin(phi2) - sin(phi1) * cos(phi2) * cos(dLon);
+
+    /* atan2 → (-180, 180]; se lleva a [0, 360). atan2(0, 0) = 0 para puntos iguales */
+    double b = atan2(y, x) / deg2rad;
+    if (b < 0.0) b += 360.0;
+    if (b >= 360.0) b = 0.0;   /* -1e-15 + 360 redondea a 360.0 */
+
+    *degrees = b;
 
     return NEO_6M_OK;
 }

@@ -34,6 +34,10 @@
 #define NEO_6M_DATA_TIMEOUT_MS   3000U   /**< Sin sentencias válidas durante este tiempo, Get devuelve NEO_6M_TIMEOUT (el módulo emite a 1 Hz) */
 #endif
 
+#ifndef NEO_6M_EARTH_RADIUS_M
+#define NEO_6M_EARTH_RADIUS_M    6371008.8  /**< Radio medio terrestre (IUGG) usado por NEO_6M_Distance, en metros */
+#endif
+
 // ============================================================================
 // ENUMERACIONES Y ESTRUCTURAS
 // ============================================================================
@@ -167,6 +171,41 @@ NEO_6M_Status_t NEO_6M_DecimalToDMS(double decimalDegrees, char hemisphere, NEO_
  *         - NEO_6M_INVALID_PARAM si @p utm es NULL o las coordenadas están fuera de rango.
  */
 NEO_6M_Status_t NEO_6M_DecimalToUTM(double latitude, double longitude, NEO_6M_UTM_t* utm);
+
+/**
+ * @brief Distancia sobre la superficie terrestre entre dos puntos (fórmula de haversine).
+ *
+ * @details Modelo de Tierra esférica de radio NEO_6M_EARTH_RADIUS_M: error < 0.5 % frente
+ *          al elipsoide WGS84, muy por debajo del error de posición del propio GPS.
+ *
+ * @param[in]  lat1   Latitud del punto 1 en grados decimales (-90.0 a 90.0).
+ * @param[in]  lon1   Longitud del punto 1 en grados decimales (-180.0 a 180.0).
+ * @param[in]  lat2   Latitud del punto 2 en grados decimales (-90.0 a 90.0).
+ * @param[in]  lon2   Longitud del punto 2 en grados decimales (-180.0 a 180.0).
+ * @param[out] meters Distancia en metros.
+ * @return NEO_6M_Status_t
+ *         - NEO_6M_OK            si el cálculo fue exitoso.
+ *         - NEO_6M_INVALID_PARAM si @p meters es NULL o alguna coordenada está fuera de rango (o NaN).
+ */
+NEO_6M_Status_t NEO_6M_Distance(double lat1, double lon1, double lat2, double lon2, double* meters);
+
+/**
+ * @brief Rumbo inicial (azimut) del punto 1 al punto 2 sobre el círculo máximo.
+ *
+ * @details 0° = Norte, 90° = Este, en sentido horario. Es el rumbo de salida: en
+ *          trayectos largos el rumbo cambia a lo largo del camino. Si ambos puntos
+ *          coinciden el rumbo no está definido y se devuelve 0.
+ *
+ * @param[in]  lat1    Latitud de origen en grados decimales (-90.0 a 90.0).
+ * @param[in]  lon1    Longitud de origen en grados decimales (-180.0 a 180.0).
+ * @param[in]  lat2    Latitud de destino en grados decimales (-90.0 a 90.0).
+ * @param[in]  lon2    Longitud de destino en grados decimales (-180.0 a 180.0).
+ * @param[out] degrees Rumbo en grados, rango [0, 360).
+ * @return NEO_6M_Status_t
+ *         - NEO_6M_OK            si el cálculo fue exitoso.
+ *         - NEO_6M_INVALID_PARAM si @p degrees es NULL o alguna coordenada está fuera de rango (o NaN).
+ */
+NEO_6M_Status_t NEO_6M_Bearing(double lat1, double lon1, double lat2, double lon2, double* degrees);
 
 /**
  * @brief Manejador de recepción UART completa — llamar desde HAL_UART_RxCpltCallback.
