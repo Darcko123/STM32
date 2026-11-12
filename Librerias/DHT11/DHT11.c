@@ -4,8 +4,8 @@
  * @brief Implementación de la librería para el sensor de temperatura y humedad DHT11 utilizando un Timer y protocolo single-wire en STM32.
  *
  * @author Daniel Ruiz
- * @date Ene 20, 2026
- * @version 1.0.0
+ * @date Noviembre 12, 2026
+ * @version 2.0.0
  */
 
 #include "DHT11.h"
