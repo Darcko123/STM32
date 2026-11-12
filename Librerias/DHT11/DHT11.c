@@ -208,14 +208,15 @@ static DHT11_Status_t dht11_StartCommunication(void)
  * @param[in] GPIO_PIN Pin GPIO del pin de datos del DHT11.
  * @return DHT11_Status_t
  *         - DHT11_OK            si la inicialización fue exitosa.
- *         - DHT11_INVALID_PARAM si @p htim o @p GPIOx es NULL.
+ *         - DHT11_INVALID_PARAM si @p htim, su instancia o @p GPIOx es NULL, o @p GPIO_PIN es 0.
+ *         - DHT11_ERROR         si no se pudo arrancar el timer.
  *
  * @note Si el timer no está en ejecución, esta función lo arranca con HAL_TIM_Base_Start().
  */
 DHT11_Status_t DHT11_Init(TIM_HandleTypeDef* htim, GPIO_TypeDef* GPIOx, uint16_t GPIO_PIN)
 {
 	// Validar parámetros de entrada
-	if (htim == NULL || GPIOx == NULL)
+	if (htim == NULL || htim->Instance == NULL || GPIOx == NULL || GPIO_PIN == 0U)
 	{
 		return DHT11_INVALID_PARAM;
 	}
@@ -223,7 +224,10 @@ DHT11_Status_t DHT11_Init(TIM_HandleTypeDef* htim, GPIO_TypeDef* GPIOx, uint16_t
 	// Asegurar que el timer esté en ejecución
 	if (!(htim->Instance->CR1 & TIM_CR1_CEN))
 	{
-		HAL_TIM_Base_Start(htim);
+		if (HAL_TIM_Base_Start(htim) != HAL_OK)
+		{
+			return DHT11_ERROR;
+		}
 	}
 
 	// Almacenar configuración para uso en funciones posteriores

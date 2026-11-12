@@ -70,7 +70,8 @@ extern "C" {
  * @param[in] GPIO_PIN Pin GPIO del pin de datos del DHT11.
  * @return DHT11_Status_t
  *         - DHT11_OK            si la inicialización fue exitosa.
- *         - DHT11_INVALID_PARAM si @p htim o @p GPIOx es NULL.
+ *         - DHT11_INVALID_PARAM si @p htim, su instancia o @p GPIOx es NULL, o @p GPIO_PIN es 0.
+ *         - DHT11_ERROR         si no se pudo arrancar el timer.
  */
 DHT11_Status_t DHT11_Init(TIM_HandleTypeDef* htim, GPIO_TypeDef* GPIOx, uint16_t GPIO_PIN);
 
