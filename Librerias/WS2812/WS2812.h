@@ -118,6 +118,13 @@ WS2812_Status_t WS2812_Fill(uint8_t r, uint8_t g, uint8_t b, uint16_t first, uin
 WS2812_Status_t WS2812_SetBrightness(uint8_t brightness);
 
 /**
+ * @brief Obtiene el brillo global actual del módulo WS2812.
+ *
+ * @return Valor de brillo (0-255). Vale 255 si el módulo no se ha inicializado.
+ */
+uint8_t WS2812_GetBrightness(void);
+
+/**
  * @brief Apaga todos los píxeles del buffer (no transmite, se requiere show).
  *
  * @return WS2812_OK si se limpió el buffer.
