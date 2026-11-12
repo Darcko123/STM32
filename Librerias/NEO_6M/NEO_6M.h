@@ -28,26 +28,26 @@
 #include <math.h>
 
 // ============================================================================
-// MACROS Y CONSTANTES [NEO6M_GPS]
+// MACROS Y CONSTANTES [NEO_6M]
 // ============================================================================
 
-#define NEO6M_GPS_RX_BUFFER_SIZE    128U    /**< Tamaño máximo del búfer de sentencia NMEA */
-#define NEO6M_GPS_NMEA_MAX_LEN      75U     /**< Longitud máxima válida de la sentencia NMEA */
+#define NEO_6M_RX_BUFFER_SIZE    128U    /**< Tamaño máximo del búfer de sentencia NMEA */
+#define NEO_6M_NMEA_MAX_LEN      75U     /**< Longitud máxima válida de la sentencia NMEA */
 
 // ============================================================================
 // ENUMERACIONES Y ESTRUCTURAS
 // ============================================================================
 
 /**
- * @brief Enumeración para estados de retorno del NEO6M_GPS.
+ * @brief Enumeración para estados de retorno del NEO-6M.
  */
 typedef enum {
-    NEO6M_GPS_OK              = 0,  /**< Operación exitosa */
-    NEO6M_GPS_ERROR           = 1,  /**< Error en la operación */
-    NEO6M_GPS_TIMEOUT         = 2,  /**< Timeout en la operación */
-    NEO6M_GPS_NOT_INITIALIZED = 3,  /**< Módulo no inicializado */
-    NEO6M_GPS_INVALID_PARAM   = 4   /**< Parámetro inválido */
-} NEO6M_GPS_Status_t;
+    NEO_6M_OK              = 0,  /**< Operación exitosa */
+    NEO_6M_ERROR           = 1,  /**< Error en la operación */
+    NEO_6M_TIMEOUT         = 2,  /**< Timeout en la operación */
+    NEO_6M_NOT_INITIALIZED = 3,  /**< Módulo no inicializado */
+    NEO_6M_INVALID_PARAM   = 4   /**< Parámetro inválido */
+} NEO_6M_Status_t;
 
 /**
  * @brief Estructura de datos que almacena el último fix GPS parseado.
@@ -66,7 +66,7 @@ typedef struct {
     float    altitude;  /**< Altitud en metros (GPGGA)            */
     uint8_t fixQuality; /**< Calidad del fix (GPGGA)              */
     uint8_t numSatellites; /**< Número de satélites en vista (GPGGA) */
-} NEO6M_GPS_Data_t;
+} NEO_6M_Data_t;
 
 /**
  * @brief Estructura que almacena una coordenada en formato DMS (Grados, Minutos, Segundos).
@@ -76,7 +76,7 @@ typedef struct {
     uint8_t minutes;    /**< Minutos enteros de la coordenada               */
     uint8_t seconds;    /**< Segundos enteros de la coordenada              */
     char    hemisphere; /**< Hemisferio de la coordenada: 'N', 'S', 'E' o 'W' */
-} NEO6M_GPS_DMS_t;
+} NEO_6M_DMS_t;
 
 /**
  * @brief Estructura que almacena una coordenada en formato UTM
@@ -87,7 +87,7 @@ typedef struct {
     uint32_t northing;   /**< Coordenada Norte en metros                    */
     char     zone;       /**< Letra de banda de latitud UTM (ej: 'T')       */
     uint16_t zoneNumber; /**< Número de zona UTM (ej: 30)                   */
-} NEO6M_GPS_UTM_t;
+} NEO_6M_UTM_t;
 
 // ============================================================================
 // PROTOTIPOS DE FUNCIONES PÚBLICAS
@@ -98,32 +98,32 @@ extern "C" {
 #endif
 
 /**
- * @brief Inicializa el driver NEO6M_GPS e inicia la recepción por interrupciones UART.
+ * @brief Inicializa el driver NEO-6M e inicia la recepción por interrupciones UART.
  *
  * @param[in] huart Handle UART de HAL.
- * @return NEO6M_GPS_Status_t
- *         - NEO6M_GPS_OK            si la inicialización fue exitosa.
- *         - NEO6M_GPS_INVALID_PARAM si @p huart es NULL.
+ * @return NEO_6M_Status_t
+ *         - NEO_6M_OK            si la inicialización fue exitosa.
+ *         - NEO_6M_INVALID_PARAM si @p huart es NULL.
  */
-NEO6M_GPS_Status_t NEO6M_GPS_Init(UART_HandleTypeDef* huart);
+NEO_6M_Status_t NEO_6M_Init(UART_HandleTypeDef* huart);
 
 /**
- * @brief Desinicializa el driver NEO6M_GPS y libera los recursos.
+ * @brief Desinicializa el driver NEO-6M y libera los recursos.
  *
- * @return NEO6M_GPS_Status_t Siempre retorna NEO6M_GPS_OK.
+ * @return NEO_6M_Status_t Siempre retorna NEO_6M_OK.
  */
-NEO6M_GPS_Status_t NEO6M_GPS_DeInit(void);
+NEO_6M_Status_t NEO_6M_DeInit(void);
 
 /**
  * @brief Copia los últimos datos GPS parseados en la estructura del llamador.
  *
- * @param[out] data Puntero a una estructura NEO6M_GPS_Data_t a rellenar.
- * @return NEO6M_GPS_Status_t
- *         - NEO6M_GPS_OK              si los datos fueron copiados correctamente.
- *         - NEO6M_GPS_NOT_INITIALIZED si el driver no está inicializado.
- *         - NEO6M_GPS_INVALID_PARAM   si @p data es NULL.
+ * @param[out] data Puntero a una estructura NEO_6M_Data_t a rellenar.
+ * @return NEO_6M_Status_t
+ *         - NEO_6M_OK              si los datos fueron copiados correctamente.
+ *         - NEO_6M_NOT_INITIALIZED si el driver no está inicializado.
+ *         - NEO_6M_INVALID_PARAM   si @p data es NULL.
  */
-NEO6M_GPS_Status_t NEO6M_GPS_Get(NEO6M_GPS_Data_t* data);
+NEO_6M_Status_t NEO_6M_Get(NEO_6M_Data_t* data);
 
 /**
  * @brief Convierte una coordenada en grados decimales a formato DMS
@@ -131,12 +131,12 @@ NEO6M_GPS_Status_t NEO6M_GPS_Get(NEO6M_GPS_Data_t* data);
  *
  * @param[in]  decimalDegrees Coordenada en grados decimales.
  * @param[in]  hemisphere     Hemisferio de la coordenada: 'N', 'S', 'E' o 'W'.
- * @param[out] dms            Puntero a la estructura NEO6M_GPS_DMS_t a rellenar.
- * @return NEO6M_GPS_Status_t
- *         - NEO6M_GPS_OK            si la conversión fue exitosa.
- *         - NEO6M_GPS_INVALID_PARAM si @p dms es NULL.
+ * @param[out] dms            Puntero a la estructura NEO_6M_DMS_t a rellenar.
+ * @return NEO_6M_Status_t
+ *         - NEO_6M_OK            si la conversión fue exitosa.
+ *         - NEO_6M_INVALID_PARAM si @p dms es NULL.
  */
-NEO6M_GPS_Status_t NEO6M_GPS_DecimalToDMS(double decimalDegrees, char hemisphere, NEO6M_GPS_DMS_t* dms);
+NEO_6M_Status_t NEO_6M_DecimalToDMS(double decimalDegrees, char hemisphere, NEO_6M_DMS_t* dms);
 
 /**
  * @brief Convierte latitud/longitud decimal a UTM
@@ -146,12 +146,12 @@ NEO6M_GPS_Status_t NEO6M_GPS_DecimalToDMS(double decimalDegrees, char hemisphere
  *
  * @param[in]  latitude  Latitud en grados decimales (rango válido: -80.0 a 84.0).
  * @param[in]  longitude Longitud en grados decimales (rango válido: -180.0 a 180.0).
- * @param[out] utm       Puntero a la estructura NEO6M_GPS_UTM_t a rellenar.
- * @return NEO6M_GPS_Status_t
- *         - NEO6M_GPS_OK            si la conversión fue exitosa.
- *         - NEO6M_GPS_INVALID_PARAM si @p utm es NULL o las coordenadas están fuera de rango.
+ * @param[out] utm       Puntero a la estructura NEO_6M_UTM_t a rellenar.
+ * @return NEO_6M_Status_t
+ *         - NEO_6M_OK            si la conversión fue exitosa.
+ *         - NEO_6M_INVALID_PARAM si @p utm es NULL o las coordenadas están fuera de rango.
  */
-NEO6M_GPS_Status_t NEO6M_GPS_DecimalToUTM(double latitude, double longitude, NEO6M_GPS_UTM_t* utm);
+NEO_6M_Status_t NEO_6M_DecimalToUTM(double latitude, double longitude, NEO_6M_UTM_t* utm);
 
 /**
  * @brief Manejador de recepción UART completa — llamar desde HAL_UART_RxCpltCallback.
@@ -161,7 +161,7 @@ NEO6M_GPS_Status_t NEO6M_GPS_DecimalToUTM(double latitude, double longitude, NEO
  *
  * @param[in] huart Handle UART de HAL pasado por el callback.
  */
-void NEO6M_GPS_UART_RxCpltCallback(UART_HandleTypeDef* huart);
+void NEO_6M_UART_RxCpltCallback(UART_HandleTypeDef* huart);
 
 #ifdef __cplusplus
 }
