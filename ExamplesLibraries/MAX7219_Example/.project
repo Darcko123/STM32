@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <projectDescription>
-	<name>MatrixDotDisplay_Example</name>
+	<name>MAX7219_Example</name>
 	<comment></comment>
 	<projects>
 	</projects>
@@ -29,4 +29,16 @@
 		<nature>org.eclipse.cdt.managedbuilder.core.managedBuildNature</nature>
 		<nature>org.eclipse.cdt.managedbuilder.core.ScannerConfigNature</nature>
 	</natures>
+	<linkedResources>
+		<link>
+			<name>Core/Inc/MAX7219.h</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Librerias/MAX7219/MAX7219.h</locationURI>
+		</link>
+		<link>
+			<name>Core/Src/MAX7219.c</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Librerias/MAX7219/MAX7219.c</locationURI>
+		</link>
+	</linkedResources>
 </projectDescription>
