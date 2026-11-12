@@ -41,13 +41,13 @@
 
 /* -- Parámetros de la batería de pruebas -- */
 #define DHT_ARRANQUE_MS     1000U      /**< El DHT11 necesita ~1 s tras alimentarse antes de la primera lectura */
-#define DHT_PERIODO_MS      2000U      /**< Entre lecturas (el datasheet pide >= 1 s) */
+#define DHT_PERIODO_MS      DHT11_MIN_INTERVAL_MS  /**< Entre lecturas: por debajo, Get devuelve la caché sin tocar el bus */
 #define DHT_MUESTRAS        10U        /**< Lecturas seguidas del test de muestras */
-#define DHT_SENTINEL        1000.0f    /**< Fuera de escala: delata campos que Read_Data no escribió */
+#define DHT_SENTINEL        1000.0f    /**< Fuera de escala: delata campos que Get no escribió */
 
-/* Rango de funcionamiento del DHT11 según datasheet */
-#define DHT_TEMP_MIN        0.0f
-#define DHT_TEMP_MAX        50.0f
+/* Rango de funcionamiento del DHT11 según datasheet (temperatura: DHT11 nuevos con bit de signo) */
+#define DHT_TEMP_MIN        -20.0f
+#define DHT_TEMP_MAX        60.0f
 #define DHT_HUM_MIN         20.0f
 #define DHT_HUM_MAX         90.0f
 
@@ -80,17 +80,17 @@ static void MX_GPIO_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
-static void DHT11_Centinela(DHT11_Handles_t* m);
-static void DHT11_Leer(DHT11_Handles_t* m);
-static void DHT11_CheckSinTocar(const DHT11_Handles_t* m);
-static void DHT11_Print(const DHT11_Handles_t* m);
+static void DHT11_Centinela(DHT11_Data_t* m);
+static void DHT11_Leer(DHT11_Data_t* m);
+static void DHT11_CheckSinTocar(const DHT11_Data_t* m);
+static void DHT11_Print(const DHT11_Data_t* m);
 static void DHT11_TestSuite(void);
 static void DHT11_TestPreInit(void);
 static void DHT11_TestLectura(void);
 static void DHT11_TestMuestras(void);
 static void DHT11_TestErrores(void);
 static void DHT11_TestTimeout(void);
-static void DHT11_TestReInit(void);
+static void DHT11_TestDeInit(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -335,89 +335,100 @@ int __io_putchar(int ch)
 	return ch;
 }
 
-/* Rellena la muestra con el centinela para detectar campos que Read_Data no escribió */
-static void DHT11_Centinela(DHT11_Handles_t* m)
+/* Rellena la muestra con el centinela para detectar campos que Get no escribió */
+static void DHT11_Centinela(DHT11_Data_t* m)
 {
-	m->Temperature = DHT_SENTINEL;
-	m->Humidity    = DHT_SENTINEL;
+	m->temperatura = DHT_SENTINEL;
+	m->humedad    = DHT_SENTINEL;
 }
 
 /* Lectura completa: debe ir bien, escribir los dos campos y dar valores dentro del rango del
  * sensor. Se escribe como !(v >= min && v <= max) para que un NaN también falle */
-static void DHT11_Leer(DHT11_Handles_t* m)
+static void DHT11_Leer(DHT11_Data_t* m)
 {
 	DHT11_Centinela(m);
-	DHT_CHECK(DHT11_Read_Data(m));
+	DHT_CHECK(DHT11_Get(m));
 
-	if (!(m->Temperature >= DHT_TEMP_MIN && m->Temperature <= DHT_TEMP_MAX) ||
-		!(m->Humidity    >= DHT_HUM_MIN  && m->Humidity    <= DHT_HUM_MAX))
+	if (!(m->temperatura >= DHT_TEMP_MIN && m->temperatura <= DHT_TEMP_MAX) ||
+		!(m->humedad    >= DHT_HUM_MIN  && m->humedad    <= DHT_HUM_MAX))
 	{
 		Error_Handler();
 	}
 }
 
-/* Tras un Read_Data rechazado la muestra debe seguir intacta */
-static void DHT11_CheckSinTocar(const DHT11_Handles_t* m)
+/* Tras un Get rechazado la muestra debe seguir intacta */
+static void DHT11_CheckSinTocar(const DHT11_Data_t* m)
 {
-	if (m->Temperature != DHT_SENTINEL || m->Humidity != DHT_SENTINEL)
+	if (m->temperatura != DHT_SENTINEL || m->humedad != DHT_SENTINEL)
 	{
 		Error_Handler();
 	}
 }
 
 /* El proyecto no enlaza -u _printf_float: se imprime en décimas con enteros
- * (el DHT11 resuelve 0.1 y Leer ya garantizó valores >= 0) */
-static void DHT11_Print(const DHT11_Handles_t* m)
+ * (el DHT11 resuelve 0.1; la temperatura puede ser negativa, la humedad no) */
+static void DHT11_Print(const DHT11_Data_t* m)
 {
-	const uint32_t t = (uint32_t)(m->Temperature * 10.0f + 0.5f);
-	const uint32_t h = (uint32_t)(m->Humidity * 10.0f + 0.5f);
+	const uint32_t t = (uint32_t)(fabsf(m->temperatura) * 10.0f + 0.5f);
+	const uint32_t h = (uint32_t)(m->humedad * 10.0f + 0.5f);
 
-	printf("T=%lu.%lu C  H=%lu.%lu %%\r\n", t / 10, t % 10, h / 10, h % 10);
+	printf("T=%s%lu.%lu C  H=%lu.%lu %%\r\n", (m->temperatura < 0.0f) ? "-" : "",
+		   t / 10, t % 10, h / 10, h % 10);
 }
 
 static void DHT11_TestSuite(void)
 {
 	DHT11_TestLectura();
-	HAL_Delay(2000);
+	HAL_Delay(DHT_PERIODO_MS);
 
 	DHT11_TestMuestras();
-	HAL_Delay(2000);
+	HAL_Delay(DHT_PERIODO_MS);
 
 	DHT11_TestErrores();
-	HAL_Delay(2000);
+	HAL_Delay(DHT_PERIODO_MS);
 
 	DHT11_TestTimeout();
-	HAL_Delay(2000);
+	HAL_Delay(DHT_PERIODO_MS);
 
-	DHT11_TestReInit();
-	HAL_Delay(2000);
+	DHT11_TestDeInit();
+	HAL_Delay(DHT_PERIODO_MS);
 }
 
 static void DHT11_TestPreInit(void)
 {
-	DHT11_Handles_t m;
+	DHT11_Data_t m;
 
-	/* -- Antes de Init: Read_Data devuelve NOT_INITIALIZED sin tocar el bus ni la muestra
+	/* -- Antes de Init: Get devuelve NOT_INITIALIZED sin tocar el bus ni la muestra
 	 *    (aunque el puntero sea NULL: la comprobación de inicialización va primero) -- */
 	DHT11_Centinela(&m);
-	DHT_EXPECT(DHT11_Read_Data(&m), DHT11_NOT_INITIALIZED);
-	DHT_EXPECT(DHT11_Read_Data(NULL), DHT11_NOT_INITIALIZED);
+	DHT_EXPECT(DHT11_Get(&m), DHT11_NOT_INITIALIZED);
+	DHT_EXPECT(DHT11_Get(NULL), DHT11_NOT_INITIALIZED);
 	DHT11_CheckSinTocar(&m);
 }
 
 static void DHT11_TestLectura(void)
 {
-	DHT11_Handles_t m;
+	DHT11_Data_t m;
 
 	/* -- Lectura única: temperatura y humedad dentro del rango del DHT11 -- */
 	printf(COLOR_YELLOW "[Lectura]" COLOR_RESET "\r\n");
 	DHT11_Leer(&m);
 	DHT11_Print(&m);
+
+	/* -- Get inmediato (< DHT11_MIN_INTERVAL_MS): no toca el bus, devuelve al instante
+	 *    la misma medición guardada -- */
+	DHT11_Data_t r;
+	const uint32_t t0 = HAL_GetTick();
+	DHT11_Leer(&r);
+	if (r.temperatura != m.temperatura || r.humedad != m.humedad || HAL_GetTick() - t0 > 1U)
+	{
+		Error_Handler();
+	}
 }
 
 static void DHT11_TestMuestras(void)
 {
-	DHT11_Handles_t m, ant = {0};
+	DHT11_Data_t m, ant = {0};
 
 	/* -- Lecturas seguidas cada DHT_PERIODO_MS: ninguna debe fallar (checksum incluido) y
 	 *    entre dos consecutivas el ambiente no puede haber cambiado más que el ruido tolerado.
@@ -426,8 +437,8 @@ static void DHT11_TestMuestras(void)
 	for (uint8_t i = 1; i <= DHT_MUESTRAS; i++)
 	{
 		DHT11_Leer(&m);
-		if (i > 1 && (fabsf(m.Temperature - ant.Temperature) > DHT_TEMP_RUIDO ||
-					  fabsf(m.Humidity - ant.Humidity) > DHT_HUM_RUIDO))
+		if (i > 1 && (fabsf(m.temperatura - ant.temperatura) > DHT_TEMP_RUIDO ||
+					  fabsf(m.humedad - ant.humedad) > DHT_HUM_RUIDO))
 		{
 			Error_Handler();
 		}
@@ -440,15 +451,18 @@ static void DHT11_TestMuestras(void)
 
 static void DHT11_TestErrores(void)
 {
-	DHT11_Handles_t m;
+	DHT11_Data_t m;
+	TIM_HandleTypeDef sin_instancia = {0};
 
-	/* -- Puntero de salida NULL, y Init con timer o puerto NULL: se rechazan con ERROR
-	 *    sin tocar el bus ni la configuración vigente -- */
+	/* -- Puntero de salida NULL, y Init con timer, instancia, puerto NULL o pin 0: se rechazan
+	 *    con INVALID_PARAM sin tocar el bus ni la configuración vigente -- */
 	printf(COLOR_YELLOW "[Errores]" COLOR_RESET "\r\n");
 	DHT11_Centinela(&m);
-	DHT_EXPECT(DHT11_Read_Data(NULL), DHT11_ERROR);
-	DHT_EXPECT(DHT11_Init(NULL, DHT_PUERTO, DHT_PIN), DHT11_ERROR);
-	DHT_EXPECT(DHT11_Init(&htim2, NULL, DHT_PIN), DHT11_ERROR);
+	DHT_EXPECT(DHT11_Get(NULL), DHT11_INVALID_PARAM);
+	DHT_EXPECT(DHT11_Init(NULL, DHT_PUERTO, DHT_PIN), DHT11_INVALID_PARAM);
+	DHT_EXPECT(DHT11_Init(&sin_instancia, DHT_PUERTO, DHT_PIN), DHT11_INVALID_PARAM);
+	DHT_EXPECT(DHT11_Init(&htim2, NULL, DHT_PIN), DHT11_INVALID_PARAM);
+	DHT_EXPECT(DHT11_Init(&htim2, DHT_PUERTO, 0U), DHT11_INVALID_PARAM);
 	DHT11_CheckSinTocar(&m);
 
 	/* El driver conserva la configuración anterior y sigue leyendo */
@@ -458,14 +472,16 @@ static void DHT11_TestErrores(void)
 
 static void DHT11_TestTimeout(void)
 {
-	DHT11_Handles_t m;
+	DHT11_Data_t m;
 
 	/* -- Sensor ausente: apuntando a un pin libre (pull-up, siempre en alto) el sensor nunca
-	 *    responde y Read_Data debe agotar el tiempo con TIMEOUT sin escribir la muestra -- */
+	 *    responde y Get debe agotar el tiempo con TIMEOUT sin escribir la muestra.
+	 *    También prueba que Init descarta la caché: si no, Get devolvería OK con la medición
+	 *    del pin anterior -- */
 	printf(COLOR_YELLOW "[Timeout]" COLOR_RESET "\r\n");
 	DHT11_Centinela(&m);
 	DHT_CHECK(DHT11_Init(&htim2, DHT_PUERTO, DHT_PIN_LIBRE));
-	DHT_EXPECT(DHT11_Read_Data(&m), DHT11_TIMEOUT);
+	DHT_EXPECT(DHT11_Get(&m), DHT11_TIMEOUT);
 	DHT11_CheckSinTocar(&m);
 
 	/* -- Volver al pin real: Init reconfigura el driver y la lectura vuelve a funcionar -- */
@@ -474,17 +490,29 @@ static void DHT11_TestTimeout(void)
 	printf(COLOR_GREEN "Timeout OK" COLOR_RESET "\r\n");
 }
 
-static void DHT11_TestReInit(void)
+static void DHT11_TestDeInit(void)
 {
-	DHT11_Handles_t m;
+	DHT11_Data_t m;
 
-	/* -- Re-Init: la librería no tiene DeInit, pero Init sobre un driver ya inicializado
-	 *    debe aceptarse (el timer sigue en marcha) y dejarlo funcionando -- */
-	printf(COLOR_YELLOW "[ReInit]" COLOR_RESET "\r\n");
+	/* -- DeInit libera el driver: Get debe devolver NOT_INITIALIZED sin tocar el bus
+	 *    ni la muestra. Repetirlo sigue devolviendo OK -- */
+	printf(COLOR_YELLOW "[DeInit]" COLOR_RESET "\r\n");
+	DHT11_Centinela(&m);
+	DHT_CHECK(DHT11_DeInit());
+	DHT_CHECK(DHT11_DeInit());
+	DHT_EXPECT(DHT11_Get(&m), DHT11_NOT_INITIALIZED);
+	DHT11_CheckSinTocar(&m);
+
+	/* -- Re-Init tras DeInit: el driver debe poder arrancar de nuevo -- */
+	DHT_CHECK(DHT11_Init(&htim2, DHT_PUERTO, DHT_PIN));
+	DHT11_Leer(&m);
+	HAL_Delay(DHT_PERIODO_MS);
+
+	/* -- Init sobre un driver ya inicializado (el timer sigue en marcha) también se acepta -- */
 	DHT_CHECK(DHT11_Init(&htim2, DHT_PUERTO, DHT_PIN));
 	DHT11_Leer(&m);
 	DHT11_Print(&m);
-	printf(COLOR_GREEN "Re-Init OK" COLOR_RESET "\r\n");
+	printf(COLOR_GREEN "DeInit OK" COLOR_RESET "\r\n");
 }
 
 /* USER CODE END 4 */

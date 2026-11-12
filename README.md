@@ -23,7 +23,7 @@ Este repositorio está dividido en cuatro secciones principales:
 | [BME688](./Librerias/BME688/) | v1.0.0 | Sensor ambiental de gas, presión, temperatura y humedad (I2C) |
 | [BMP280](./Librerias/BMP280/) | v1.0.0 | Sensor de presión barométrica y temperatura (I2C) |
 | [CME6005](./Librerias/CME6005/) | v0.1.0 | Receptor de señal horaria WWVB / 60 kHz |
-| [DHT11](./Librerias/DHT11/) | v1.0.0 | Sensor de temperatura y humedad |
+| [DHT11](./Librerias/DHT11/) | v2.0.0 | Sensor de temperatura y humedad |
 | [DS3231 (RTC_Module)](./Librerias/DS3231\(RTC_Module\)/) | v2.1.0 | Módulo de reloj de tiempo real (RTC) |
 | [HC05](./Librerias/HC05/) | v0.1.0 | Módulo Bluetooth |
 | [ILI9341](./Librerias/ILI9341/) | v2.0.0 | Pantalla TFT LCD ILI9341 para STM32 en general |
