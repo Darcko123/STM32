@@ -343,7 +343,10 @@ DHT11_Status_t DHT11_Get(DHT11_Data_t *environment)
 
 	// 5. Convertir bytes a valores flotantes
 	environment->humedad = (float)humedad_entero + ((float)humedad_decimal / 10.0f);
-	environment->temperatura = (float)temp_entero + ((float)temp_decimal / 10.0f);
+	// Bit 7 del byte decimal de temperatura = signo (DHT11 nuevos, rango -20 a 60 °C)
+	environment->temperatura = (float)temp_entero + ((float)(temp_decimal & 0x7FU) / 10.0f);
+	if (temp_decimal & 0x80U)
+		environment->temperatura = -environment->temperatura;
 
 	// 6. Guardar medición y marca de tiempo para respetar el intervalo mínimo
 	DHT11_LastData	= *environment;
