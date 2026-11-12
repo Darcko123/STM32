@@ -22,17 +22,17 @@
 
 #include "main.h"
 #include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <math.h>
 
 // ============================================================================
 // MACROS Y CONSTANTES [NEO_6M]
 // ============================================================================
 
 #define NEO_6M_RX_BUFFER_SIZE    128U    /**< Tamaño máximo del búfer de sentencia NMEA */
-#define NEO_6M_NMEA_MAX_LEN      75U     /**< Longitud máxima válida de la sentencia NMEA */
+#define NEO_6M_NMEA_MAX_LEN      82U     /**< Longitud máxima de una sentencia NMEA 0183 (incluye '$' y CRLF) */
+
+#ifndef NEO_6M_DATA_TIMEOUT_MS
+#define NEO_6M_DATA_TIMEOUT_MS   3000U   /**< Sin sentencias válidas durante este tiempo, Get devuelve NEO_6M_TIMEOUT (el módulo emite a 1 Hz) */
+#endif
 
 // ============================================================================
 // ENUMERACIONES Y ESTRUCTURAS
@@ -66,6 +66,12 @@ typedef struct {
     float    altitude;  /**< Altitud en metros (GPGGA)            */
     uint8_t fixQuality; /**< Calidad del fix (GPGGA)              */
     uint8_t numSatellites; /**< Número de satélites en vista (GPGGA) */
+    float    hdop;      /**< Dilución horizontal de precisión (GPGGA); menor = mejor */
+    float    speedKmh;  /**< Velocidad sobre el suelo en km/h (GPRMC, nudos × 1.852) */
+    float    course;    /**< Rumbo sobre el suelo en grados, 0–360 (GPRMC); solo fiable en movimiento */
+    uint8_t  day;       /**< Día UTC del fix (GPRMC)              */
+    uint8_t  month;     /**< Mes UTC del fix (GPRMC)              */
+    uint8_t  year;      /**< Año UTC del fix, dos dígitos: 26 = 2026 (GPRMC) */
 } NEO_6M_Data_t;
 
 /**
@@ -104,6 +110,9 @@ extern "C" {
  * @return NEO_6M_Status_t
  *         - NEO_6M_OK            si la inicialización fue exitosa.
  *         - NEO_6M_INVALID_PARAM si @p huart es NULL.
+ *         - NEO_6M_ERROR         si HAL_UART_Receive_IT falla (el driver queda sin inicializar).
+ *
+ * @note Llamarlo de nuevo sin DeInit es válido: aborta la recepción previa y reinicia.
  */
 NEO_6M_Status_t NEO_6M_Init(UART_HandleTypeDef* huart);
 
@@ -117,9 +126,15 @@ NEO_6M_Status_t NEO_6M_DeInit(void);
 /**
  * @brief Copia los últimos datos GPS parseados en la estructura del llamador.
  *
+ * @details Sin fix, la posición conserva el último valor conocido: comprobar
+ *          @c fixQuality (GPGGA) o @c posStatus (GPRMC) para saber si es actual.
+ *
  * @param[out] data Puntero a una estructura NEO_6M_Data_t a rellenar.
  * @return NEO_6M_Status_t
  *         - NEO_6M_OK              si los datos fueron copiados correctamente.
+ *         - NEO_6M_TIMEOUT         si no llega ninguna sentencia válida desde hace más de
+ *                                  NEO_6M_DATA_TIMEOUT_MS (o aún no ha llegado ninguna).
+ *                                  @p data se rellena igualmente con los últimos datos.
  *         - NEO_6M_NOT_INITIALIZED si el driver no está inicializado.
  *         - NEO_6M_INVALID_PARAM   si @p data es NULL.
  */
@@ -134,7 +149,7 @@ NEO_6M_Status_t NEO_6M_Get(NEO_6M_Data_t* data);
  * @param[out] dms            Puntero a la estructura NEO_6M_DMS_t a rellenar.
  * @return NEO_6M_Status_t
  *         - NEO_6M_OK            si la conversión fue exitosa.
- *         - NEO_6M_INVALID_PARAM si @p dms es NULL.
+ *         - NEO_6M_INVALID_PARAM si @p dms es NULL o |@p decimalDegrees| > 180 (o NaN).
  */
 NEO_6M_Status_t NEO_6M_DecimalToDMS(double decimalDegrees, char hemisphere, NEO_6M_DMS_t* dms);
 
@@ -162,6 +177,17 @@ NEO_6M_Status_t NEO_6M_DecimalToUTM(double latitude, double longitude, NEO_6M_UT
  * @param[in] huart Handle UART de HAL pasado por el callback.
  */
 void NEO_6M_UART_RxCpltCallback(UART_HandleTypeDef* huart);
+
+/**
+ * @brief Manejador de errores UART — llamar desde HAL_UART_ErrorCallback.
+ *
+ * @details Un overrun (ORE) hace que la HAL aborte la recepción por IT. Esta función
+ *          descarta la sentencia en curso y rearma la recepción. Con errores no
+ *          bloqueantes (ruido, framing) la HAL sigue recibiendo y solo se descarta la sentencia.
+ *
+ * @param[in] huart Handle UART de HAL pasado por el callback.
+ */
+void NEO_6M_UART_ErrorCallback(UART_HandleTypeDef* huart);
 
 #ifdef __cplusplus
 }

@@ -8,6 +8,12 @@
  */
 
 #include "NEO_6M.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+
+#define NEO_6M_MAX_FIELDS        20U     /**< Campos NMEA máximos por sentencia (GPGGA usa 15) */
 
 // ============================================================================
 // VARIABLES PRIVADAS
@@ -21,16 +27,20 @@ static uint8_t             NEO_6M_RxIndex     = 0U;    /**< Posición de escritu
 static volatile uint8_t    NEO_6M_RxData;              /**< Escrito por HAL desde el hardware UART */
 
 static NEO_6M_Data_t       NEO_6M_Data        = {0};   /**< Último fix GPS parseado */
+static uint32_t            NEO_6M_LastTick    = 0U;    /**< HAL_GetTick() de la última sentencia con checksum válido */
+static uint8_t             NEO_6M_HasData     = 0U;    /**< 1 tras la primera sentencia válida desde Init */
 
 // ============================================================================
 // PROTOTIPOS DE FUNCIONES PRIVADAS
 // ============================================================================
 
-static double neo_6m_NmeaToDecimal(double coordinate);
-static void   neo_6m_ParseUtcTime(const char* timeStr);
-static void   neo_6m_UtcToLocalTime(NEO_6M_Data_t* data);
-static void   neo_6m_ParseNmea(char* strParse);
-static int    neo_6m_ValidateChecksum(char* nmea);
+static double  neo_6m_NmeaToDecimal(double coordinate);
+static void    neo_6m_ParseUtcTime(const char* timeStr);
+static void    neo_6m_UtcToLocalTime(NEO_6M_Data_t* data);
+static uint8_t neo_6m_SplitFields(char* s, char* fields[], uint8_t maxFields);
+static void    neo_6m_SetPosition(const char* lat, const char* ns, const char* lon, const char* ew);
+static void    neo_6m_ParseNmea(char* strParse);
+static int     neo_6m_ValidateChecksum(char* nmea);
 
 // ============================================================================
 // FUNCIONES PRIVADAS
@@ -56,7 +66,8 @@ static double neo_6m_NmeaToDecimal(double coordinate)
  */
 static void neo_6m_ParseUtcTime(const char* timeStr)
 {
-    if (timeStr == NULL || timeStr[0] == '\0')
+    /* Campo vacío o truncado: se conserva la hora anterior */
+    if (timeStr == NULL || strlen(timeStr) < 6U)
     {
         return;
     }
@@ -113,56 +124,119 @@ static void neo_6m_UtcToLocalTime(NEO_6M_Data_t* data)
 }
 
 /**
+ * @brief Divide una sentencia NMEA en campos, in situ.
+ *
+ * @details Sustituye cada ',' y el '*' por '\0'. A diferencia de sscanf, conserva los
+ *          campos vacíos (",,"), que NMEA usa cuando no hay fix.
+ *
+ * @param[in,out] s         Sentencia NMEA terminada en '\0' (se modifica).
+ * @param[out]    fields    Punteros al inicio de cada campo; fields[0] es el identificador ("$GPGGA").
+ * @param[in]     maxFields Tamaño de @p fields.
+ * @return uint8_t Número de campos encontrados.
+ */
+static uint8_t neo_6m_SplitFields(char* s, char* fields[], uint8_t maxFields)
+{
+    uint8_t n = 0U;
+
+    fields[n++] = s;
+    for (; *s != '\0' && n < maxFields; s++)
+    {
+        if (*s == ',' || *s == '*')
+        {
+            *s = '\0';
+            fields[n++] = s + 1;
+        }
+    }
+
+    return n;
+}
+
+/**
+ * @brief Actualiza latitud/longitud y hemisferios solo si los campos traen datos.
+ *
+ * @details Sin fix el módulo envía los campos vacíos; en ese caso se conserva la última
+ *          posición conocida en lugar de sobrescribirla con (0, 0).
+ */
+static void neo_6m_SetPosition(const char* lat, const char* ns, const char* lon, const char* ew)
+{
+    if (lat[0] == '\0' || ns[0] == '\0' || lon[0] == '\0' || ew[0] == '\0')
+    {
+        return;
+    }
+
+    NEO_6M_Data.northSouth = ns[0];
+    NEO_6M_Data.eastWest   = ew[0];
+    NEO_6M_Data.latitude   = neo_6m_NmeaToDecimal(strtod(lat, NULL));
+    NEO_6M_Data.longitude  = neo_6m_NmeaToDecimal(strtod(lon, NULL));
+
+    if (NEO_6M_Data.northSouth == 'S') NEO_6M_Data.latitude  = -NEO_6M_Data.latitude;
+    if (NEO_6M_Data.eastWest   == 'W') NEO_6M_Data.longitude = -NEO_6M_Data.longitude;
+}
+
+/**
  * @brief Parsea una sentencia NMEA validada y actualiza NEO_6M_Data.
+ *
+ * @details Solo se escriben los campos que vienen con datos; los vacíos conservan su
+ *          valor anterior. Excepción: @c fixQuality y @c numSatellites se escriben siempre
+ *          que llega una GPGGA (vacío = 0), para que una pérdida de fix se refleje.
  *
  * @param[in] strParse Sentencia NMEA ($GPGGA, $GPGLL o $GPRMC) con checksum ya validado.
  */
 static void neo_6m_ParseNmea(char* strParse)
 {
-    char   timeStr[12] = {0};
-    double nmeaLat     = 0.0;
-    double nmeaLong    = 0.0;
-    int    fixQ        = 0;
-    int    numSat      = 0;
+    char*   f[NEO_6M_MAX_FIELDS];
+    uint8_t n = neo_6m_SplitFields(strParse, f, (uint8_t)NEO_6M_MAX_FIELDS);
 
-    if (!strncmp(strParse, "$GPGGA", 6))
+    /* GPGGA: 1 hora, 2-5 posición, 6 calidad, 7 satélites, 8 HDOP, 9 altitud */
+    if (strcmp(f[0], "$GPGGA") == 0 && n >= 10U)
     {
-        sscanf(strParse, "$GPGGA,%11[^,],%lf,%c,%lf,%c,%d,%d,%*f,%f",
-               timeStr, &nmeaLat, &NEO_6M_Data.northSouth,
-               &nmeaLong, &NEO_6M_Data.eastWest,
-               &fixQ, &numSat, &NEO_6M_Data.altitude);
-
-        NEO_6M_Data.fixQuality    = (uint8_t)fixQ;
-        NEO_6M_Data.numSatellites = (uint8_t)numSat;
-        neo_6m_ParseUtcTime(timeStr);
+        neo_6m_ParseUtcTime(f[1]);
+        neo_6m_SetPosition(f[2], f[3], f[4], f[5]);
+        NEO_6M_Data.fixQuality    = (uint8_t)atoi(f[6]);
+        NEO_6M_Data.numSatellites = (uint8_t)atoi(f[7]);
+        if (f[8][0] != '\0')
+        {
+            NEO_6M_Data.hdop = (float)strtod(f[8], NULL);
+        }
+        if (f[9][0] != '\0')
+        {
+            NEO_6M_Data.altitude = (float)strtod(f[9], NULL);
+        }
     }
-    else if (!strncmp(strParse, "$GPGLL", 6))
+    /* GPGLL: 1-4 posición, 5 hora */
+    else if (strcmp(f[0], "$GPGLL") == 0 && n >= 6U)
     {
-        sscanf(strParse, "$GPGLL,%lf,%c,%lf,%c,%11[^,]",
-               &nmeaLat, &NEO_6M_Data.northSouth,
-               &nmeaLong, &NEO_6M_Data.eastWest, timeStr);
-
-        neo_6m_ParseUtcTime(timeStr);
+        neo_6m_SetPosition(f[1], f[2], f[3], f[4]);
+        neo_6m_ParseUtcTime(f[5]);
     }
-    else if (!strncmp(strParse, "$GPRMC", 6))
+    /* GPRMC: 1 hora, 2 estado, 3-6 posición, 7 velocidad (nudos), 8 rumbo, 9 fecha DDMMYY */
+    else if (strcmp(f[0], "$GPRMC") == 0 && n >= 10U)
     {
-        sscanf(strParse, "$GPRMC,%11[^,],%c,%lf,%c,%lf,%c",
-               timeStr, &NEO_6M_Data.posStatus,
-               &nmeaLat, &NEO_6M_Data.northSouth,
-               &nmeaLong, &NEO_6M_Data.eastWest);
-
-        neo_6m_ParseUtcTime(timeStr);
+        neo_6m_ParseUtcTime(f[1]);
+        if (f[2][0] != '\0')
+        {
+            NEO_6M_Data.posStatus = f[2][0];
+        }
+        neo_6m_SetPosition(f[3], f[4], f[5], f[6]);
+        if (f[7][0] != '\0')
+        {
+            NEO_6M_Data.speedKmh = (float)(strtod(f[7], NULL) * 1.852);
+        }
+        if (f[8][0] != '\0')
+        {
+            NEO_6M_Data.course = (float)strtod(f[8], NULL);
+        }
+        if (strlen(f[9]) == 6U)
+        {
+            NEO_6M_Data.day   = (uint8_t)((f[9][0] - '0') * 10 + (f[9][1] - '0'));
+            NEO_6M_Data.month = (uint8_t)((f[9][2] - '0') * 10 + (f[9][3] - '0'));
+            NEO_6M_Data.year  = (uint8_t)((f[9][4] - '0') * 10 + (f[9][5] - '0'));
+        }
     }
     else
     {
         return;
     }
-
-    NEO_6M_Data.latitude  = neo_6m_NmeaToDecimal(nmeaLat);
-    NEO_6M_Data.longitude = neo_6m_NmeaToDecimal(nmeaLong);
-
-    if (NEO_6M_Data.northSouth == 'S') NEO_6M_Data.latitude  = -NEO_6M_Data.latitude;
-    if (NEO_6M_Data.eastWest   == 'W') NEO_6M_Data.longitude = -NEO_6M_Data.longitude;
 
     neo_6m_UtcToLocalTime(&NEO_6M_Data);
 }
@@ -218,6 +292,9 @@ static int neo_6m_ValidateChecksum(char* nmea)
  * @return NEO_6M_Status_t
  *         - NEO_6M_OK            si la inicialización fue exitosa.
  *         - NEO_6M_INVALID_PARAM si @p huart es NULL.
+ *         - NEO_6M_ERROR         si HAL_UART_Receive_IT falla (el driver queda sin inicializar).
+ *
+ * @note Llamarlo de nuevo sin DeInit es válido: aborta la recepción previa y reinicia.
  */
 NEO_6M_Status_t NEO_6M_Init(UART_HandleTypeDef* huart)
 {
@@ -226,18 +303,28 @@ NEO_6M_Status_t NEO_6M_Init(UART_HandleTypeDef* huart)
         return NEO_6M_INVALID_PARAM;
     }
 
-    NEO_6M_huart = huart;
+    /* Init doble sin DeInit: la RX anterior sigue armada y Receive_IT devolvería
+     * HAL_BUSY. Se aborta antes de tocar el búfer para que el ISR no lo pise. */
+    NEO_6M_DeInit();
 
     NEO_6M_RxIndex = 0U;
-    memset(NEO_6M_RxBuffer, 0, sizeof(NEO_6M_RxBuffer));
+    NEO_6M_HasData = 0U;
     memset(&NEO_6M_Data, 0, sizeof(NEO_6M_Data));
 
     /* El GPS transmite sin parar: si llegaron bytes desde MX_USARTx_UART_Init, ORE
      * ya está activo y la HAL lo trata como error bloqueante (aborta la recepción
-     * por IT nada más armarla). Se limpia antes de armar. */
-    // ponytail: sin HAL_UART_ErrorCallback, un ORE en marcha (IRQs bloqueadas > 2 ms) detiene la RX; añadir un NEO_6M_UART_ErrorCallback que rearme si hace falta
-    __HAL_UART_CLEAR_OREFLAG(NEO_6M_huart);
-    HAL_UART_Receive_IT(NEO_6M_huart, (uint8_t*)&NEO_6M_RxData, 1U);
+     * por IT nada más armarla). Se limpia antes de armar; un ORE posterior lo
+     * recupera NEO_6M_UART_ErrorCallback. */
+    __HAL_UART_CLEAR_OREFLAG(huart);
+
+    /* El handle se publica antes de armar: el primer byte puede llegar al ISR
+     * antes de que Receive_IT retorne. */
+    NEO_6M_huart = huart;
+    if (HAL_UART_Receive_IT(huart, (uint8_t*)&NEO_6M_RxData, 1U) != HAL_OK)
+    {
+        NEO_6M_huart = NULL;
+        return NEO_6M_ERROR;
+    }
 
     NEO_6M_Initialized = 1U;
 
@@ -268,10 +355,13 @@ NEO_6M_Status_t NEO_6M_DeInit(void)
  *
  * @details La copia se realiza con interrupciones deshabilitadas para garantizar
  *          coherencia frente a actualizaciones concurrentes desde el ISR de UART.
+ *          Se restaura el PRIMASK previo, así que es seguro dentro de una sección crítica.
  *
  * @param[out] data Puntero a una estructura NEO_6M_Data_t a rellenar.
  * @return NEO_6M_Status_t
  *         - NEO_6M_OK              si los datos fueron copiados correctamente.
+ *         - NEO_6M_TIMEOUT         si no llega ninguna sentencia válida desde hace más de
+ *                                  NEO_6M_DATA_TIMEOUT_MS; @p data se rellena igualmente.
  *         - NEO_6M_NOT_INITIALIZED si el driver no está inicializado.
  *         - NEO_6M_INVALID_PARAM   si @p data es NULL.
  */
@@ -287,9 +377,18 @@ NEO_6M_Status_t NEO_6M_Get(NEO_6M_Data_t* data)
         return NEO_6M_NOT_INITIALIZED;
     }
 
+    uint32_t primask = __get_PRIMASK();
     __disable_irq();
     *data = NEO_6M_Data;
-    __enable_irq();
+    uint32_t lastTick = NEO_6M_LastTick;
+    uint8_t  hasData  = NEO_6M_HasData;
+    __set_PRIMASK(primask);
+
+    /* Resta sin signo: correcta aunque HAL_GetTick() desborde (cada ~49 días) */
+    if (hasData == 0U || (HAL_GetTick() - lastTick) > NEO_6M_DATA_TIMEOUT_MS)
+    {
+        return NEO_6M_TIMEOUT;
+    }
 
     return NEO_6M_OK;
 }
@@ -307,12 +406,14 @@ NEO_6M_Status_t NEO_6M_Get(NEO_6M_Data_t* data)
  */
 NEO_6M_Status_t NEO_6M_DecimalToDMS(double decimalDegrees, char hemisphere, NEO_6M_DMS_t* dms)
 {
-    if (dms == NULL)
+    double absDegrees    = fabs(decimalDegrees);
+
+    /* Negado para que NaN también se rechace; > 180 desbordaría dms->degrees */
+    if (dms == NULL || !(absDegrees <= 180.0))
     {
         return NEO_6M_INVALID_PARAM;
     }
 
-    double absDegrees    = fabs(decimalDegrees);
     dms->degrees         = (uint8_t)absDegrees;
 
     double fractional    = absDegrees - dms->degrees;
@@ -339,8 +440,9 @@ NEO_6M_Status_t NEO_6M_DecimalToDMS(double decimalDegrees, char hemisphere, NEO_
  */
 NEO_6M_Status_t NEO_6M_DecimalToUTM(double latitude, double longitude, NEO_6M_UTM_t* utm)
 {
-    if (utm == NULL || latitude < -80.0 || latitude > 84.0 ||
-        longitude < -180.0 || longitude > 180.0)
+    /* Negado para que NaN también se rechace */
+    if (utm == NULL || !(latitude >= -80.0 && latitude <= 84.0) ||
+        !(longitude >= -180.0 && longitude <= 180.0))
     {
         return NEO_6M_INVALID_PARAM;
     }
@@ -354,6 +456,7 @@ NEO_6M_Status_t NEO_6M_DecimalToUTM(double latitude, double longitude, NEO_6M_UT
     const double k0  = 0.9996;
 
     int zoneNum = (int)((longitude + 180.0) / 6.0) + 1;
+    if (zoneNum > 60) zoneNum = 60;   /* longitude == 180.0 pertenece a la zona 60 */
 
     /* Excepciones de zona: Noruega y Svalbard (estándar UTM) */
     if (latitude >= 56.0 && latitude < 64.0 && longitude >= 3.0 && longitude < 12.0)
@@ -437,12 +540,40 @@ void NEO_6M_UART_RxCpltCallback(UART_HandleTypeDef* huart)
     }
     else
     {
+        NEO_6M_RxBuffer[NEO_6M_RxIndex] = '\0';
+
         if (neo_6m_ValidateChecksum((char*)NEO_6M_RxBuffer))
+        {
+            NEO_6M_LastTick = HAL_GetTick();
+            NEO_6M_HasData  = 1U;
             neo_6m_ParseNmea((char*)NEO_6M_RxBuffer);
+        }
 
         NEO_6M_RxIndex = 0U;
-        memset(NEO_6M_RxBuffer, 0, sizeof(NEO_6M_RxBuffer));
     }
 
     HAL_UART_Receive_IT(NEO_6M_huart, (uint8_t*)&NEO_6M_RxData, 1U);
+}
+
+/**
+ * @brief Manejador de errores UART — llamar desde HAL_UART_ErrorCallback.
+ *
+ * @details Descarta la sentencia en curso (ya está corrupta) y, si la HAL abortó la
+ *          recepción (ORE), la rearma. Si la HAL sigue recibiendo (ruido/framing),
+ *          RxState sigue en BUSY_RX y no se toca.
+ *
+ * @param[in] huart Handle UART de HAL pasado por el callback de HAL.
+ */
+void NEO_6M_UART_ErrorCallback(UART_HandleTypeDef* huart)
+{
+    if (NEO_6M_huart == NULL || huart != NEO_6M_huart)
+        return;
+
+    NEO_6M_RxIndex = 0U;
+
+    if (huart->RxState == HAL_UART_STATE_READY)
+    {
+        __HAL_UART_CLEAR_OREFLAG(huart);
+        HAL_UART_Receive_IT(huart, (uint8_t*)&NEO_6M_RxData, 1U);
+    }
 }
