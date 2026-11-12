@@ -69,6 +69,8 @@ WS2812_Status_t WS2812_DeInit(void)
         return WS2812_NOT_INITIALIZED;
     }
 
+    memset(WS2812_Pixels, 0, sizeof(WS2812_Pixels));
+
     WS2812_hspi = NULL;
     WS2812_Initialized = 0U;
 
@@ -174,6 +176,23 @@ WS2812_Status_t WS2812_SetBrightness(uint8_t brightness)
     }
 
     WS2812_Brightness = brightness;
+
+    return WS2812_OK;
+}
+
+/**
+ * @brief Apaga todos los píxeles del buffer.
+ *
+ * @return WS2812_Status_t Estado de la operación.
+ */
+WS2812_Status_t WS2812_Clear(void)
+{
+    if (!WS2812_Initialized)
+    {
+        return WS2812_NOT_INITIALIZED;
+    }
+
+    memset(WS2812_Pixels, 0, sizeof(WS2812_Pixels));
 
     return WS2812_OK;
 }

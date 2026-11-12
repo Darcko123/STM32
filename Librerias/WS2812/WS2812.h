@@ -107,6 +107,13 @@ WS2812_Status_t WS2812_Fill(uint8_t r, uint8_t g, uint8_t b, uint16_t first, uin
  */
 WS2812_Status_t WS2812_SetBrightness(uint8_t brightness);
 
+/**
+ * @brief Apaga todos los píxeles del buffer (no transmite, se requiere show).
+ *
+ * @return WS2812_Status_t Estado de la operación.
+ */
+WS2812_Status_t WS2812_Clear(void);
+
 #ifdef __cplusplus
 }
 #endif
