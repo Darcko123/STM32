@@ -230,6 +230,55 @@ uint8_t WS2812_GetBrightness(void)
 }
 
 /**
+ * @brief Convierte un color HSV a RGB empaquetado (0x00RRGGBB).
+ *
+ * @param hue Matiz de 16 bits (0-65535 = una vuelta completa).
+ * @param sat Saturación (0-255).
+ * @param val Valor/luminosidad (0-255).
+ *
+ * @return uint32_t Color empaquetado 0x00RRGGBB.
+ */
+uint32_t WS2812_ColorHSV(uint16_t hue, uint8_t sat, uint8_t val)
+{
+    uint8_t r, g, b;
+
+    // Matiz 0-65535 -> 0-1529 (6 tramos de 255), redondeado
+    uint32_t h = ((uint32_t)hue * 1530U + 32768U) / 65536U;
+
+    if (h < 510U)           // Rojo -> Verde
+    {
+        b = 0U;
+        if (h < 255U) { r = 255U;                 g = (uint8_t)h; }
+        else          { r = (uint8_t)(510U - h);  g = 255U; }
+    }
+    else if (h < 1020U)     // Verde -> Azul
+    {
+        r = 0U;
+        if (h < 765U) { g = 255U;                  b = (uint8_t)(h - 510U); }
+        else          { g = (uint8_t)(1020U - h);  b = 255U; }
+    }
+    else if (h < 1530U)     // Azul -> Rojo
+    {
+        g = 0U;
+        if (h < 1275U) { r = (uint8_t)(h - 1020U); b = 255U; }
+        else           { r = 255U;                 b = (uint8_t)(1530U - h); }
+    }
+    else                    // hue cercano a 65535 redondea a 1530 = rojo
+    {
+        r = 255U; g = 0U; b = 0U;
+    }
+
+    // Saturación (mezcla con blanco) y valor (escala), como en Adafruit
+    uint32_t v1 = 1U + val;
+    uint32_t s1 = 1U + sat;
+    uint32_t s2 = 255U - sat;
+
+    return (((((r * s1) >> 8) + s2) * v1) & 0xFF00U) << 8 |
+           (((((g * s1) >> 8) + s2) * v1) & 0xFF00U)      |
+           (((((b * s1) >> 8) + s2) * v1) >> 8);
+}
+
+/**
  * @brief Apaga todos los píxeles del buffer.
  *
  * @return WS2812_Status_t Estado de la operación.

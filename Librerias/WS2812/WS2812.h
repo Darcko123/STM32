@@ -126,6 +126,20 @@ WS2812_Status_t WS2812_SetBrightness(uint8_t brightness);
 uint8_t WS2812_GetBrightness(void);
 
 /**
+ * @brief Convierte un color HSV a RGB empaquetado (equivalente a Adafruit_NeoPixel::ColorHSV).
+ *
+ * Función pura: no requiere que el módulo esté inicializado ni aplica el brillo global.
+ *
+ * @param hue Matiz de 16 bits (0-65535 = una vuelta completa: rojo, verde, azul, rojo).
+ * @param sat Saturación (0 = blanco, 255 = color puro).
+ * @param val Valor/luminosidad (0 = negro, 255 = máximo).
+ *
+ * @return Color empaquetado 0x00RRGGBB. Se usa con SetPixelColor así:
+ *         c >> 16 (R), c >> 8 (G), c (B), tomando los 8 bits bajos de cada uno.
+ */
+uint32_t WS2812_ColorHSV(uint16_t hue, uint8_t sat, uint8_t val);
+
+/**
  * @brief Apaga todos los píxeles del buffer (no transmite, se requiere show).
  *
  * @return WS2812_OK si se limpió el buffer.
