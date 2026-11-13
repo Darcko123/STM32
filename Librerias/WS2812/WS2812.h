@@ -22,9 +22,7 @@
 // MACROS Y CONSTANTES WS2812
 // ============================================================================
 
-#ifndef WS2812_NUM_LEDS
-#define WS2812_NUM_LEDS         8U      /**< Número de LEDs de la tira (redefinible antes de incluir) */
-#endif
+#define WS2812_MAX_LEDS         7270U   /**< Máximo de LEDs: HAL_SPI_Transmit acepta 65535 bytes = LEDs x 9 + 100 de reset */
 
 #ifndef WS2812_SPI_TIMEOUT_MS
 #define WS2812_SPI_TIMEOUT_MS   100U    /**< Timeout de la transmisión SPI en ms (redefinible antes de incluir) */
@@ -56,22 +54,25 @@ extern "C" {
 /**
  * @brief Inicializa el módulo WS2812.
  *
- * Valida la configuración del SPI, guarda el handle, apaga todos los píxeles
- * del buffer y fija el brillo al máximo. No transmite nada a la tira.
+ * Valida la configuración del SPI, guarda el handle, reserva dinámicamente los
+ * buffers (calloc/malloc), apaga todos los píxeles y fija el brillo al máximo.
+ * No transmite nada a la tira. Si ya estaba inicializado, libera y reinicia.
  *
- * @param hspi Handle del SPI ya inicializado por CubeMX.
+ * @param hspi     Handle del SPI ya inicializado por CubeMX.
+ * @param num_leds Cantidad de LEDs de la tira (1 a WS2812_MAX_LEDS).
  *
  * @return WS2812_OK si la inicialización fue exitosa.
- * @return WS2812_INVALID_PARAM si hspi es NULL, el SPI no está inicializado, es solo-RX
- *         o no es Master, 8 bits, MSB first.
+ * @return WS2812_INVALID_PARAM si num_leds es 0 o excede WS2812_MAX_LEDS, hspi es NULL,
+ *         el SPI no está inicializado, es solo-RX o no es Master, 8 bits, MSB first.
+ * @return WS2812_ERROR si no hay memoria suficiente para los buffers.
  *
  * @note El SPI debe configurarse como Master (Transmit Only), 8 bits, MSB first,
  *       CPOL Low, a ~2.4 MHz (3 bits SPI por bit WS2812). Solo se usa MOSI.
  */
-WS2812_Status_t WS2812_Init(SPI_HandleTypeDef* hspi);
+WS2812_Status_t WS2812_Init(SPI_HandleTypeDef* hspi, uint16_t num_leds);
 
 /**
- * @brief Desinicializa el módulo WS2812 liberando la configuración almacenada.
+ * @brief Desinicializa el módulo WS2812 liberando los buffers y la configuración almacenada.
  *
  * @return WS2812_OK si se desinicializó correctamente.
  * @return WS2812_NOT_INITIALIZED si el módulo no está inicializado.

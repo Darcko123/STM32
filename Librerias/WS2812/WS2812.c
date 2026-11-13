@@ -9,6 +9,7 @@
  */
 
 #include "WS2812.h"
+#include <stdlib.h>
 #include <string.h>
 
 // ============================================================================
@@ -18,6 +19,9 @@
 #define WS2812_SPI_BYTES_PER_LED    9U      /**< 24 bits WS2812 x 3 bits SPI = 72 bits = 9 bytes */
 #define WS2812_RESET_BYTES          100U    /**< Silencio final: 100 bytes x 3.33 us (2.4 MHz) ~ 333 us >= 300 us de latch */
 
+_Static_assert((size_t)WS2812_MAX_LEDS * WS2812_SPI_BYTES_PER_LED + WS2812_RESET_BYTES <= 0xFFFFU,
+               "WS2812_MAX_LEDS demasiado grande: HAL_SPI_Transmit acepta como maximo 65535 bytes");
+
 // ============================================================================
 // VARIABLES PRIVADAS
 // ============================================================================
@@ -25,10 +29,10 @@
 static SPI_HandleTypeDef*   WS2812_hspi                         = NULL; /**< Handle de SPI utilizado para comunicarse con el WS2812 */
 static uint8_t              WS2812_Initialized                  = 0U;   /**< Bandera para verificar si el módulo está inicializado */
 static uint8_t              WS2812_Brightness                   = 255U; /**< Brillo global (0-255) */
-static uint8_t              WS2812_Pixels[WS2812_NUM_LEDS][3]   = {0};  /**< Color de cada píxel en orden G, R, B */
-static uint8_t              WS2812_SpiBuf[WS2812_NUM_LEDS * WS2812_SPI_BYTES_PER_LED + WS2812_RESET_BYTES]; /**< Buffer codificado para SPI */
-
-_Static_assert(sizeof(WS2812_SpiBuf) <= 0xFFFFU, "WS2812_NUM_LEDS demasiado grande: HAL_SPI_Transmit acepta como maximo 65535 bytes");
+static uint16_t             WS2812_NumLeds                      = 0U;   /**< Cantidad de LEDs de la tira (fijada en Init) */
+static uint8_t              (*WS2812_Pixels)[3]                 = NULL; /**< Color de cada píxel en orden G, R, B (reservado en Init) */
+static uint8_t*             WS2812_SpiBuf                       = NULL; /**< Buffer codificado para SPI (reservado en Init) */
+static size_t               WS2812_SpiBufSize                   = 0U;   /**< Tamaño en bytes de WS2812_SpiBuf */
 
 // ============================================================================
 // FUNCIONES PRIVADAS
@@ -41,14 +45,16 @@ _Static_assert(sizeof(WS2812_SpiBuf) <= 0xFFFFU, "WS2812_NUM_LEDS demasiado gran
 /**
  * @brief Inicializa el módulo WS2812.
  *
- * @param hspi Handle del SPI ya inicializado por CubeMX.
+ * @param hspi     Handle del SPI ya inicializado por CubeMX.
+ * @param num_leds Cantidad de LEDs de la tira (1 a WS2812_MAX_LEDS).
  *
  * @return WS2812_Status_t Estado de la operación.
  */
-WS2812_Status_t WS2812_Init(SPI_HandleTypeDef* hspi)
+WS2812_Status_t WS2812_Init(SPI_HandleTypeDef* hspi, uint16_t num_leds)
 {
     // Validar parámetros de entrada y configuración del SPI
-    if (hspi == NULL || hspi->Instance == NULL ||
+    if (num_leds == 0U || num_leds > WS2812_MAX_LEDS ||
+        hspi == NULL || hspi->Instance == NULL ||
         hspi->State == HAL_SPI_STATE_RESET ||
         hspi->Init.Mode != SPI_MODE_MASTER ||
         hspi->Init.Direction == SPI_DIRECTION_2LINES_RXONLY ||
@@ -58,9 +64,26 @@ WS2812_Status_t WS2812_Init(SPI_HandleTypeDef* hspi)
         return WS2812_INVALID_PARAM;
     }
 
-    WS2812_hspi = hspi;
+    if (WS2812_Initialized)
+    {
+        (void)WS2812_DeInit();   // Re-Init: libera los buffers anteriores
+    }
 
-    memset(WS2812_Pixels, 0, sizeof(WS2812_Pixels));   // Todos los píxeles apagados
+    WS2812_Pixels = calloc(num_leds, 3U);   // calloc: todos los píxeles apagados
+    WS2812_SpiBufSize = (size_t)num_leds * WS2812_SPI_BYTES_PER_LED + WS2812_RESET_BYTES;
+    WS2812_SpiBuf = malloc(WS2812_SpiBufSize);
+
+    if (WS2812_Pixels == NULL || WS2812_SpiBuf == NULL)
+    {
+        free(WS2812_Pixels);
+        free(WS2812_SpiBuf);
+        WS2812_Pixels = NULL;
+        WS2812_SpiBuf = NULL;
+        return WS2812_ERROR;
+    }
+
+    WS2812_hspi = hspi;
+    WS2812_NumLeds = num_leds;
     WS2812_Brightness = 255U;
 
     WS2812_Initialized = 1U;
@@ -80,7 +103,12 @@ WS2812_Status_t WS2812_DeInit(void)
         return WS2812_NOT_INITIALIZED;
     }
 
-    memset(WS2812_Pixels, 0, sizeof(WS2812_Pixels));
+    free(WS2812_Pixels);
+    free(WS2812_SpiBuf);
+    WS2812_Pixels = NULL;
+    WS2812_SpiBuf = NULL;
+    WS2812_SpiBufSize = 0U;
+    WS2812_NumLeds = 0U;
 
     WS2812_hspi = NULL;
     WS2812_Initialized = 0U;
@@ -105,7 +133,7 @@ WS2812_Status_t WS2812_SetPixelColor(uint16_t n, uint8_t r, uint8_t g, uint8_t b
         return WS2812_NOT_INITIALIZED;
     }
 
-    if (n >= WS2812_NUM_LEDS)
+    if (n >= WS2812_NumLeds)
     {
         return WS2812_INVALID_PARAM;
     }
@@ -139,13 +167,13 @@ WS2812_Status_t WS2812_Fill(uint8_t r, uint8_t g, uint8_t b, uint16_t first, uin
         return WS2812_NOT_INITIALIZED;
     }
 
-    if (first >= WS2812_NUM_LEDS)
+    if (first >= WS2812_NumLeds)
     {
         return WS2812_INVALID_PARAM;
     }
 
     // Como en Adafruit: count = 0 o fuera de rango -> hasta el último píxel
-    uint16_t end = (count == 0U || count > (uint16_t)(WS2812_NUM_LEDS - first)) ? WS2812_NUM_LEDS : (uint16_t)(first + count);
+    uint16_t end = (count == 0U || count > (uint16_t)(WS2812_NumLeds - first)) ? WS2812_NumLeds : (uint16_t)(first + count);
 
     for (uint16_t i = first; i < end; i++)
     {
@@ -181,7 +209,7 @@ WS2812_Status_t WS2812_SetBrightness(uint8_t brightness)
     uint16_t scale = (old == 0U) ? 0U : (uint16_t)(((((uint16_t)brightness + 1U) << 8) - 1U) / old); // Evita /0
 
     uint8_t* ptr = &WS2812_Pixels[0][0];
-    for (uint16_t i = 0; i < sizeof(WS2812_Pixels); i++)
+    for (uint32_t i = 0; i < (uint32_t)WS2812_NumLeds * 3U; i++)
     {
         ptr[i] = (uint8_t)((ptr[i] * scale) >> 8);
     }
@@ -213,7 +241,7 @@ WS2812_Status_t WS2812_Clear(void)
         return WS2812_NOT_INITIALIZED;
     }
 
-    memset(WS2812_Pixels, 0, sizeof(WS2812_Pixels));
+    memset(WS2812_Pixels, 0, (size_t)WS2812_NumLeds * 3U);
 
     return WS2812_OK;
 }
@@ -234,7 +262,7 @@ WS2812_Status_t WS2812_Show(void)
     uint8_t* out = WS2812_SpiBuf;
     const uint8_t* in = &WS2812_Pixels[0][0];
 
-    for (uint16_t i = 0; i < sizeof(WS2812_Pixels); i++)
+    for (uint32_t i = 0; i < (uint32_t)WS2812_NumLeds * 3U; i++)
     {
         uint32_t v = 0U;
         for (int8_t bit = 7; bit >= 0; bit--)
@@ -248,7 +276,7 @@ WS2812_Status_t WS2812_Show(void)
 
     memset(out, 0, WS2812_RESET_BYTES);   // Línea en bajo para el latch
 
-    switch (HAL_SPI_Transmit(WS2812_hspi, WS2812_SpiBuf, sizeof(WS2812_SpiBuf), WS2812_SPI_TIMEOUT_MS))
+    switch (HAL_SPI_Transmit(WS2812_hspi, WS2812_SpiBuf, (uint16_t)WS2812_SpiBufSize, WS2812_SPI_TIMEOUT_MS))
     {
         case HAL_OK:      return WS2812_OK;
         case HAL_TIMEOUT: return WS2812_TIMEOUT;
