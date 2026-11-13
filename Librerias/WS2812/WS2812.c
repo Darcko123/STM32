@@ -150,6 +150,19 @@ WS2812_Status_t WS2812_SetPixelColor(uint16_t n, uint8_t r, uint8_t g, uint8_t b
 }
 
 /**
+ * @brief Variante de WS2812_SetPixelColor con color empaquetado 0x00RRGGBB.
+ *
+ * @param n Índice del píxel.
+ * @param c Color empaquetado 0x00RRGGBB.
+ *
+ * @return WS2812_Status_t Estado de la operación.
+ */
+WS2812_Status_t WS2812_SetPixelColorPacked(uint16_t n, uint32_t c)
+{
+    return WS2812_SetPixelColor(n, (uint8_t)(c >> 16), (uint8_t)(c >> 8), (uint8_t)c);
+}
+
+/**
  * @brief Rellena un rango de píxeles con un mismo color.
  *
  * @param r     Valor de rojo.
