@@ -8,8 +8,8 @@
  * suaves de servomotores conectados al PCA9685.
  *
  * @author Daniel Ruiz
- * @date June 23, 2026
- * @version 2.1.0
+ * @date Noviembre 16, 2026
+ * @version 2.1.1
  */
 
 #ifndef PCA9685_H
