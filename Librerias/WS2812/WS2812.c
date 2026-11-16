@@ -4,8 +4,8 @@
  * @brief Implementación de la librería para el control de tiras de LEDs WS2812 en STM32 mediante SPI.
  *
  * @author Daniel Ruiz
- * @date Noviembre 12, 2026
- * @version 0.1.0
+ * @date Noviembre 15, 2026
+ * @version 1.0.0
  */
 
 #include "WS2812.h"

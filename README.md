@@ -38,6 +38,7 @@ Este repositorio está dividido en cuatro secciones principales:
 | [SSD1306](./Librerias/SSD1306/) | v2.1.0 | Pantalla OLED SSD1306 por I2C |
 | [SSD1681](./Librerias/SSD1681/) | v1.0.0 | Pantalla e-paper SSD1680/SSD1681/SSD1683 (SPI) |
 | [SX1262](./Librerias/SX1262/) | v2.1.0 | Módulo de radiofrecuencia para LoRa y FSK |
+| [WS2812](./Librerias/WS2812/) | v1.0.0 | Tira de LEDs RGB direccionables WS2812/WS2812B (SPI) |
 
 ---
 
@@ -63,7 +64,8 @@ STM32/
 │   ├── PWM_Module/          # Módulo PWM PCA9685 de 16 canales por I2C
 │   ├── Si7021/              # Sensor de temperatura y humedad
 │   ├── SSD1681/             # Pantalla e-paper SSD1680/SSD1681/SSD1683 por SPI
-│   └── SX1262/              # Módulo de radiofrecuencia LoRa
+│   ├── SX1262/              # Módulo de radiofrecuencia LoRa
+│   └── WS2812/              # Tira de LEDs RGB WS2812 por SPI
 │
 ├── ExamplesLibraries/       # Ejemplos prácticos de uso de las librerías
 │   ├── MAX7219_Example/
