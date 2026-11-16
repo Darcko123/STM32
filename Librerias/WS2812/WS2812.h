@@ -22,7 +22,7 @@
 // MACROS Y CONSTANTES WS2812
 // ============================================================================
 
-#define WS2812_MAX_LEDS         7270U   /**< Máximo de LEDs: HAL_SPI_Transmit acepta 65535 bytes = LEDs x 9 + 100 de reset */
+#define WS2812_MAX_LEDS         7267U   /**< Máximo de LEDs: HAL_SPI_Transmit acepta 65535 bytes = LEDs x 9 + 125 de reset */
 
 #ifndef WS2812_SPI_TIMEOUT_MS
 #define WS2812_SPI_TIMEOUT_MS   100U    /**< Timeout de la transmisión SPI en ms (redefinible antes de incluir) */
@@ -161,7 +161,7 @@ WS2812_Status_t WS2812_Clear(void);
  * @brief Transmite el buffer de píxeles a la tira por SPI (bloqueante).
  *
  * Codifica cada bit WS2812 como 3 bits SPI (1 -> 110, 0 -> 100) y añade un
- * silencio de ~300 us al final para que la tira haga latch.
+ * silencio de >= 300 us (hasta 3.33 MHz) al final para que la tira haga latch.
  *
  * @return WS2812_OK si se transmitió correctamente.
  * @return WS2812_NOT_INITIALIZED si el módulo no está inicializado.

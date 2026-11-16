@@ -17,7 +17,7 @@
 // ============================================================================
 
 #define WS2812_SPI_BYTES_PER_LED    9U      /**< 24 bits WS2812 x 3 bits SPI = 72 bits = 9 bytes */
-#define WS2812_RESET_BYTES          100U    /**< Silencio final: 100 bytes x 3.33 us (2.4 MHz) ~ 333 us >= 300 us de latch */
+#define WS2812_RESET_BYTES          125U    /**< Silencio final: 1000 bits / f_SPI -> >= 300 us de latch hasta 3.33 MHz (320 us a 3.125 MHz) */
 
 _Static_assert((size_t)WS2812_MAX_LEDS * WS2812_SPI_BYTES_PER_LED + WS2812_RESET_BYTES <= 0xFFFFU,
                "WS2812_MAX_LEDS demasiado grande: HAL_SPI_Transmit acepta como maximo 65535 bytes");
@@ -109,6 +109,7 @@ WS2812_Status_t WS2812_DeInit(void)
     WS2812_SpiBuf = NULL;
     WS2812_SpiBufSize = 0U;
     WS2812_NumLeds = 0U;
+    WS2812_Brightness = 255U;
 
     WS2812_hspi = NULL;
     WS2812_Initialized = 0U;
