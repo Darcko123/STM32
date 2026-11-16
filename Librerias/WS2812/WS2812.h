@@ -25,7 +25,7 @@
 #define WS2812_MAX_LEDS         7267U   /**< Máximo de LEDs: HAL_SPI_Transmit acepta 65535 bytes = LEDs x 9 + 125 de reset */
 
 #ifndef WS2812_SPI_TIMEOUT_MS
-#define WS2812_SPI_TIMEOUT_MS   100U    /**< Timeout de la transmisión SPI en ms (redefinible antes de incluir) */
+#define WS2812_SPI_TIMEOUT_MS   100U    /**< Margen base del timeout SPI en ms; Show suma 1 ms por cada 100 bytes de trama (redefinible antes de incluir) */
 #endif
 
 // ============================================================================

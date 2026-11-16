@@ -339,7 +339,10 @@ WS2812_Status_t WS2812_Show(void)
 
     memset(out, 0, WS2812_RESET_BYTES);   // Línea en bajo para el latch
 
-    switch (HAL_SPI_Transmit(WS2812_hspi, WS2812_SpiBuf, (uint16_t)WS2812_SpiBufSize, WS2812_SPI_TIMEOUT_MS))
+    // El timeout del HAL cubre toda la trama: base fija + 1 ms por cada 100 bytes
+    uint32_t timeout = WS2812_SPI_TIMEOUT_MS + (uint32_t)(WS2812_SpiBufSize / 100U); // margen para f_SPI >= 800 kHz
+
+    switch (HAL_SPI_Transmit(WS2812_hspi, WS2812_SpiBuf, (uint16_t)WS2812_SpiBufSize, timeout))
     {
         case HAL_OK:      return WS2812_OK;
         case HAL_TIMEOUT: return WS2812_TIMEOUT;
