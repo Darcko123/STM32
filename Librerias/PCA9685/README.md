@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![STM32](https://img.shields.io/badge/Platform-STM32F411-black)](https://www.st.com/en/microcontrollers-microprocessors/stm32f4-series.html)
-[![Version](https://img.shields.io/badge/Version-2.1.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/PCA9685)
+[![Version](https://img.shields.io/badge/Version-2.1.1-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/PCA9685)
 [![Protocol](https://img.shields.io/badge/Protocol-I2C-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/PCA9685)
 
 ---
@@ -412,6 +412,15 @@ Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](../../LI
 
 Todos los cambios notables de esta librería se documentan en esta sección.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
+
+---
+
+### [2.1.1] - 16-11-2026
+
+Corrección de compilación: `PCA9685.h` ahora incluye las cabeceras que usa.
+
+#### Fixed
+- `PCA9685.h` incluye `<stdbool.h>`: el campo `isMoving` de `Servo_Smooth_t` y el retorno de `PCA9685_UpdateSmoothServo()` usan `bool`, y el header fallaba al compilar si no se había incluido `stdbool.h` antes.
 
 ---
 

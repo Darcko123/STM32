@@ -33,7 +33,7 @@ Este repositorio está dividido en cuatro secciones principales:
 | [MPU6050](./Librerias/MPU6050/) | v2.1.0 | Acelerómetro y giroscopio de 6 ejes |
 | [NEO_6M](./Librerias/NEO_6M/) | v2.0.0 | Módulo GPS NEO-6M |
 | [NV3007](./Librerias/NV3007/) | v1.0.0 | Pantalla TFT LCD NV3007 de 142x428 (SPI) |
-| [PWM_Module (PCA9685)](./Librerias/PCA9685/) | v2.1.0 | Módulo PWM de 16 canales por I2C |
+| [PWM_Module (PCA9685)](./Librerias/PCA9685/) | v2.1.1 | Módulo PWM de 16 canales por I2C |
 | [Si7021](./Librerias/Si7021/) | v2.1.0 | Sensor de temperatura y humedad (I2C) |
 | [SSD1306](./Librerias/SSD1306/) | v2.1.0 | Pantalla OLED SSD1306 por I2C |
 | [SSD1681](./Librerias/SSD1681/) | v1.0.0 | Pantalla e-paper SSD1680/SSD1681/SSD1683 (SPI) |
