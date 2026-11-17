@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![STM32](https://img.shields.io/badge/Platform-STM32%20(HAL)-black)](https://www.st.com/en/microcontrollers-microprocessors/stm32-32-bit-arm-cortex-mcus.html)
-[![Version](https://img.shields.io/badge/Version-1.0.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/NV3007)
+[![Version](https://img.shields.io/badge/Version-1.0.1-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/NV3007)
 [![Protocol](https://img.shields.io/badge/Protocol-SPI-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/NV3007)
 
 ---
@@ -1092,6 +1092,15 @@ Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](../../LI
 
 Todos los cambios notables de esta librería se documentan en esta sección.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
+
+---
+
+### [1.0.1] - 16-11-2026
+
+Versión de corrección: la librería incluye sus propias fuentes y ya no depende de la carpeta `ILI9341_Disc1`.
+
+#### Fixed
+- **Fuentes incluidas en la librería**: `NV3007.h` incluye `lcd_fonts.h`, pero `lcd_fonts.h`/`lcd_fonts.c` solo existían en `Librerias/ILI9341_Disc1/`, así que copiar únicamente `Librerias/NV3007/` no compilaba. Ahora ambos archivos vienen en esta carpeta (idénticos a los de `ILI9341` e `ILI9341_Disc1`).
 
 ---
 

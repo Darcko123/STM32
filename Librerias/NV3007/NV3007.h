@@ -7,8 +7,8 @@
  *          elipses, arcos, bitmaps) y texto con las fuentes de lcd_fonts.h.
  *
  * @author Daniel Ruiz
- * @date Octubre 19, 2026
- * @version 1.0.0
+ * @date Noviembre 16, 2026
+ * @version 1.0.1
  */
 
 #ifndef NV3007_H
