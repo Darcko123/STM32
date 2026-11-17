@@ -215,7 +215,7 @@ La frecuencia del bus es `f_SPI = f_PCLK / Prescaler`, donde `f_PCLK` es el relo
 4. Genera código y compila.
 
 > [!IMPORTANT]
-> **`lcd_fonts.h` y `lcd_fonts.c` son obligatorios**: `NV3007.h` incluye `lcd_fonts.h` para definir el tipo `LCD_FontDef_t` que usan `NV3007_Putc()` y `NV3007_Puts()`, y `lcd_fonts.c` contiene los datos de las fuentes. Ambos archivos están en `Librerias/ILI9341_Disc1/` y son los mismos que usa el driver del ILI9341, así que las fuentes (`LCD_Font_7x10`, `LCD_Font_11x18`, `LCD_Font_16x26`) son compartidas entre los dos drivers.
+> **`lcd_fonts.h` y `lcd_fonts.c` son obligatorios**: `NV3007.h` incluye `lcd_fonts.h` para definir el tipo `LCD_FontDef_t` que usan `NV3007_Putc()` y `NV3007_Puts()`, y `lcd_fonts.c` contiene los datos de las fuentes. Ambos archivos están incluidos en esta carpeta (`Librerias/NV3007/`) y son idénticos a los de `ILI9341` e `ILI9341_Disc1`: si usas los dos drivers en el mismo proyecto, añade una sola copia.
 
 ---
 

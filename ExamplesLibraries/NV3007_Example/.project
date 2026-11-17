@@ -38,7 +38,7 @@
 		<link>
 			<name>Core/Src/lcd_fonts.c</name>
 			<type>1</type>
-			<locationURI>PARENT-2-PROJECT_LOC/Librerias/ILI9341_Disc1/lcd_fonts.c</locationURI>
+			<locationURI>PARENT-2-PROJECT_LOC/Librerias/NV3007/lcd_fonts.c</locationURI>
 		</link>
 		<link>
 			<name>Core/Inc/NV3007.h</name>
@@ -48,7 +48,7 @@
 		<link>
 			<name>Core/Inc/lcd_fonts.h</name>
 			<type>1</type>
-			<locationURI>PARENT-2-PROJECT_LOC/Librerias/ILI9341_Disc1/lcd_fonts.h</locationURI>
+			<locationURI>PARENT-2-PROJECT_LOC/Librerias/NV3007/lcd_fonts.h</locationURI>
 		</link>
 	</linkedResources>
 </projectDescription>
