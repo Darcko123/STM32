@@ -4,8 +4,8 @@
  *
  * @origin El código de este driver se basa en la librería Petr Machala, Tilen Majerle, 2014.
  * @author Dr. Luis Antonio Raygoza Pérez & Ing. Daniel Ruiz
- * @date July 11, 2026
- * @version 2.0.0
+ * @date Noviembre 16, 2026
+ * @version 2.0.1
  */
 
 #include "ILI9341.h"

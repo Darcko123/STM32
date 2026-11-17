@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![STM32](https://img.shields.io/badge/Platform-STM32%20(HAL)-black)](https://www.st.com/en/microcontrollers-microprocessors/stm32-32-bit-arm-cortex-mcus.html)
-[![Version](https://img.shields.io/badge/Version-2.0.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/ILI9341)
+[![Version](https://img.shields.io/badge/Version-2.0.1-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/ILI9341)
 [![Protocol](https://img.shields.io/badge/Protocol-SPI%20%2B%20I2C%20%2B%20DMA2D%20%2B%20SPI--DMA-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/ILI9341)
 
 ---
@@ -1695,6 +1695,16 @@ Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](../../LI
 
 Todos los cambios notables de esta librería se documentan en esta sección.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
+
+---
+
+### [2.0.1] - 16-11-2026
+
+Versión de corrección: la librería incluye sus propias fuentes y ya no depende de la carpeta `ILI9341_Disc1`.
+
+#### Fixed
+- **Fuentes incluidas en la librería**: `ILI9341.h` incluye `lcd_fonts.h`, pero `lcd_fonts.h`/`lcd_fonts.c` solo existían en `Librerias/ILI9341_Disc1/`, así que copiar únicamente `Librerias/ILI9341/` no compilaba. Ahora ambos archivos vienen en esta carpeta (idénticos a los de `ILI9341_Disc1`).
+- **Documentación**: la sección Instalación pide también `lcd_fonts.c`, y los ejemplos de texto usan el nombre real de las fuentes (`LCD_Font_11x18` en lugar de `Font_11x18`, que no existe y fallaba al enlazar).
 
 ---
 
