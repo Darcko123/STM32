@@ -31,7 +31,9 @@
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
-
+extern uint8_t bufferReceiver[64];
+extern volatile uint8_t lineReady;
+static uint8_t lineLen = 0;
 /* USER CODE END PV */
 
 /** @addtogroup STM32_USB_OTG_DEVICE_LIBRARY
@@ -261,6 +263,28 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
 static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
 {
   /* USER CODE BEGIN 6 */
+  // Acumula caracteres hasta Enter ('\r' o '\n'); main.c envía la línea completa
+  for (uint32_t i = 0; i < *Len; i++)
+  {
+    uint8_t c = Buf[i];
+    if (c == '\r' || c == '\n')
+    {
+      // lineLen > 0 ignora el '\n' de un "\r\n" (línea vacía)
+      if (lineLen > 0 && !lineReady)
+      {
+        bufferReceiver[lineLen] = '\0';
+        lineLen = 0;
+        lineReady = 1;
+      }
+    }
+    // ponytail: si main no ha enviado la línea anterior, o se pasa de 63 caracteres, se descarta lo que sobra
+    else if (!lineReady && lineLen < sizeof(bufferReceiver) - 1)
+    {
+      bufferReceiver[lineLen++] = c;
+    }
+  }
+
+  // Rearmar la recepción después de procesar Buf
   USBD_CDC_SetRxBuffer(&hUsbDeviceFS, &Buf[0]);
   USBD_CDC_ReceivePacket(&hUsbDeviceFS);
   return (USBD_OK);
