@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![STM32](https://img.shields.io/badge/Platform-STM32%20(HAL)-black)](https://www.st.com/en/microcontrollers-microprocessors/stm32-32-bit-arm-cortex-mcus.html)
-[![Version](https://img.shields.io/badge/Version-1.0.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/NV3007)
+[![Version](https://img.shields.io/badge/Version-1.0.1-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/NV3007)
 [![Protocol](https://img.shields.io/badge/Protocol-SPI-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/NV3007)
 
 ---
@@ -215,7 +215,7 @@ La frecuencia del bus es `f_SPI = f_PCLK / Prescaler`, donde `f_PCLK` es el relo
 4. Genera código y compila.
 
 > [!IMPORTANT]
-> **`lcd_fonts.h` y `lcd_fonts.c` son obligatorios**: `NV3007.h` incluye `lcd_fonts.h` para definir el tipo `LCD_FontDef_t` que usan `NV3007_Putc()` y `NV3007_Puts()`, y `lcd_fonts.c` contiene los datos de las fuentes. Ambos archivos están en `Librerias/ILI9341_Disc1/` y son los mismos que usa el driver del ILI9341, así que las fuentes (`LCD_Font_7x10`, `LCD_Font_11x18`, `LCD_Font_16x26`) son compartidas entre los dos drivers.
+> **`lcd_fonts.h` y `lcd_fonts.c` son obligatorios**: `NV3007.h` incluye `lcd_fonts.h` para definir el tipo `LCD_FontDef_t` que usan `NV3007_Putc()` y `NV3007_Puts()`, y `lcd_fonts.c` contiene los datos de las fuentes. Ambos archivos están incluidos en esta carpeta (`Librerias/NV3007/`) y son idénticos a los de `ILI9341` e `ILI9341_Disc1`: si usas los dos drivers en el mismo proyecto, añade una sola copia.
 
 ---
 
@@ -1092,6 +1092,15 @@ Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](../../LI
 
 Todos los cambios notables de esta librería se documentan en esta sección.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
+
+---
+
+### [1.0.1] - 16-11-2026
+
+Versión de corrección: la librería incluye sus propias fuentes y ya no depende de la carpeta `ILI9341_Disc1`.
+
+#### Fixed
+- **Fuentes incluidas en la librería**: `NV3007.h` incluye `lcd_fonts.h`, pero `lcd_fonts.h`/`lcd_fonts.c` solo existían en `Librerias/ILI9341_Disc1/`, así que copiar únicamente `Librerias/NV3007/` no compilaba. Ahora ambos archivos vienen en esta carpeta (idénticos a los de `ILI9341` e `ILI9341_Disc1`).
 
 ---
 

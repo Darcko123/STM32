@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![STM32](https://img.shields.io/badge/Platform-STM32%20(HAL)-black)](https://www.st.com/en/microcontrollers-microprocessors/stm32-32-bit-arm-cortex-mcus.html)
-[![Version](https://img.shields.io/badge/Version-2.0.0-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/ILI9341)
+[![Version](https://img.shields.io/badge/Version-2.0.1-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/ILI9341)
 [![Protocol](https://img.shields.io/badge/Protocol-SPI%20%2B%20I2C%20%2B%20DMA2D%20%2B%20SPI--DMA-green.svg)](https://github.com/Darcko123/STM32/tree/main/Librerias/ILI9341)
 
 ---
@@ -261,7 +261,7 @@ En la pestaña **`<TuSPI>` → DMA Settings** de CubeMX (ejemplo con SPI5 en la 
 
 ## Instalación
 
-1. Copia `ILI9341.c`, `ILI9341.h` y `lcd_fonts.h` a tu proyecto (ej: `Librerias/ILI9341/`).
+1. Copia `ILI9341.c`, `ILI9341.h`, `lcd_fonts.h` y `lcd_fonts.c` a tu proyecto (ej: `Librerias/ILI9341/`).
 2. Incluye la librería en tu `main.c` o archivo principal:
    ```c
    #include "ILI9341.h"
@@ -398,42 +398,42 @@ ILI9341_Rotate(ILI9341_Orientation_Landscape_1);
 ### 3. Texto en pantalla
 
 ```c
-extern LCD_FontDef_t Font_11x18;  /* Fuente definida en lcd_fonts.h */
+extern LCD_FontDef_t LCD_Font_11x18;  /* Fuente definida en lcd_fonts.h */
 
 /* Renderizar un carácter */
-ILI9341_Putc(10, 10, 'A', &Font_11x18,
+ILI9341_Putc(10, 10, 'A', &LCD_Font_11x18,
                  ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK);
 
 /* Renderizar una cadena con salto de línea.
  * '\n' avanza a la siguiente línea volviendo a x=10 (la posición x inicial).
  * La secuencia '\n'+'\r' avanza a la siguiente línea y reinicia a columna 0. */
 ILI9341_Puts(10, 30, "Hola, mundo!\nSTM32",
-                 &Font_11x18,
+                 &LCD_Font_11x18,
                  ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK);
 
 /* Calcular el ancho y alto de una cadena antes de dibujarla */
 uint16_t w, h;
-ILI9341_GetStringSize("Texto", &Font_11x18, &w, &h);
+ILI9341_GetStringSize("Texto", &LCD_Font_11x18, &w, &h);
 /* Centrar horizontalmente */
 ILI9341_Puts((240 - w) / 2, 150, "Texto",
-                 &Font_11x18,
+                 &LCD_Font_11x18,
                  ILI9341_COLOR_YELLOW, ILI9341_COLOR_BLACK);
 
 /* Renderizar texto con formato estilo printf */
 uint16_t temp = 235;
-ILI9341_Printf(10, 60, &Font_11x18,
+ILI9341_Printf(10, 60, &LCD_Font_11x18,
                    ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK,
                    "Temp: %u.%u C", temp / 10, temp % 10);
 
 /* Alinear una cadena (izquierda, centro o derecha) dentro de una región horizontal,
  * sin necesidad de calcular manualmente el ancho con ILI9341_GetStringSize() */
 ILI9341_PutsAligned(0, 239, 80, ILI9341_ALIGN_CENTER, "Centrado",
-                        &Font_11x18,
+                        &LCD_Font_11x18,
                         ILI9341_COLOR_YELLOW, ILI9341_COLOR_BLACK);
 
 /* Combinar formato printf + alineación (por ejemplo, un valor pegado al borde derecho) */
 ILI9341_PrintfAligned(0, 239, 100, ILI9341_ALIGN_RIGHT,
-                          &Font_11x18,
+                          &LCD_Font_11x18,
                           ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK,
                           "%d%%", 87);
 ```
@@ -460,7 +460,7 @@ ILI9341_DrawLine_ImageBuffer(0, 0, 239, 319,
 ILI9341_DrawFilledRectangle_ImageBuffer(50, 50, 190, 270,
                                             ILI9341_COLOR_BLUE, fb);
 ILI9341_Puts_ImageBuffer(10, 10, "Frame buffer",
-                              &Font_11x18,
+                              &LCD_Font_11x18,
                               ILI9341_COLOR_WHITE, fb);
 
 /* Volcar el buffer a la pantalla */
@@ -490,7 +490,7 @@ for (;;) {
     ILI9341_DrawFilledRectangle_ImageBuffer(0, 0, 239, 319,
                                                 ILI9341_COLOR_BLACK, fb);
     ILI9341_Puts_ImageBuffer(60, 150, "Doble buffer",
-                                  &Font_11x18,
+                                  &LCD_Font_11x18,
                                   ILI9341_COLOR_GREEN, fb);
 
     ILI9341_Flush();  /* intercambia buffers y envía por DMA sin bloquear */
@@ -1695,6 +1695,16 @@ Este proyecto está bajo la licencia MIT. Consulta el archivo [LICENSE](../../LI
 
 Todos los cambios notables de esta librería se documentan en esta sección.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
+
+---
+
+### [2.0.1] - 16-11-2026
+
+Versión de corrección: la librería incluye sus propias fuentes y ya no depende de la carpeta `ILI9341_Disc1`.
+
+#### Fixed
+- **Fuentes incluidas en la librería**: `ILI9341.h` incluye `lcd_fonts.h`, pero `lcd_fonts.h`/`lcd_fonts.c` solo existían en `Librerias/ILI9341_Disc1/`, así que copiar únicamente `Librerias/ILI9341/` no compilaba. Ahora ambos archivos vienen en esta carpeta (idénticos a los de `ILI9341_Disc1`).
+- **Documentación**: la sección Instalación pide también `lcd_fonts.c`, y los ejemplos de texto usan el nombre real de las fuentes (`LCD_Font_11x18` en lugar de `Font_11x18`, que no existe y fallaba al enlazar).
 
 ---
 
