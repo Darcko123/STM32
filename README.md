@@ -95,7 +95,8 @@ STM32/
 │   ├── ServomotorWithPWM/
 │   ├── StepperWithTimer/
 │   ├── TimerInterrupt/
-│   └── UART/
+│   ├── UART/
+│   └── USB-CDC/
 │
 ├── LICENSE.md               # Licencia del proyecto
 ├── README.md                # Este archivo
