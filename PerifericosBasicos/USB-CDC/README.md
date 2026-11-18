@@ -335,7 +335,8 @@ Puntos importantes:
 /* USER CODE END Includes */
 
 /* USER CODE BEGIN PV */
-char bufferTransmiter[128]; // 64 bytes de datos + códigos de color + "\r\n"
+char bufferEco[128];        // eco: hasta 63 caracteres + "Recibido: " + códigos de color + "\r\n"
+char bufferTransmitter[64]; // mensaje periódico; separado del eco para no sobrescribirlo mientras se envía
 uint8_t bufferReceiver[64];
 volatile uint8_t lineReady = 0; // 1 cuando CDC_Receive_FS recibió una línea completa (Enter)
 /* USER CODE END PV */
@@ -354,19 +355,19 @@ int main(void)
     // Eco de la línea completa en otro color (CDC_Receive_FS la arma hasta el Enter)
     if (lineReady)
     {
-      snprintf(bufferTransmiter, sizeof(bufferTransmiter), "%sRecibido: %s%s\r\n",
+      snprintf(bufferEco, sizeof(bufferEco), "%sRecibido: %s%s\r\n",
                COLOR_BRIGHT_YELLOW, (char *)bufferReceiver, COLOR_RESET);
       lineReady = 0; // libera bufferReceiver para la siguiente línea
-      CDC_Transmit_FS((uint8_t *)bufferTransmiter, strlen(bufferTransmiter));
+      CDC_Transmit_FS((uint8_t *)bufferEco, strlen(bufferEco));
     }
 
     // Sin HAL_Delay: así el eco no espera hasta 1 s
     if (HAL_GetTick() - lastTick >= 1000)
     {
       lastTick = HAL_GetTick();
-      snprintf(bufferTransmiter, sizeof(bufferTransmiter), "%sHola Mundo desde STM32 USB%s\r\n",
+      snprintf(bufferTransmitter, sizeof(bufferTransmitter), "%sHola Mundo desde STM32 USB%s\r\n",
                COLOR_BRIGHT_CYAN, COLOR_RESET);
-      CDC_Transmit_FS((uint8_t *)bufferTransmiter, strlen(bufferTransmiter));
+      CDC_Transmit_FS((uint8_t *)bufferTransmitter, strlen(bufferTransmitter));
       HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
     }
     /* USER CODE END WHILE */
@@ -379,7 +380,8 @@ int main(void)
 
 Puntos importantes:
 - El mensaje periódico se envía en cian (`COLOR_BRIGHT_CYAN`) y el eco en amarillo (`COLOR_BRIGHT_YELLOW`); se puede usar cualquier color definido en `ANSII_Codes.h`. `COLOR_RESET` regresa la terminal a su color normal.
-- `bufferTransmiter` es de 128 bytes porque debe contener hasta 63 caracteres recibidos, más el texto `Recibido: `, los códigos de color y `\r\n`. Se usa `snprintf()` para nunca escribir fuera del buffer.
+- `bufferEco` es de 128 bytes porque debe contener hasta 63 caracteres recibidos, más el texto `Recibido: `, los códigos de color y `\r\n`. Se usa `snprintf()` para nunca escribir fuera del buffer.
+- Cada mensaje tiene su propio buffer (`bufferEco` y `bufferTransmitter`). Como `CDC_Transmit_FS()` no copia los datos, si ambos compartieran buffer, escribir el mensaje periódico mientras el eco aún se transmite lo alteraría.
 - Se reemplazó `HAL_Delay(1000)` por una comparación con `HAL_GetTick()`. Con `HAL_Delay()` el ciclo quedaría bloqueado y el eco podría tardar hasta 1 segundo en enviarse.
 - El LED de la placa (`PC13`) cambia de estado con cada mensaje periódico, lo que permite verificar visualmente que el programa está en ejecución. El pin debe estar configurado como `GPIO_Output`, como en el tutorial [Blink](/PerifericosBasicos/HelloWorld/README.md).
 
@@ -388,7 +390,6 @@ Puntos importantes:
 - Cada línea admite como máximo **63 caracteres**; los caracteres adicionales se descartan.
 - Si llega una nueva línea antes de que `main.c` haya enviado la anterior, lo recibido en ese intervalo se descarta.
 - Si el eco y el mensaje periódico coinciden, `CDC_Transmit_FS()` puede devolver `USBD_BUSY` y el segundo mensaje no se envía.
-- Ambos mensajes comparten `bufferTransmiter`. Como `CDC_Transmit_FS()` no copia los datos, escribir el segundo mensaje mientras el primero aún se transmite podría alterarlo. Para mayor robustez, se recomienda usar un buffer independiente para cada mensaje.
 
 Para líneas más largas o datos a mayor velocidad, se recomienda implementar un buffer circular.
 
@@ -405,8 +406,11 @@ Para líneas más largas o datos a mayor velocidad, se recomienda implementar un
 4. Abra el puerto con cualquier terminal serie. Por ejemplo, en Linux:
 
 ```bash
-picocom /dev/ttyACM0
+picocom --echo /dev/ttyACM0
 ```
+
+>[!Note]
+> Por defecto picocom no muestra lo que se escribe (no tiene eco local), por lo que el texto no aparece hasta presionar Enter. La opción `--echo` lo muestra mientras se escribe.
 
 >[!Tip]
 > En Linux, si aparece un error de permisos al abrir el puerto, agregue su usuario al grupo `dialout` con `sudo usermod -aG dialout $USER` y vuelva a iniciar sesión.

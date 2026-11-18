@@ -46,7 +46,8 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-char bufferTransmiter[128]; // 64 bytes de datos + códigos de color + "\r\n"
+char bufferEco[128];        // eco: hasta 63 caracteres + "Recibido: " + códigos de color + "\r\n"
+char bufferTransmitter[64]; // mensaje periódico; separado del eco para no sobrescribirlo mientras se envía
 uint8_t bufferReceiver[64];
 volatile uint8_t lineReady = 0; // 1 cuando CDC_Receive_FS recibió una línea completa (Enter)
 /* USER CODE END PV */
@@ -105,19 +106,19 @@ int main(void)
 	  // Eco de la línea completa en otro color (CDC_Receive_FS la arma hasta el Enter)
 	  if (lineReady)
 	  {
-		  snprintf(bufferTransmiter, sizeof(bufferTransmiter), "%sRecibido: %s%s\r\n",
+		  snprintf(bufferEco, sizeof(bufferEco), "%sRecibido: %s%s\r\n",
 				   COLOR_BRIGHT_YELLOW, (char *)bufferReceiver, COLOR_RESET);
 		  lineReady = 0; // libera bufferReceiver para la siguiente línea
-		  CDC_Transmit_FS((uint8_t *)bufferTransmiter, strlen(bufferTransmiter));
+		  CDC_Transmit_FS((uint8_t *)bufferEco, strlen(bufferEco));
 	  }
 
 	  // Sin HAL_Delay: así el eco no espera hasta 1 s
 	  if (HAL_GetTick() - lastTick >= 1000)
 	  {
 		  lastTick = HAL_GetTick();
-		  snprintf(bufferTransmiter, sizeof(bufferTransmiter), "%sHola Mundo desde STM32 USB%s\r\n",
+		  snprintf(bufferTransmitter, sizeof(bufferTransmitter), "%sHola Mundo desde STM32 USB%s\r\n",
 				   COLOR_BRIGHT_CYAN, COLOR_RESET);
-		  CDC_Transmit_FS((uint8_t *)bufferTransmiter, strlen(bufferTransmiter));
+		  CDC_Transmit_FS((uint8_t *)bufferTransmitter, strlen(bufferTransmitter));
 		  HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
 	  }
     /* USER CODE END WHILE */
