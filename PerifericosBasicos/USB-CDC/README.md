@@ -42,6 +42,8 @@ Actualmente se cubren los siguientes apartados:
 - Recepción de datos desde la computadora.
 - Eco por líneas con colores ANSI, combinando transmisión y recepción.
 
+El proyecto completo, listo para importar en **STM32CubeIDE**, se encuentra en la carpeta [USB-CDC](/PerifericosBasicos/USB-CDC/USB-CDC).
+
 ---
 
 ## Características Principales
@@ -192,8 +194,8 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  CDC_Transmit_FS((uint8_t *)data, strlen(data));
-	  HAL_Delay(1000);
+    CDC_Transmit_FS((uint8_t *)data, strlen(data));
+    HAL_Delay(1000);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -349,24 +351,24 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  // Eco de la línea completa en otro color (CDC_Receive_FS la arma hasta el Enter)
-	  if (lineReady)
-	  {
-		  snprintf(bufferTransmiter, sizeof(bufferTransmiter), "%sRecibido: %s%s\r\n",
-				   COLOR_BRIGHT_YELLOW, (char *)bufferReceiver, COLOR_RESET);
-		  lineReady = 0; // libera bufferReceiver para la siguiente línea
-		  CDC_Transmit_FS((uint8_t *)bufferTransmiter, strlen(bufferTransmiter));
-	  }
+    // Eco de la línea completa en otro color (CDC_Receive_FS la arma hasta el Enter)
+    if (lineReady)
+    {
+      snprintf(bufferTransmiter, sizeof(bufferTransmiter), "%sRecibido: %s%s\r\n",
+               COLOR_BRIGHT_YELLOW, (char *)bufferReceiver, COLOR_RESET);
+      lineReady = 0; // libera bufferReceiver para la siguiente línea
+      CDC_Transmit_FS((uint8_t *)bufferTransmiter, strlen(bufferTransmiter));
+    }
 
-	  // Sin HAL_Delay: así el eco no espera hasta 1 s
-	  if (HAL_GetTick() - lastTick >= 1000)
-	  {
-		  lastTick = HAL_GetTick();
-		  snprintf(bufferTransmiter, sizeof(bufferTransmiter), "%sHola Mundo desde STM32 USB%s\r\n",
-				   COLOR_BRIGHT_CYAN, COLOR_RESET);
-		  CDC_Transmit_FS((uint8_t *)bufferTransmiter, strlen(bufferTransmiter));
-		  HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
-	  }
+    // Sin HAL_Delay: así el eco no espera hasta 1 s
+    if (HAL_GetTick() - lastTick >= 1000)
+    {
+      lastTick = HAL_GetTick();
+      snprintf(bufferTransmiter, sizeof(bufferTransmiter), "%sHola Mundo desde STM32 USB%s\r\n",
+               COLOR_BRIGHT_CYAN, COLOR_RESET);
+      CDC_Transmit_FS((uint8_t *)bufferTransmiter, strlen(bufferTransmiter));
+      HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+    }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
