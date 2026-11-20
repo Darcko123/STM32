@@ -30,6 +30,17 @@
 #define PN7160_BOOT_MS      3U      /**< Espera tras subir VEN en ms; tboot = 2.5 ms máx. (redefinible antes de incluir) */
 #endif
 
+#ifndef PN7160_CLOCK_SEL_CFG
+/**
+ * @brief Valor de CLOCK_SEL_CFG (A0 03): fuente de reloj del frontal RF (redefinible antes de incluir).
+ *
+ * 0x08 = cristal de 27.12 MHz en NFC_CLK_XTAL1/XTAL2 (valor de la librería de referencia de NXP).
+ * Para usar el PLL con reloj externo (19.2, 26, 32, 38.4 o 48 MHz en NFC_CLK_XTAL1)
+ * toma la codificación de la tabla CLOCK_SEL_CFG del UM11495; el datasheet no la incluye.
+ */
+#define PN7160_CLOCK_SEL_CFG    0x08U
+#endif
+
 // ============================================================================
 // ENUMERACIONES Y ESTRUCTURAS
 // ============================================================================
@@ -75,6 +86,13 @@ extern "C" {
  *             CORE_RESET_NTF. Del NTF se valida el model ID (byte 9: 0x61 = PN7160,
  *             0x71 = PN7161); los bytes 10 a 12 traen la versión de firmware.
  *          4. CORE_INIT_CMD (20 01 02 00 00) -> CORE_INIT_RSP (NCI 2.0).
+ *          5. NCI_PROPRIETARY_ACT_CMD (2F 02 00) -> RSP (4F 02 ...): habilita las
+ *             extensiones NXP (MIFARE Classic como protocolo 0x80).
+ *          6. CORE_GET_CONFIG_CMD (20 03 03 01 A0 03) lee CLOCK_SEL_CFG. Si difiere de
+ *             PN7160_CLOCK_SEL_CFG, CORE_SET_CONFIG_CMD (20 02 05 01 A0 03 01 xx) lo
+ *             escribe en EEPROM y se repiten los pasos 3 a 5 para aplicarlo.
+ *          7. RF_DISCOVER_MAP_CMD (21 00): ISO-DEP -> interfaz ISO-DEP y MIFARE ->
+ *             interfaz TAG-CMD, ambos en sondeo. El resto usa Frame RF.
  *
  *          Trama SPI (UM11495 / UM11577, no viene en el datasheet): 0x7F antes de
  *          escribir un paquete NCI y 0xFF antes de leerlo, ambos con NSS en bajo.

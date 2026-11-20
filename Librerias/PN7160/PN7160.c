@@ -69,7 +69,7 @@ static PN7160_Status_t pn7160_WaitIrq(uint32_t timeoutMs)
 {
     uint32_t start = HAL_GetTick();
 
-    while (HAL_GPIO_ReadPin(PN7160_IRQ_Port, PN7160_IRQ_Pin) != GPIO_PIN_SET)
+    while (HAL_GPIO_ReadPin(PN7160_IRQ_Port, PN7    160_IRQ_Pin) != GPIO_PIN_SET)
     {
         if ((HAL_GetTick() - start) >= timeoutMs) { return PN7160_TIMEOUT; }
     }
@@ -133,6 +133,68 @@ static PN7160_Status_t pn7160_Read(uint8_t* buf, uint32_t timeoutMs)
     HAL_GPIO_WritePin(PN7160_NSS_Port, PN7160_NSS_Pin, GPIO_PIN_SET);
 
     return pn7160_FromHal(hal);
+}
+
+/**
+ * @brief Envía un comando NCI y valida su respuesta: mismo GID/OID con MT = RSP
+ *        (0x2X -> 0x4X) y STATUS_OK en el primer byte del payload.
+ *
+ * @param      cmd Comando NCI completo.
+ * @param      len Longitud del comando.
+ * @param[out] rsp Buffer de respuesta (al menos PN7160_NCI_MAX_LEN bytes).
+ *
+ * @return PN7160_Status_t Estado de la operación.
+ */
+static PN7160_Status_t pn7160_Transceive(const uint8_t* cmd, uint16_t len, uint8_t* rsp)
+{
+    PN7160_Status_t status = pn7160_Write(cmd, len);
+    if (status != PN7160_OK) { return status; }
+
+    status = pn7160_Read(rsp, PN7160_TIMEOUT_MS);
+    if (status != PN7160_OK) { return status; }
+
+    if (rsp[0] != (cmd[0] ^ 0x60U) || rsp[1] != cmd[1] || rsp[2] < 1U || rsp[3] != PN7160_NCI_STATUS_OK)
+    {
+        return PN7160_ERROR;
+    }
+
+    return PN7160_OK;
+}
+
+/**
+ * @brief Reinicia la pila NCI: CORE_RESET (con NTF y model ID), CORE_INIT y
+ *        NCI_PROPRIETARY_ACT. Se usa en Init y tras cambiar configuración en EEPROM.
+ *
+ * @param[out] rsp Buffer de trabajo (al menos PN7160_NCI_MAX_LEN bytes).
+ *
+ * @return PN7160_Status_t Estado de la operación.
+ */
+static PN7160_Status_t pn7160_CoreReset(uint8_t* rsp)
+{
+    static const uint8_t coreReset[] = { 0x20U, 0x00U, 0x01U, 0x00U };        /* CORE_RESET_CMD, conserva la configuración */
+    static const uint8_t coreInit[]  = { 0x20U, 0x01U, 0x02U, 0x00U, 0x00U }; /* CORE_INIT_CMD (NCI 2.0) */
+    static const uint8_t propAct[]   = { 0x2FU, 0x02U, 0x00U };               /* NCI_PROPRIETARY_ACT_CMD (NXP) */
+
+    // CORE_RESET_CMD -> CORE_RESET_RSP (40 00 01 00)
+    PN7160_Status_t status = pn7160_Transceive(coreReset, sizeof(coreReset), rsp);
+    if (status != PN7160_OK) { return status; }
+
+    // CORE_RESET_NTF (60 00 ...): byte 9 = model ID, bytes 10-12 = versión de FW
+    status = pn7160_Read(rsp, PN7160_TIMEOUT_MS);
+    if (status != PN7160_OK) { return status; }
+    if (rsp[0] != 0x60U || rsp[1] != 0x00U || rsp[2] < 9U ||
+        (rsp[8] != PN7160_MODEL_PN7160 && rsp[8] != PN7160_MODEL_PN7161))
+    {
+        return PN7160_ERROR;
+    }
+
+    // CORE_INIT_CMD -> CORE_INIT_RSP (40 01 ... con STATUS_OK)
+    status = pn7160_Transceive(coreInit, sizeof(coreInit), rsp);
+    if (status != PN7160_OK) { return status; }
+
+    // NCI_PROPRIETARY_ACT_CMD -> RSP (4F 02 ...): habilita las extensiones NXP
+    // (protocolo MIFARE 0x80 e interfaz TAG-CMD)
+    return pn7160_Transceive(propAct, sizeof(propAct), rsp);
 }
 
 /**
@@ -200,8 +262,12 @@ PN7160_Status_t PN7160_Init(SPI_HandleTypeDef* hspi,
                             GPIO_TypeDef* venPort, uint16_t venPin,
                             GPIO_TypeDef* irqPort, uint16_t irqPin)
 {
-    static const uint8_t coreReset[] = { 0x20U, 0x00U, 0x01U, 0x00U };        /* CORE_RESET_CMD, conserva la configuración */
-    static const uint8_t coreInit[]  = { 0x20U, 0x01U, 0x02U, 0x00U, 0x00U }; /* CORE_INIT_CMD (NCI 2.0) */
+    static const uint8_t getClock[]  = { 0x20U, 0x03U, 0x03U, 0x01U, 0xA0U, 0x03U };   /* CORE_GET_CONFIG_CMD: CLOCK_SEL_CFG */
+    static const uint8_t setClock[]  = { 0x20U, 0x02U, 0x05U, 0x01U, 0xA0U, 0x03U,     /* CORE_SET_CONFIG_CMD: CLOCK_SEL_CFG */
+                                         0x01U, PN7160_CLOCK_SEL_CFG };
+    static const uint8_t discMap[]   = { 0x21U, 0x00U, 0x07U, 0x02U,          /* RF_DISCOVER_MAP_CMD, 2 mapeos */
+                                         0x04U, 0x01U, 0x02U,                 /* ISO-DEP, sondeo -> interfaz ISO-DEP */
+                                         0x80U, 0x01U, 0x80U };               /* MIFARE, sondeo -> interfaz TAG-CMD */
     uint8_t rsp[PN7160_NCI_MAX_LEN];
     PN7160_Status_t status;
 
@@ -238,36 +304,33 @@ PN7160_Status_t PN7160_Init(SPI_HandleTypeDef* hspi,
         if (status != PN7160_OK) { return status; }
     }
 
-    // 5. CORE_RESET_CMD -> CORE_RESET_RSP (40 00 01 00)
-    status = pn7160_Write(coreReset, sizeof(coreReset));
+    // 5. CORE_RESET + CORE_INIT + activación propietaria NXP
+    status = pn7160_CoreReset(rsp);
     if (status != PN7160_OK) { return status; }
 
-    status = pn7160_Read(rsp, PN7160_TIMEOUT_MS);
+    // 6. CLOCK_SEL_CFG (A0 03): se guarda en la EEPROM del PN7160, así que solo se
+    //    escribe si difiere (evita desgaste) y después se repite el paso 5 para aplicarlo.
+    //    CORE_GET_CONFIG_RSP: 40 03 len | status, nParams, A0, 03, 01, valor
+    status = pn7160_Transceive(getClock, sizeof(getClock), rsp);
     if (status != PN7160_OK) { return status; }
-    if (rsp[0] != 0x40U || rsp[1] != 0x00U || rsp[2] < 1U || rsp[3] != PN7160_NCI_STATUS_OK)
+    if (rsp[2] < 6U || rsp[5] != 0xA0U || rsp[6] != 0x03U || rsp[7] != 1U)
     {
         return PN7160_ERROR;
     }
 
-    // 6. CORE_RESET_NTF (60 00 ...): byte 9 = model ID, bytes 10-12 = versión de FW
-    status = pn7160_Read(rsp, PN7160_TIMEOUT_MS);
-    if (status != PN7160_OK) { return status; }
-    if (rsp[0] != 0x60U || rsp[1] != 0x00U || rsp[2] < 9U ||
-        (rsp[8] != PN7160_MODEL_PN7160 && rsp[8] != PN7160_MODEL_PN7161))
+    if (rsp[8] != PN7160_CLOCK_SEL_CFG)
     {
-        return PN7160_ERROR;
+        status = pn7160_Transceive(setClock, sizeof(setClock), rsp);
+        if (status != PN7160_OK) { return status; }
+
+        status = pn7160_CoreReset(rsp);
+        if (status != PN7160_OK) { return status; }
     }
 
-    // 7. CORE_INIT_CMD -> CORE_INIT_RSP (40 01 ... con STATUS_OK)
-    status = pn7160_Write(coreInit, sizeof(coreInit));
+    // 7. RF_DISCOVER_MAP_CMD -> RSP (41 00 01 00). Los protocolos sin mapear
+    //    (T1T, T2T, T3T, T5T) usan la interfaz Frame RF por defecto
+    status = pn7160_Transceive(discMap, sizeof(discMap), rsp);
     if (status != PN7160_OK) { return status; }
-
-    status = pn7160_Read(rsp, PN7160_TIMEOUT_MS);
-    if (status != PN7160_OK) { return status; }
-    if (rsp[0] != 0x40U || rsp[1] != 0x01U || rsp[2] < 1U || rsp[3] != PN7160_NCI_STATUS_OK)
-    {
-        return PN7160_ERROR;
-    }
 
     // 8. Marcar como inicializado solo al final, tras un Init exitoso
     PN7160_Initialized = 1U;
@@ -326,15 +389,8 @@ PN7160_Status_t PN7160_WaitTag(PN7160_Tag_t* tag, uint32_t timeoutMs)
     }
 
     // 2. RF_DISCOVER_CMD -> RF_DISCOVER_RSP (41 03 01 00)
-    status = pn7160_Write(rfDiscover, sizeof(rfDiscover));
+    status = pn7160_Transceive(rfDiscover, sizeof(rfDiscover), rsp);
     if (status != PN7160_OK) { return status; }
-
-    status = pn7160_Read(rsp, PN7160_TIMEOUT_MS);
-    if (status != PN7160_OK) { return status; }
-    if (rsp[0] != 0x41U || rsp[1] != 0x03U || rsp[2] < 1U || rsp[3] != PN7160_NCI_STATUS_OK)
-    {
-        return PN7160_ERROR;
-    }
 
     // 3. Esperar RF_INTF_ACTIVATED_NTF (61 05) o RF_DISCOVER_NTF (61 03); el resto se ignora
     //    61 05: [3] ID, [4] interfaz, [5] protocolo, [6] tecnología, [7] max payload, [8] créditos, [9] long., [10..] parámetros
