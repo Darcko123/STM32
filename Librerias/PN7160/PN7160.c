@@ -54,6 +54,7 @@ static uint8_t              PN7160_ItArmed          = 0U;   /**< 1 = descubrimie
 static uint8_t              PN7160_ItKeepActive     = 0U;   /**< keepActive pedido en PN7160_StartDiscoveryIT */
 static uint8_t              PN7160_ItSelId          = 0U;   /**< RF Discovery ID elegido entre varios tags (0 = ninguno) */
 static PN7160_Tag_t         PN7160_ItTag;                   /**< Tag que se entrega a PN7160_TagDetectedCallback */
+static PN7160_Info_t        PN7160_Info;                    /**< Model ID y versión de FW del último CORE_RESET_NTF */
 
 // ============================================================================
 // FUNCIONES PRIVADAS
@@ -203,6 +204,8 @@ static PN7160_Status_t pn7160_CoreReset(uint8_t* rsp)
     {
         return PN7160_ERROR;
     }
+    PN7160_Info.modelo = rsp[8];
+    memcpy(PN7160_Info.firmware, &rsp[9], sizeof(PN7160_Info.firmware));
 
     // CORE_INIT_CMD -> CORE_INIT_RSP (40 01 ... con STATUS_OK)
     status = pn7160_Transceive(coreInit, sizeof(coreInit), rsp);
@@ -611,6 +614,28 @@ PN7160_Status_t PN7160_DeInit(void)
     PN7160_Initialized  =   0U;
     PN7160_ItArmed      =   0U;
 
+    return PN7160_OK;
+}
+
+/**
+ * @brief Devuelve el model ID y la versión de firmware leídos en PN7160_Init().
+ *
+ * @param[out] info Destino de la identificación.
+ *
+ * @return PN7160_Status_t Estado de la operación.
+ */
+PN7160_Status_t PN7160_GetInfo(PN7160_Info_t* info)
+{
+    if (info == NULL)
+    {
+        return PN7160_INVALID_PARAM;
+    }
+    if (!PN7160_Initialized)
+    {
+        return PN7160_NOT_INITIALIZED;
+    }
+
+    *info = PN7160_Info;
     return PN7160_OK;
 }
 

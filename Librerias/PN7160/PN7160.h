@@ -78,6 +78,14 @@ typedef struct {
     uint8_t uidLen;       /**< Bytes válidos en uid: 4/7/10 (A), 4 (B), 8 (F), 8 (V); 0 en modo tarjeta */
 } PN7160_Tag_t;
 
+/**
+ * @brief Identificación del chip, leída del CORE_RESET_NTF durante PN7160_Init().
+ */
+typedef struct {
+    uint8_t modelo;       /**< Model ID: 0x61 = PN7160, 0x71 = PN7161 */
+    uint8_t firmware[3];  /**< Versión de firmware, en el orden del CORE_RESET_NTF (bytes 10 a 12) */
+} PN7160_Info_t;
+
 // ============================================================================
 // PROTOTIPOS DE FUNCIONES PÚBLICAS
 // ============================================================================
@@ -140,6 +148,19 @@ PN7160_Status_t PN7160_Init(SPI_HandleTypeDef* hspi,
                             GPIO_TypeDef* irqPort, uint16_t irqPin);
 
 PN7160_Status_t PN7160_DeInit(void);
+
+/**
+ * @brief Devuelve el model ID y la versión de firmware leídos en PN7160_Init().
+ *
+ * @details No habla con el chip: copia lo guardado del último CORE_RESET_NTF.
+ *
+ * @param[out] info Destino de la identificación.
+ *
+ * @return PN7160_OK si se copió la información.
+ * @return PN7160_INVALID_PARAM si info es NULL.
+ * @return PN7160_NOT_INITIALIZED si no se llamó antes a PN7160_Init().
+ */
+PN7160_Status_t PN7160_GetInfo(PN7160_Info_t* info);
 
 /**
  * @brief Cambia el modo RF entre lector de tags y emulación de tarjeta.
