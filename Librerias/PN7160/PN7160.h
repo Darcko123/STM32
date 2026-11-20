@@ -57,13 +57,21 @@ typedef enum {
 } PN7160_Status_t;
 
 /**
+ * @brief Modo RF del PN7160, configurado con PN7160_SetMode().
+ */
+typedef enum {
+    PN7160_MODE_READER  = 0,    /**< Lector/escritor: sondea NFC-A/B/F/V (por defecto tras Init) */
+    PN7160_MODE_CARD    = 1     /**< Emulación de tarjeta T4T (ISO-DEP sobre NFC-A); el host responde los APDU */
+} PN7160_Mode_t;
+
+/**
  * @brief Datos de un tag detectado por PN7160_WaitTag().
  */
 typedef struct {
-    uint8_t tecnologia;   /**< RF Tech & Mode: 0x00 NFC-A, 0x01 NFC-B, 0x02 NFC-F, 0x06 NFC-V */
+    uint8_t tecnologia;   /**< RF Tech & Mode: 0x00 NFC-A, 0x01 NFC-B, 0x02 NFC-F, 0x06 NFC-V; 0x80 NFC-A escucha (modo tarjeta) */
     uint8_t protocolo;    /**< RF Protocol: 0x01 T1T, 0x02 T2T, 0x03 T3T, 0x04 ISO-DEP, 0x05 NFC-DEP, 0x06 T5T, 0x80 MIFARE Classic */
     uint8_t uid[10];      /**< NFCID1 / NFCID0 / NFCID2 / UID, según la tecnología (en el orden en que lo entrega NCI; NFC-V llega LSB primero) */
-    uint8_t uidLen;       /**< Bytes válidos en uid: 4/7/10 (A), 4 (B), 8 (F), 8 (V) */
+    uint8_t uidLen;       /**< Bytes válidos en uid: 4/7/10 (A), 4 (B), 8 (F), 8 (V); 0 en modo tarjeta */
 } PN7160_Tag_t;
 
 // ============================================================================
@@ -130,11 +138,43 @@ PN7160_Status_t PN7160_Init(SPI_HandleTypeDef* hspi,
 PN7160_Status_t PN7160_DeInit(void);
 
 /**
- * @brief Sondea NFC-A, NFC-B, NFC-F y NFC-V hasta detectar un tag o agotar el tiempo.
+ * @brief Cambia el modo RF entre lector de tags y emulación de tarjeta.
+ *
+ * @details El PN7160 debe estar en RFST_IDLE, que es donde lo dejan siempre
+ *          PN7160_Init() y PN7160_WaitTag(). El modo se aplica en el siguiente
+ *          PN7160_WaitTag(). Comandos NCI 2.0 (UM11495, no vienen en el datasheet):
+ *          - PN7160_MODE_READER: RF_DISCOVER_MAP_CMD (21 00) ISO-DEP -> interfaz
+ *            ISO-DEP y MIFARE -> interfaz TAG-CMD en sondeo. Es lo que deja Init.
+ *          - PN7160_MODE_CARD:
+ *            1. RF_DISCOVER_MAP_CMD (21 00 04 01 04 02 02): ISO-DEP en escucha ->
+ *               interfaz ISO-DEP.
+ *            2. RF_SET_LISTEN_MODE_ROUTING_CMD (21 01 07 00 01 01 03 00 01 04):
+ *               ISO-DEP se rutea al DH (el host responde los APDU) en estado encendido.
+ *            3. CORE_SET_CONFIG_CMD (20 02 04 01 32 01 20): LA_SEL_INFO = 0x20, el
+ *               SEL_RES anuncia ISO-DEP.
+ *
+ *          En modo tarjeta solo se emula NFC-A; Card Emulation requiere
+ *          VBAT > 2.8 V (datasheet, Listener mode).
+ *
+ * @param mode PN7160_MODE_READER o PN7160_MODE_CARD.
+ *
+ * @return PN7160_OK si el modo quedó configurado.
+ * @return PN7160_NOT_INITIALIZED si no se llamó antes a PN7160_Init().
+ * @return PN7160_INVALID_PARAM si mode no es un PN7160_Mode_t válido.
+ * @return PN7160_TIMEOUT si IRQ no se activó a tiempo o el bus SPI no respondió.
+ * @return PN7160_ERROR si falla el bus o una respuesta NCI no es la esperada. El
+ *         modo anterior se conserva, aunque la configuración puede quedar a medias.
+ */
+PN7160_Status_t PN7160_SetMode(PN7160_Mode_t mode);
+
+/**
+ * @brief Espera un tag (modo lector) o un lector externo (modo tarjeta) hasta
+ *        que se active o se agote el tiempo.
  *
  * @details Secuencia NCI 2.0:
- *          1. RF_DISCOVER_CMD (21 03) con las cuatro tecnologías en modo sondeo ->
- *             RF_DISCOVER_RSP (41 03 01 00).
+ *          1. RF_DISCOVER_CMD (21 03) -> RF_DISCOVER_RSP (41 03 01 00). En modo
+ *             lector, NFC-A/B/F/V en sondeo; en modo tarjeta, NFC-A en escucha
+ *             (21 03 03 01 80 01). En modo tarjeta, tag->uidLen = 0.
  *          2. Espera RF_INTF_ACTIVATED_NTF (61 05), o RF_DISCOVER_NTF (61 03) si
  *             hay varios tags o protocolos; se toma el primero. Del bloque "RF
  *             Technology Specific Parameters" se extrae el identificador.

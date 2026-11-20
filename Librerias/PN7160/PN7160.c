@@ -38,6 +38,7 @@ static uint16_t             PN7160_VEN_Pin          = 0U;   /**< Pin VEN */
 static GPIO_TypeDef*        PN7160_IRQ_Port         = NULL; /**< Puerto del pin IRQ */
 static uint16_t             PN7160_IRQ_Pin          = 0U;   /**< Pin IRQ */
 static uint8_t              PN7160_Initialized      = 0U;   /**< Bandera para verificar si el módulo está inicializado */
+static PN7160_Mode_t        PN7160_Mode             = PN7160_MODE_READER;   /**< Modo RF configurado; decide qué sondea/escucha WaitTag */
 
 // ============================================================================
 // FUNCIONES PRIVADAS
@@ -69,7 +70,7 @@ static PN7160_Status_t pn7160_WaitIrq(uint32_t timeoutMs)
 {
     uint32_t start = HAL_GetTick();
 
-    while (HAL_GPIO_ReadPin(PN7160_IRQ_Port, PN7    160_IRQ_Pin) != GPIO_PIN_SET)
+    while (HAL_GPIO_ReadPin(PN7160_IRQ_Port, PN7160_IRQ_Pin) != GPIO_PIN_SET)
     {
         if ((HAL_GetTick() - start) >= timeoutMs) { return PN7160_TIMEOUT; }
     }
@@ -227,6 +228,7 @@ static PN7160_Status_t pn7160_ParseTag(uint8_t tecnologia, uint8_t protocolo,
         case 0x01U: off = 1U; len = 4U; break;                              /* NFC-B */
         case 0x02U:                                                         /* NFC-F */
         case 0x06U: off = 2U; len = 8U; break;                              /* NFC-V */
+        case 0x80U: break;                  /* NFC-A escucha: el lector remoto no tiene identificador */
         default:    return PN7160_ERROR;
     }
 
@@ -238,6 +240,52 @@ static PN7160_Status_t pn7160_ParseTag(uint8_t tecnologia, uint8_t protocolo,
     for (uint8_t i = 0U; i < len; i++) { tag->uid[i] = par[off + i]; }
 
     return PN7160_OK;
+}
+
+/**
+ * @brief Configura el modo RF. Solo es válido en RFST_IDLE, que es donde
+ *        Init y WaitTag dejan siempre al PN7160.
+ *
+ *        - Lector: RF_DISCOVER_MAP ISO-DEP -> interfaz ISO-DEP y MIFARE -> TAG-CMD,
+ *          ambos en sondeo. El resto de protocolos usa Frame RF.
+ *        - Tarjeta: RF_DISCOVER_MAP ISO-DEP en escucha -> interfaz ISO-DEP,
+ *          RF_SET_LISTEN_MODE_ROUTING ISO-DEP -> DH (el host responde los APDU) y
+ *          LA_SEL_INFO = 0x20 (el SEL_RES anuncia ISO-DEP).
+ *
+ * @param      mode Modo a configurar.
+ * @param[out] rsp  Buffer de trabajo (al menos PN7160_NCI_MAX_LEN bytes).
+ *
+ * @return PN7160_Status_t Estado de la operación.
+ */
+static PN7160_Status_t pn7160_ConfigMode(PN7160_Mode_t mode, uint8_t* rsp)
+{
+    static const uint8_t mapReader[] = { 0x21U, 0x00U, 0x07U, 0x02U,      /* RF_DISCOVER_MAP_CMD, 2 mapeos */
+                                         0x04U, 0x01U, 0x02U,             /* ISO-DEP, sondeo -> interfaz ISO-DEP */
+                                         0x80U, 0x01U, 0x80U };           /* MIFARE, sondeo -> interfaz TAG-CMD */
+    static const uint8_t mapCard[]   = { 0x21U, 0x00U, 0x04U, 0x01U,      /* RF_DISCOVER_MAP_CMD, 1 mapeo */
+                                         0x04U, 0x02U, 0x02U };           /* ISO-DEP, escucha -> interfaz ISO-DEP */
+    static const uint8_t routing[]   = { 0x21U, 0x01U, 0x07U, 0x00U, 0x01U, /* RF_SET_LISTEN_MODE_ROUTING_CMD: último mensaje, 1 entrada */
+                                         0x01U, 0x03U,                    /* ruta por protocolo, 3 bytes */
+                                         0x00U, 0x01U, 0x04U };           /* DH, encendido, ISO-DEP */
+    static const uint8_t selInfo[]   = { 0x20U, 0x02U, 0x04U, 0x01U,      /* CORE_SET_CONFIG_CMD, 1 parámetro */
+                                         0x32U, 0x01U, 0x20U };           /* LA_SEL_INFO = ISO-DEP */
+    PN7160_Status_t status;
+
+    if (mode == PN7160_MODE_READER)
+    {
+        // RF_DISCOVER_MAP_RSP (41 00 01 00); el nuevo mapa reemplaza al anterior
+        status = pn7160_Transceive(mapReader, sizeof(mapReader), rsp);
+    }
+    else
+    {
+        status = pn7160_Transceive(mapCard, sizeof(mapCard), rsp);              /* -> 41 00 01 00 */
+        if (status == PN7160_OK) { status = pn7160_Transceive(routing, sizeof(routing), rsp); } /* -> 41 01 01 00 */
+        if (status == PN7160_OK) { status = pn7160_Transceive(selInfo, sizeof(selInfo), rsp); } /* -> 40 02 02 00 00 */
+    }
+
+    if (status == PN7160_OK) { PN7160_Mode = mode; }
+
+    return status;
 }
 
 // ============================================================================
@@ -265,9 +313,6 @@ PN7160_Status_t PN7160_Init(SPI_HandleTypeDef* hspi,
     static const uint8_t getClock[]  = { 0x20U, 0x03U, 0x03U, 0x01U, 0xA0U, 0x03U };   /* CORE_GET_CONFIG_CMD: CLOCK_SEL_CFG */
     static const uint8_t setClock[]  = { 0x20U, 0x02U, 0x05U, 0x01U, 0xA0U, 0x03U,     /* CORE_SET_CONFIG_CMD: CLOCK_SEL_CFG */
                                          0x01U, PN7160_CLOCK_SEL_CFG };
-    static const uint8_t discMap[]   = { 0x21U, 0x00U, 0x07U, 0x02U,          /* RF_DISCOVER_MAP_CMD, 2 mapeos */
-                                         0x04U, 0x01U, 0x02U,                 /* ISO-DEP, sondeo -> interfaz ISO-DEP */
-                                         0x80U, 0x01U, 0x80U };               /* MIFARE, sondeo -> interfaz TAG-CMD */
     uint8_t rsp[PN7160_NCI_MAX_LEN];
     PN7160_Status_t status;
 
@@ -327,9 +372,8 @@ PN7160_Status_t PN7160_Init(SPI_HandleTypeDef* hspi,
         if (status != PN7160_OK) { return status; }
     }
 
-    // 7. RF_DISCOVER_MAP_CMD -> RSP (41 00 01 00). Los protocolos sin mapear
-    //    (T1T, T2T, T3T, T5T) usan la interfaz Frame RF por defecto
-    status = pn7160_Transceive(discMap, sizeof(discMap), rsp);
+    // 7. Modo lector por defecto (RF_DISCOVER_MAP)
+    status = pn7160_ConfigMode(PN7160_MODE_READER, rsp);
     if (status != PN7160_OK) { return status; }
 
     // 8. Marcar como inicializado solo al final, tras un Init exitoso
@@ -360,7 +404,31 @@ PN7160_Status_t PN7160_DeInit(void)
 }
 
 /**
- * @brief Sondea NFC-A/B/F/V hasta detectar un tag o agotar timeoutMs.
+ * @brief Cambia el modo RF entre lector de tags y emulación de tarjeta.
+ *
+ * @param mode PN7160_MODE_READER o PN7160_MODE_CARD.
+ *
+ * @return PN7160_Status_t Estado de la operación.
+ */
+PN7160_Status_t PN7160_SetMode(PN7160_Mode_t mode)
+{
+    uint8_t rsp[PN7160_NCI_MAX_LEN];
+
+    if (!PN7160_Initialized)
+    {
+        return PN7160_NOT_INITIALIZED;
+    }
+    if (mode != PN7160_MODE_READER && mode != PN7160_MODE_CARD)
+    {
+        return PN7160_INVALID_PARAM;
+    }
+
+    return pn7160_ConfigMode(mode, rsp);
+}
+
+/**
+ * @brief Sondea NFC-A/B/F/V (lector) o escucha como NFC-A (tarjeta) hasta que
+ *        se active un tag/lector o se agote timeoutMs.
  *
  * @param[out] tag       Datos del tag detectado.
  * @param      timeoutMs Tiempo máximo de espera de un tag, en ms.
@@ -374,6 +442,8 @@ PN7160_Status_t PN7160_WaitTag(PN7160_Tag_t* tag, uint32_t timeoutMs)
                                           0x01U, 0x01U,                 /* NFC-B sondeo pasivo */
                                           0x02U, 0x01U,                 /* NFC-F sondeo pasivo */
                                           0x06U, 0x01U };               /* NFC-V sondeo pasivo */
+    static const uint8_t rfListen[]   = { 0x21U, 0x03U, 0x03U, 0x01U,   /* RF_DISCOVER_CMD, 1 configuración */
+                                          0x80U, 0x01U };               /* NFC-A escucha pasiva */
     static const uint8_t rfDeactivate[] = { 0x21U, 0x06U, 0x01U, 0x00U };  /* RF_DEACTIVATE_CMD -> Idle */
     uint8_t rsp[PN7160_NCI_MAX_LEN];
     PN7160_Status_t status;
@@ -388,8 +458,15 @@ PN7160_Status_t PN7160_WaitTag(PN7160_Tag_t* tag, uint32_t timeoutMs)
         return PN7160_INVALID_PARAM;
     }
 
-    // 2. RF_DISCOVER_CMD -> RF_DISCOVER_RSP (41 03 01 00)
-    status = pn7160_Transceive(rfDiscover, sizeof(rfDiscover), rsp);
+    // 2. RF_DISCOVER_CMD -> RF_DISCOVER_RSP (41 03 01 00), según el modo
+    if (PN7160_Mode == PN7160_MODE_CARD)
+    {
+        status = pn7160_Transceive(rfListen, sizeof(rfListen), rsp);
+    }
+    else
+    {
+        status = pn7160_Transceive(rfDiscover, sizeof(rfDiscover), rsp);
+    }
     if (status != PN7160_OK) { return status; }
 
     // 3. Esperar RF_INTF_ACTIVATED_NTF (61 05) o RF_DISCOVER_NTF (61 03); el resto se ignora
