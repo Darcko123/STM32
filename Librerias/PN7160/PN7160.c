@@ -912,3 +912,41 @@ PN7160_Status_t PN7160_ReleaseTag(void)
 
     return pn7160_Deactivate(rsp);
 }
+
+/**
+ * @brief Espera a que se retire el tag/lector activado: repite WaitTag sin
+ *        keepActive hasta que nadie se activa en PN7160_REMOVAL_MS.
+ *
+ * @param timeoutMs Tiempo máximo de espera de la retirada, en ms.
+ *
+ * @return PN7160_Status_t Estado de la operación.
+ */
+PN7160_Status_t PN7160_WaitTagRemoval(uint32_t timeoutMs)
+{
+    PN7160_Tag_t tag;
+    PN7160_Status_t status;
+
+    // 1. Validar estado
+    if (!PN7160_Initialized)
+    {
+        return PN7160_NOT_INITIALIZED;
+    }
+    if (!PN7160_TagActive)
+    {
+        return PN7160_ERROR;
+    }
+
+    // 2. Redescubrir mientras algo se active; cada WaitTag termina en RFST_IDLE
+    // ponytail: no distingue el tag original de otro; presence check por protocolo
+    //           (2F 11 para ISO-DEP, READ para T2T, ...) si hace falta, ver UM11495
+    uint32_t start = HAL_GetTick();
+    do
+    {
+        status = PN7160_WaitTag(&tag, PN7160_REMOVAL_MS, 0U);
+    } while (status == PN7160_OK && (HAL_GetTick() - start) < timeoutMs);
+
+    // 3. Nadie respondió en la ventana: se retiró. Seguía ahí al vencer timeoutMs: TIMEOUT
+    if (status == PN7160_TIMEOUT) { return PN7160_OK; }
+
+    return (status == PN7160_OK) ? PN7160_TIMEOUT : status;
+}

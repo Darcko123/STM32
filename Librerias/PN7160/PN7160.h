@@ -30,6 +30,18 @@
 #define PN7160_RF_TIMEOUT_MS 1000U  /**< Espera de cada paquete de datos/créditos en PN7160_Transceive, en ms (redefinible antes de incluir) */
 #endif
 
+#ifndef PN7160_REMOVAL_MS
+/**
+ * @brief Ventana de PN7160_WaitTagRemoval en ms: si en este tiempo no se reactiva
+ *        ningún tag/lector, se da por retirado (redefinible antes de incluir).
+ *
+ * Tiene que cubrir al menos un ciclo de sondeo del PN7160 (en modo tarjeta, el del
+ * lector externo). Más corta reacciona antes, pero un tag en el borde del campo
+ * puede darse por retirado y volver a leerse.
+ */
+#define PN7160_REMOVAL_MS   600U
+#endif
+
 #ifndef PN7160_BOOT_MS
 #define PN7160_BOOT_MS      3U      /**< Espera tras subir VEN en ms; tboot = 2.5 ms máx. (redefinible antes de incluir) */
 #endif
@@ -277,6 +289,35 @@ PN7160_Status_t PN7160_Transceive(const uint8_t* tx, uint16_t txLen, uint8_t* rx
  * @return PN7160_ERROR si falla el bus o la respuesta NCI no es la esperada.
  */
 PN7160_Status_t PN7160_ReleaseTag(void);
+
+/**
+ * @brief Espera a que se retire el tag (modo lector) o el lector externo (modo
+ *        tarjeta) que dejó activado PN7160_WaitTag(..., keepActive = 1).
+ *
+ * @details No hace un presence check por protocolo: repite el descubrimiento hasta
+ *          que nadie responde.
+ *          1. PN7160_WaitTag(..., PN7160_REMOVAL_MS, 0): RF_DEACTIVATE_CMD (21 06),
+ *             RF_DISCOVER_CMD (21 03) y espera de 61 05 / 61 03; termina en RFST_IDLE.
+ *          2. Si algo se activó, sigue en el campo: se repite el paso 1.
+ *          3. Si en PN7160_REMOVAL_MS no se activó nada, se retiró.
+ *
+ *          Cuenta cualquier tag/lector, no solo el que estaba activado: si se cambia
+ *          una tarjeta por otra en menos de PN7160_REMOVAL_MS, sigue esperando. El
+ *          campo RF se apaga en cada ciclo, así que el tag pierde su estado (p. ej. la
+ *          aplicación ISO-DEP seleccionada). timeoutMs se revisa entre ciclos.
+ *
+ *          Si PN7160_Transceive() ya devolvió error porque el tag/lector se fue, no
+ *          hay tag activado: devuelve PN7160_ERROR; usar PN7160_ReleaseTag().
+ *
+ * @param timeoutMs Tiempo máximo de espera de la retirada, en ms.
+ *
+ * @return PN7160_OK si el tag/lector se retiró. Queda en RFST_IDLE.
+ * @return PN7160_NOT_INITIALIZED si no se llamó antes a PN7160_Init().
+ * @return PN7160_TIMEOUT si seguía en el campo al cumplirse timeoutMs. Queda en RFST_IDLE.
+ * @return PN7160_ERROR si no hay tag activado, falla el bus o una respuesta NCI
+ *         no es la esperada.
+ */
+PN7160_Status_t PN7160_WaitTagRemoval(uint32_t timeoutMs);
 
 // ----------------------------------------------------------------------------
 // Descubrimiento por interrupción (EXTI + callback), sin timeout
