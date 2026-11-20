@@ -88,6 +88,10 @@ typedef struct {
     uint8_t protocolo;    /**< RF Protocol: 0x01 T1T, 0x02 T2T, 0x03 T3T, 0x04 ISO-DEP, 0x05 NFC-DEP, 0x06 T5T, 0x80 MIFARE Classic */
     uint8_t uid[10];      /**< NFCID1 / NFCID0 / NFCID2 / UID, según la tecnología (en el orden en que lo entrega NCI; NFC-V llega LSB primero) */
     uint8_t uidLen;       /**< Bytes válidos en uid: 4/7/10 (A), 4 (B), 8 (F), 8 (V); 0 en modo tarjeta */
+    uint8_t atqa[2];      /**< SENS_RES (ATQA) de NFC-A, en el orden en que lo entrega NCI (p. ej. 04 00 Classic 1K,
+                               02 00 Classic 4K, 44 00 NTAG); 00 00 si no aplica (otra tecnología o modo tarjeta) */
+    uint8_t sak;          /**< SEL_RES (SAK) de NFC-A, p. ej. 0x08 MIFARE Classic 1K, 0x18 4K, 0x00 T2T, 0x20 ISO-DEP;
+                               0 si no aplica (otra tecnología, T1T o modo tarjeta) */
 } PN7160_Tag_t;
 
 /**

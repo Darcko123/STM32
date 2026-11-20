@@ -220,7 +220,7 @@ static PN7160_Status_t pn7160_CoreReset(uint8_t* rsp)
  * @brief Extrae el identificador del tag de los "RF Technology Specific
  *        Parameters" (modo sondeo, NCI 2.0).
  *
- *        - NFC-A: SENS_RES(2), longitud NFCID1, NFCID1(4/7/10), ...
+ *        - NFC-A: SENS_RES(2), longitud NFCID1, NFCID1(4/7/10), longitud SEL_RES(0/1), SEL_RES
  *        - NFC-B: longitud SENSB_RES, SENSB_RES sin 0x50 -> NFCID0 = bytes 1-4
  *        - NFC-F: bit rate, longitud SENSF_RES, SENSF_RES sin 0x01 -> NFCID2 = bytes 2-9
  *        - NFC-V: RES_FLAG, DSFID, UID(8)
@@ -256,6 +256,14 @@ static PN7160_Status_t pn7160_ParseTag(uint8_t tecnologia, uint8_t protocolo,
     tag->protocolo  = protocolo;
     tag->uidLen     = len;
     for (uint8_t i = 0U; i < len; i++) { tag->uid[i] = par[off + i]; }
+
+    // ATQA de NFC-A: los 2 primeros bytes (parLen > 2 ya está garantizado arriba)
+    tag->atqa[0] = (tecnologia == 0x00U) ? par[0] : 0U;
+    tag->atqa[1] = (tecnologia == 0x00U) ? par[1] : 0U;
+
+    // SAK de NFC-A: tras el NFCID1 viene su longitud (0 en T1T, 1 en el resto) y el byte
+    off += len;
+    tag->sak = (tecnologia == 0x00U && (uint16_t)off + 1U < parLen && par[off] == 1U) ? par[off + 1U] : 0U;
 
     return PN7160_OK;
 }
