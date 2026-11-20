@@ -528,7 +528,7 @@ PN7160_Status_t PN7160_Init(SPI_HandleTypeDef* hspi,
     PN7160_Status_t status;
 
     // 1. Validar parámetros
-    if(hspi == NULL || nssPort == NULL || venPort == NULL || irqPort == NULL)
+    if (hspi == NULL || nssPort == NULL || venPort == NULL || irqPort == NULL)
     {
         return PN7160_INVALID_PARAM;
     }
@@ -602,7 +602,7 @@ PN7160_Status_t PN7160_Init(SPI_HandleTypeDef* hspi,
  */
 PN7160_Status_t PN7160_DeInit(void)
 {
-    if(!PN7160_Initialized)
+    if (!PN7160_Initialized)
     {
         return PN7160_NOT_INITIALIZED;
     }
@@ -650,13 +650,13 @@ PN7160_Status_t PN7160_SetMode(PN7160_Mode_t mode)
 {
     uint8_t rsp[PN7160_NCI_MAX_LEN];
 
-    if (!PN7160_Initialized)
-    {
-        return PN7160_NOT_INITIALIZED;
-    }
     if (mode != PN7160_MODE_READER && mode != PN7160_MODE_CARD)
     {
         return PN7160_INVALID_PARAM;
+    }
+    if (!PN7160_Initialized)
+    {
+        return PN7160_NOT_INITIALIZED;
     }
 
     // Los comandos de configuración RF solo valen en RFST_IDLE
@@ -688,14 +688,14 @@ PN7160_Status_t PN7160_WaitTag(PN7160_Tag_t* tag, uint32_t timeoutMs, uint8_t ke
     uint8_t done  = 0U;
     PN7160_Status_t status;
 
-    // 1. Validar estado y parámetros
-    if (!PN7160_Initialized)
-    {
-        return PN7160_NOT_INITIALIZED;
-    }
+    // 1. Validar parámetros y estado
     if (tag == NULL)
     {
         return PN7160_INVALID_PARAM;
+    }
+    if (!PN7160_Initialized)
+    {
+        return PN7160_NOT_INITIALIZED;
     }
 
     // 2. [RF_DEACTIVATE] + RF_DISCOVER_CMD -> RF_DISCOVER_RSP, según el modo
@@ -826,14 +826,14 @@ PN7160_Status_t PN7160_Transceive(const uint8_t* tx, uint16_t txLen, uint8_t* rx
     uint16_t got      = 0U;
     uint8_t  overflow = 0U;
 
-    // 1. Validar estado y parámetros
-    if (!PN7160_Initialized)
-    {
-        return PN7160_NOT_INITIALIZED;
-    }
+    // 1. Validar parámetros y estado
     if ((tx == NULL && txLen > 0U) || rx == NULL || rxLen == NULL)
     {
         return PN7160_INVALID_PARAM;
+    }
+    if (!PN7160_Initialized)
+    {
+        return PN7160_NOT_INITIALIZED;
     }
     if (!PN7160_TagActive)
     {

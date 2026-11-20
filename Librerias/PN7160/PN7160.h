@@ -159,6 +159,16 @@ PN7160_Status_t PN7160_Init(SPI_HandleTypeDef* hspi,
                             GPIO_TypeDef* venPort, uint16_t venPin,
                             GPIO_TypeDef* irqPort, uint16_t irqPin);
 
+/**
+ * @brief Desinicializa el controlador NFC PN7160 dejándolo en Hard Power Down.
+ *
+ * @details Pone VEN en bajo (Hard Power Down, 10.5 µA típ.), cancela el
+ *          descubrimiento por interrupción y libera el handle SPI almacenado.
+ *          No envía comandos NCI.
+ *
+ * @return PN7160_OK si se desinicializó correctamente.
+ * @return PN7160_NOT_INITIALIZED si el módulo no está inicializado.
+ */
 PN7160_Status_t PN7160_DeInit(void);
 
 /**
@@ -196,8 +206,8 @@ PN7160_Status_t PN7160_GetInfo(PN7160_Info_t* info);
  * @param mode PN7160_MODE_READER o PN7160_MODE_CARD.
  *
  * @return PN7160_OK si el modo quedó configurado.
- * @return PN7160_NOT_INITIALIZED si no se llamó antes a PN7160_Init().
  * @return PN7160_INVALID_PARAM si mode no es un PN7160_Mode_t válido.
+ * @return PN7160_NOT_INITIALIZED si no se llamó antes a PN7160_Init().
  * @return PN7160_TIMEOUT si IRQ no se activó a tiempo o el bus SPI no respondió.
  * @return PN7160_ERROR si falla el bus o una respuesta NCI no es la esperada. El
  *         modo anterior se conserva, aunque la configuración puede quedar a medias.
@@ -230,8 +240,8 @@ PN7160_Status_t PN7160_SetMode(PN7160_Mode_t mode);
  *                        activado para PN7160_Transceive().
  *
  * @return PN7160_OK si se detectó un tag y *tag es válido.
- * @return PN7160_NOT_INITIALIZED si no se llamó antes a PN7160_Init().
  * @return PN7160_INVALID_PARAM si tag es NULL.
+ * @return PN7160_NOT_INITIALIZED si no se llamó antes a PN7160_Init().
  * @return PN7160_TIMEOUT si no apareció ningún tag en timeoutMs.
  * @return PN7160_ERROR si falla el bus o una respuesta NCI no es la esperada.
  */
@@ -264,8 +274,8 @@ PN7160_Status_t PN7160_WaitTag(PN7160_Tag_t* tag, uint32_t timeoutMs, uint8_t ke
  * @param[in,out] rxLen Entrada: capacidad de rx. Salida: bytes guardados en rx.
  *
  * @return PN7160_OK si se envió tx y se recibió una respuesta completa.
- * @return PN7160_NOT_INITIALIZED si no se llamó antes a PN7160_Init().
  * @return PN7160_INVALID_PARAM si rx o rxLen son NULL, o tx es NULL con txLen > 0.
+ * @return PN7160_NOT_INITIALIZED si no se llamó antes a PN7160_Init().
  * @return PN7160_TIMEOUT si pasaron PN7160_RF_TIMEOUT_MS sin un paquete, o el
  *         PN7160 reportó timeout RF (CORE_INTERFACE_ERROR_NTF 0xB2).
  * @return PN7160_ERROR si no hay tag activado, el tag/lector se fue
