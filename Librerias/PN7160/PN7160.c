@@ -29,6 +29,7 @@
 
 #define PN7160_MODEL_PN7160     0x61U   /**< Model ID del PN7160 en CORE_RESET_NTF */
 #define PN7160_MODEL_PN7161     0x71U   /**< Model ID del PN7161 en CORE_RESET_NTF */
+#define PN7160_CARD_UID_UNSET   0xFFU   /**< PN7160_CardUidLen: nunca se llamó a SetCardUid, no se envía LA_NFCID1 */
 
 // ============================================================================
 // VARIABLES PRIVADAS
@@ -55,6 +56,8 @@ static uint8_t              PN7160_ItKeepActive     = 0U;   /**< keepActive pedi
 static uint8_t              PN7160_ItSelId          = 0U;   /**< RF Discovery ID elegido entre varios tags (0 = ninguno) */
 static PN7160_Tag_t         PN7160_ItTag;                   /**< Tag que se entrega a PN7160_TagDetectedCallback */
 static PN7160_Info_t        PN7160_Info;                    /**< Model ID y versión de FW del último CORE_RESET_NTF */
+static uint8_t              PN7160_CardUid[10];             /**< NFCID1 a anunciar en modo tarjeta (LA_NFCID1) */
+static uint8_t              PN7160_CardUidLen       = PN7160_CARD_UID_UNSET;    /**< 0/4/7/10, o PN7160_CARD_UID_UNSET */
 
 // ============================================================================
 // FUNCIONES PRIVADAS
@@ -276,7 +279,8 @@ static PN7160_Status_t pn7160_ParseTag(uint8_t tecnologia, uint8_t protocolo,
  *          ambos en sondeo. El resto de protocolos usa Frame RF.
  *        - Tarjeta: RF_DISCOVER_MAP ISO-DEP en escucha -> interfaz ISO-DEP,
  *          RF_SET_LISTEN_MODE_ROUTING ISO-DEP -> DH (el host responde los APDU) y
- *          LA_SEL_INFO = 0x20 (el SEL_RES anuncia ISO-DEP).
+ *          LA_SEL_INFO = 0x20 (el SEL_RES anuncia ISO-DEP) y, si se llamó a
+ *          PN7160_SetCardUid(), LA_NFCID1 en el mismo CORE_SET_CONFIG.
  *
  * @param      mode Modo a configurar.
  * @param[out] rsp  Buffer de trabajo (al menos PN7160_NCI_MAX_LEN bytes).
@@ -293,9 +297,21 @@ static PN7160_Status_t pn7160_ConfigMode(PN7160_Mode_t mode, uint8_t* rsp)
     static const uint8_t routing[]   = { 0x21U, 0x01U, 0x07U, 0x00U, 0x01U, /* RF_SET_LISTEN_MODE_ROUTING_CMD: último mensaje, 1 entrada */
                                          0x01U, 0x03U,                    /* ruta por protocolo, 3 bytes */
                                          0x00U, 0x01U, 0x04U };           /* DH, encendido, ISO-DEP */
-    static const uint8_t selInfo[]   = { 0x20U, 0x02U, 0x04U, 0x01U,      /* CORE_SET_CONFIG_CMD, 1 parámetro */
-                                         0x32U, 0x01U, 0x20U };           /* LA_SEL_INFO = ISO-DEP */
+    uint8_t setCfg[9U + sizeof(PN7160_CardUid)] = { 0x20U, 0x02U, 0x04U, 0x01U,  /* CORE_SET_CONFIG_CMD, 1 parámetro */
+                                                    0x32U, 0x01U, 0x20U };       /* LA_SEL_INFO = ISO-DEP */
+    uint16_t setCfgLen = 7U;
     PN7160_Status_t status;
+
+    // Con PN7160_SetCardUid() se agrega LA_NFCID1 (33 len NFCID1) en el mismo comando
+    if (PN7160_CardUidLen != PN7160_CARD_UID_UNSET)
+    {
+        setCfg[2] = 6U + PN7160_CardUidLen;     /* payload: nParams + 3 de SEL_INFO + 2 + NFCID1 */
+        setCfg[3] = 2U;
+        setCfg[7] = 0x33U;
+        setCfg[8] = PN7160_CardUidLen;
+        memcpy(&setCfg[9], PN7160_CardUid, PN7160_CardUidLen);
+        setCfgLen = 9U + PN7160_CardUidLen;
+    }
 
     if (mode == PN7160_MODE_READER)
     {
@@ -306,7 +322,7 @@ static PN7160_Status_t pn7160_ConfigMode(PN7160_Mode_t mode, uint8_t* rsp)
     {
         status = pn7160_Transceive(mapCard, sizeof(mapCard), rsp);              /* -> 41 00 01 00 */
         if (status == PN7160_OK) { status = pn7160_Transceive(routing, sizeof(routing), rsp); } /* -> 41 01 01 00 */
-        if (status == PN7160_OK) { status = pn7160_Transceive(selInfo, sizeof(selInfo), rsp); } /* -> 40 02 02 00 00 */
+        if (status == PN7160_OK) { status = pn7160_Transceive(setCfg, setCfgLen, rsp); }       /* -> 40 02 02 00 00 */
     }
 
     if (status == PN7160_OK) { PN7160_Mode = mode; }
@@ -675,6 +691,34 @@ PN7160_Status_t PN7160_SetMode(PN7160_Mode_t mode)
     }
 
     return pn7160_ConfigMode(mode, rsp);
+}
+
+/**
+ * @brief Fija el NFCID1 (UID) que anuncia el PN7160 en modo tarjeta.
+ *
+ * @param uid NFCID1 a anunciar; puede ser NULL si len = 0.
+ * @param len 4, 7 o 10 = UID fijo; 0 = UID dinámico generado por el PN7160.
+ *
+ * @return PN7160_Status_t Estado de la operación.
+ */
+PN7160_Status_t PN7160_SetCardUid(const uint8_t* uid, uint8_t len)
+{
+    // 1. Validar parámetros y estado
+    if ((len != 0U && len != 4U && len != 7U && len != 10U) || (uid == NULL && len != 0U))
+    {
+        return PN7160_INVALID_PARAM;
+    }
+    if (!PN7160_Initialized)
+    {
+        return PN7160_NOT_INITIALIZED;
+    }
+
+    // 2. Guardar; pn7160_ConfigMode lo envía en cada SetMode(PN7160_MODE_CARD)
+    if (len != 0U) { memcpy(PN7160_CardUid, uid, len); }
+    PN7160_CardUidLen = len;
+
+    // 3. Si ya está en modo tarjeta, aplicarlo ahora
+    return (PN7160_Mode == PN7160_MODE_CARD) ? PN7160_SetMode(PN7160_MODE_CARD) : PN7160_OK;
 }
 
 

@@ -202,7 +202,8 @@ PN7160_Status_t PN7160_GetInfo(PN7160_Info_t* info);
  *            2. RF_SET_LISTEN_MODE_ROUTING_CMD (21 01 07 00 01 01 03 00 01 04):
  *               ISO-DEP se rutea al DH (el host responde los APDU) en estado encendido.
  *            3. CORE_SET_CONFIG_CMD (20 02 04 01 32 01 20): LA_SEL_INFO = 0x20, el
- *               SEL_RES anuncia ISO-DEP.
+ *               SEL_RES anuncia ISO-DEP. Si se llamó a PN7160_SetCardUid(), el
+ *               mismo comando lleva también LA_NFCID1 (20 02 06+n 02 32 01 20 33 n UID).
  *
  *          En modo tarjeta solo se emula NFC-A; Card Emulation requiere
  *          VBAT > 2.8 V (datasheet, Listener mode).
@@ -217,6 +218,36 @@ PN7160_Status_t PN7160_GetInfo(PN7160_Info_t* info);
  *         modo anterior se conserva, aunque la configuración puede quedar a medias.
  */
 PN7160_Status_t PN7160_SetMode(PN7160_Mode_t mode);
+
+/**
+ * @brief Fija el NFCID1 (UID) que el PN7160 anuncia en modo tarjeta, p. ej. para
+ *        que un lector de control de acceso reconozca siempre al mismo equipo.
+ *
+ * @details Guarda el UID y lo envía como LA_NFCID1 (parámetro NCI 0x33) en cada
+ *          PN7160_SetMode(PN7160_MODE_CARD). Si ya está en modo tarjeta, se
+ *          aplica en el acto con PN7160_SetMode(PN7160_MODE_CARD), que desactiva
+ *          un tag/lector activado y cancela el descubrimiento IT en curso.
+ *
+ *          - Sin llamar nunca a esta función no se envía LA_NFCID1 y el PN7160 usa
+ *            su valor por defecto (UID dinámico).
+ *          - len = 0 vuelve al UID dinámico generado por el PN7160 (LA_NFCID1 de
+ *            longitud 0, NCI 2.0).
+ *          - El UID se conserva tras PN7160_DeInit()/PN7160_Init().
+ *          - No se valida el contenido. Según ISO/IEC 14443-3, un UID de 4 bytes que
+ *            empieza por 0x08 se interpreta como aleatorio, y uid[0] = 0x88 (cascade
+ *            tag) no es válido.
+ *
+ * @param uid NFCID1 a anunciar, en el orden de NCI; puede ser NULL si len = 0.
+ * @param len 4, 7 o 10 = UID fijo; 0 = UID dinámico.
+ *
+ * @return PN7160_OK si el UID quedó guardado (y aplicado, si ya estaba en modo tarjeta).
+ * @return PN7160_INVALID_PARAM si len no es 0/4/7/10, o uid es NULL con len > 0.
+ * @return PN7160_NOT_INITIALIZED si no se llamó antes a PN7160_Init().
+ * @return PN7160_TIMEOUT / PN7160_ERROR como PN7160_SetMode() si ya estaba en modo
+ *         tarjeta y falló al aplicarlo. El UID queda guardado de todas formas y se
+ *         reintenta en el siguiente PN7160_SetMode(PN7160_MODE_CARD).
+ */
+PN7160_Status_t PN7160_SetCardUid(const uint8_t* uid, uint8_t len);
 
 /**
  * @brief Espera un tag (modo lector) o un lector externo (modo tarjeta) hasta
