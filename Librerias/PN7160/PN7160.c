@@ -48,6 +48,13 @@ static uint8_t              PN7160_TagActive        = 0U;   /**< 1 = tag/lector 
 static uint8_t              PN7160_MaxPayload       = 0U;   /**< Max Data Packet Payload Size del RF_INTF_ACTIVATED_NTF */
 static uint8_t              PN7160_Credits          = 0U;   /**< Créditos de la conexión RF estática (0xFF = sin control de flujo) */
 
+/* -- Descubrimiento por interrupción (PN7160_StartDiscoveryIT / PN7160_Process) -- */
+static volatile uint8_t     PN7160_IrqFlag          = 0U;   /**< 1 = IRQ subió (lo pone PN7160_IRQ_Handler desde la ISR) */
+static uint8_t              PN7160_ItArmed          = 0U;   /**< 1 = descubrimiento IT en curso; PN7160_Process lo atiende */
+static uint8_t              PN7160_ItKeepActive     = 0U;   /**< keepActive pedido en PN7160_StartDiscoveryIT */
+static uint8_t              PN7160_ItSelId          = 0U;   /**< RF Discovery ID elegido entre varios tags (0 = ninguno) */
+static PN7160_Tag_t         PN7160_ItTag;                   /**< Tag que se entrega a PN7160_TagDetectedCallback */
+
 // ============================================================================
 // FUNCIONES PRIVADAS
 // ============================================================================
@@ -310,6 +317,7 @@ static PN7160_Status_t pn7160_Deactivate(uint8_t* rsp)
     static const uint8_t rfDeactivate[] = { 0x21U, 0x06U, 0x01U, 0x00U };  /* RF_DEACTIVATE_CMD -> Idle */
 
     PN7160_TagActive = 0U;
+    PN7160_ItArmed   = 0U;  /* cualquier comando que vuelva a Idle cancela el descubrimiento IT */
 
     PN7160_Status_t status = pn7160_Write(rfDeactivate, sizeof(rfDeactivate));
     while (status == PN7160_OK)
@@ -369,6 +377,125 @@ static PN7160_Status_t pn7160_ReadData(uint8_t* buf, uint32_t timeoutMs)
     return PN7160_OK;
 }
 
+/**
+ * @brief Arranca el descubrimiento RF según el modo: deja RFST_IDLE si hacía
+ *        falta y manda RF_DISCOVER_CMD -> RF_DISCOVER_RSP (41 03 01 00).
+ *
+ * @param[out] rsp Buffer de trabajo (al menos PN7160_NCI_MAX_LEN bytes).
+ *
+ * @return PN7160_Status_t Estado de la operación.
+ */
+static PN7160_Status_t pn7160_StartDiscovery(uint8_t* rsp)
+{
+    static const uint8_t rfDiscover[] = { 0x21U, 0x03U, 0x09U, 0x04U,   /* RF_DISCOVER_CMD, 4 configuraciones */
+                                          0x00U, 0x01U,                 /* NFC-A sondeo pasivo, cada periodo */
+                                          0x01U, 0x01U,                 /* NFC-B sondeo pasivo */
+                                          0x02U, 0x01U,                 /* NFC-F sondeo pasivo */
+                                          0x06U, 0x01U };               /* NFC-V sondeo pasivo */
+    static const uint8_t rfListen[]   = { 0x21U, 0x03U, 0x03U, 0x01U,   /* RF_DISCOVER_CMD, 1 configuración */
+                                          0x80U, 0x01U };               /* NFC-A escucha pasiva */
+    PN7160_Status_t status;
+
+    // Si quedó un tag activado (keepActive) o un descubrimiento a medias, volver a RFST_IDLE
+    if (!PN7160_RfIdle)
+    {
+        status = pn7160_Deactivate(rsp);
+        if (status != PN7160_OK) { return status; }
+    }
+
+    if (PN7160_Mode == PN7160_MODE_CARD)
+    {
+        status = pn7160_Transceive(rfListen, sizeof(rfListen), rsp);
+    }
+    else
+    {
+        status = pn7160_Transceive(rfDiscover, sizeof(rfDiscover), rsp);
+    }
+    if (status == PN7160_OK) { PN7160_RfIdle = 0U; }
+
+    return status;
+}
+
+/**
+ * @brief Procesa un paquete leído durante el descubrimiento. Atiende
+ *        RF_INTF_ACTIVATED_NTF (61 05) y RF_DISCOVER_NTF (61 03); el resto se ignora.
+ *
+ *        - 61 05: [3] ID, [4] interfaz, [5] protocolo, [6] tecnología, [7] max payload,
+ *          [8] créditos, [9] long., [10..] parámetros
+ *        - 61 03: [3] ID, [4] protocolo, [5] tecnología, [6] long., [7..] parámetros,
+ *          [7 + long.] tipo (0x02 = vienen más)
+ *
+ * @param         rsp        Paquete leído; se reutiliza como buffer de trabajo.
+ * @param[out]    tag        Tag a rellenar.
+ * @param         keepActive 1 = hay que activar el tag elegido entre varios.
+ * @param[in,out] selId      RF Discovery ID elegido (0 = ninguno todavía).
+ * @param[out]    done       1 = terminó el descubrimiento (tag en *tag si devuelve OK).
+ *
+ * @return PN7160_Status_t Estado de la operación; distinto de OK también termina.
+ */
+static PN7160_Status_t pn7160_DiscoveryStep(uint8_t* rsp, PN7160_Tag_t* tag, uint8_t keepActive,
+                                            uint8_t* selId, uint8_t* done)
+{
+    PN7160_Status_t status = PN7160_OK;
+
+    *done = 0U;
+
+    if (rsp[0] == 0x61U && rsp[1] == 0x05U && rsp[2] >= 7U && rsp[2] >= 7U + rsp[9])
+    {
+        status = pn7160_ParseTag(rsp[6], rsp[5], &rsp[10], rsp[9], tag);
+        PN7160_MaxPayload = (rsp[7] != 0U) ? rsp[7] : 1U;
+        PN7160_Credits    = rsp[8];
+        *done = 1U;
+    }
+    else if (rsp[0] == 0x61U && rsp[1] == 0x03U && rsp[2] >= 4U && rsp[2] >= 4U + rsp[6])
+    {
+        // Varios tags o protocolos: se toma el primero. Sin keepActive basta con sus datos
+        if (*selId == 0U)
+        {
+            status = pn7160_ParseTag(rsp[5], rsp[4], &rsp[7], rsp[6], tag);
+            if (status != PN7160_OK || !keepActive) { *done = 1U; return status; }
+            *selId = rsp[3];
+        }
+
+        // Con keepActive hay que activarlo, pero solo tras la última NTF (RFST_W4_HOST_SELECT):
+        // RF_DISCOVER_SELECT_CMD (21 04) -> RSP (41 04 01 00) -> después llega 61 05
+        if (rsp[2] < 5U + rsp[6] || rsp[7U + rsp[6]] != 0x02U)
+        {
+            uint8_t intf = (tag->protocolo == 0x04U) ? 0x02U :     /* ISO-DEP -> interfaz ISO-DEP */
+                           (tag->protocolo == 0x80U) ? 0x80U :     /* MIFARE  -> interfaz TAG-CMD */
+                                                       0x01U;      /* resto   -> Frame RF */
+            uint8_t select[] = { 0x21U, 0x04U, 0x03U, *selId, tag->protocolo, intf };
+
+            status = pn7160_Transceive(select, sizeof(select), rsp);
+        }
+    }
+
+    return status;
+}
+
+/**
+ * @brief Cierra el descubrimiento: con keepActive y éxito deja el tag activado
+ *        (RFST_POLL_ACTIVE / RFST_LISTEN_ACTIVE); si no, vuelve a RFST_IDLE.
+ *
+ * @param      status     Resultado del descubrimiento.
+ * @param      keepActive 1 = dejar el tag activado si status es OK.
+ * @param[out] rsp        Buffer de trabajo (al menos PN7160_NCI_MAX_LEN bytes).
+ *
+ * @return PN7160_Status_t status, o el error de RF_DEACTIVATE si status era OK.
+ */
+static PN7160_Status_t pn7160_DiscoveryFinish(PN7160_Status_t status, uint8_t keepActive, uint8_t* rsp)
+{
+    if (keepActive && status == PN7160_OK)
+    {
+        PN7160_TagActive = 1U;
+        return PN7160_OK;
+    }
+
+    PN7160_Status_t stop = pn7160_Deactivate(rsp);
+
+    return (status != PN7160_OK) ? status : stop;
+}
+
 // ============================================================================
 // FUNCIONES PÚBLICAS
 // ============================================================================
@@ -415,6 +542,7 @@ PN7160_Status_t PN7160_Init(SPI_HandleTypeDef* hspi,
     PN7160_VEN_Port = venPort;  PN7160_VEN_Pin = venPin;
     PN7160_IRQ_Port = irqPort;  PN7160_IRQ_Pin = irqPin;
     PN7160_RfIdle   = 1U;       PN7160_TagActive = 0U;      /* el reset por VEN deja RFST_IDLE */
+    PN7160_ItArmed  = 0U;       PN7160_IrqFlag   = 0U;
 
     // 3. Reset por hardware: VEN en bajo >= tWL(VEN) = 10 µs, luego en alto
     //    y esperar tboot = 2.5 ms máx. (HAL_Delay garantiza al menos el valor pedido)
@@ -481,6 +609,7 @@ PN7160_Status_t PN7160_DeInit(void)
 
     PN7160_hspi         =   NULL;
     PN7160_Initialized  =   0U;
+    PN7160_ItArmed      =   0U;
 
     return PN7160_OK;
 }
@@ -529,15 +658,9 @@ PN7160_Status_t PN7160_SetMode(PN7160_Mode_t mode)
  */
 PN7160_Status_t PN7160_WaitTag(PN7160_Tag_t* tag, uint32_t timeoutMs, uint8_t keepActive)
 {
-    static const uint8_t rfDiscover[] = { 0x21U, 0x03U, 0x09U, 0x04U,   /* RF_DISCOVER_CMD, 4 configuraciones */
-                                          0x00U, 0x01U,                 /* NFC-A sondeo pasivo, cada periodo */
-                                          0x01U, 0x01U,                 /* NFC-B sondeo pasivo */
-                                          0x02U, 0x01U,                 /* NFC-F sondeo pasivo */
-                                          0x06U, 0x01U };               /* NFC-V sondeo pasivo */
-    static const uint8_t rfListen[]   = { 0x21U, 0x03U, 0x03U, 0x01U,   /* RF_DISCOVER_CMD, 1 configuración */
-                                          0x80U, 0x01U };               /* NFC-A escucha pasiva */
     uint8_t rsp[PN7160_NCI_MAX_LEN];
     uint8_t selId = 0U;     /* RF Discovery ID elegido entre varios tags (0 = ninguno) */
+    uint8_t done  = 0U;
     PN7160_Status_t status;
 
     // 1. Validar estado y parámetros
@@ -550,80 +673,114 @@ PN7160_Status_t PN7160_WaitTag(PN7160_Tag_t* tag, uint32_t timeoutMs, uint8_t ke
         return PN7160_INVALID_PARAM;
     }
 
-    // 2. Si quedó un tag activado (keepActive) o un descubrimiento a medias, volver a RFST_IDLE
-    if (!PN7160_RfIdle)
-    {
-        status = pn7160_Deactivate(rsp);
-        if (status != PN7160_OK) { return status; }
-    }
-
-    // 3. RF_DISCOVER_CMD -> RF_DISCOVER_RSP (41 03 01 00), según el modo
-    if (PN7160_Mode == PN7160_MODE_CARD)
-    {
-        status = pn7160_Transceive(rfListen, sizeof(rfListen), rsp);
-    }
-    else
-    {
-        status = pn7160_Transceive(rfDiscover, sizeof(rfDiscover), rsp);
-    }
+    // 2. [RF_DEACTIVATE] + RF_DISCOVER_CMD -> RF_DISCOVER_RSP, según el modo
+    status = pn7160_StartDiscovery(rsp);
     if (status != PN7160_OK) { return status; }
-    PN7160_RfIdle = 0U;
 
-    // 4. Esperar RF_INTF_ACTIVATED_NTF (61 05) o RF_DISCOVER_NTF (61 03); el resto se ignora
-    //    61 05: [3] ID, [4] interfaz, [5] protocolo, [6] tecnología, [7] max payload, [8] créditos, [9] long., [10..] parámetros
-    //    61 03: [3] ID, [4] protocolo, [5] tecnología, [6] long., [7..] parámetros, [7 + long.] tipo (0x02 = vienen más)
+    // 3. Esperar RF_INTF_ACTIVATED_NTF (61 05) o RF_DISCOVER_NTF (61 03) hasta timeoutMs
     uint32_t start = HAL_GetTick();
-    for (;;)
+    while (status == PN7160_OK && !done)
     {
         uint32_t elapsed = HAL_GetTick() - start;
         if (elapsed >= timeoutMs) { status = PN7160_TIMEOUT; break; }
 
         status = pn7160_Read(rsp, timeoutMs - elapsed);
-        if (status != PN7160_OK) { break; }
-
-        if (rsp[0] == 0x61U && rsp[1] == 0x05U && rsp[2] >= 7U && rsp[2] >= 7U + rsp[9])
-        {
-            status = pn7160_ParseTag(rsp[6], rsp[5], &rsp[10], rsp[9], tag);
-            PN7160_MaxPayload = (rsp[7] != 0U) ? rsp[7] : 1U;
-            PN7160_Credits    = rsp[8];
-            break;
-        }
-        if (rsp[0] == 0x61U && rsp[1] == 0x03U && rsp[2] >= 4U && rsp[2] >= 4U + rsp[6])
-        {
-            // Varios tags o protocolos: se toma el primero. Sin keepActive basta con sus datos
-            if (selId == 0U)
-            {
-                status = pn7160_ParseTag(rsp[5], rsp[4], &rsp[7], rsp[6], tag);
-                if (status != PN7160_OK || !keepActive) { break; }
-                selId = rsp[3];
-            }
-
-            // Con keepActive hay que activarlo, pero solo tras la última NTF (RFST_W4_HOST_SELECT):
-            // RF_DISCOVER_SELECT_CMD (21 04) -> RSP (41 04 01 00) -> después llega 61 05
-            if (rsp[2] < 5U + rsp[6] || rsp[7U + rsp[6]] != 0x02U)
-            {
-                uint8_t intf = (tag->protocolo == 0x04U) ? 0x02U :     /* ISO-DEP -> interfaz ISO-DEP */
-                               (tag->protocolo == 0x80U) ? 0x80U :     /* MIFARE  -> interfaz TAG-CMD */
-                                                           0x01U;      /* resto   -> Frame RF */
-                uint8_t select[] = { 0x21U, 0x04U, 0x03U, selId, tag->protocolo, intf };
-
-                status = pn7160_Transceive(select, sizeof(select), rsp);
-                if (status != PN7160_OK) { break; }
-            }
-        }
+        if (status == PN7160_OK) { status = pn7160_DiscoveryStep(rsp, tag, keepActive, &selId, &done); }
     }
 
-    // 5. Con keepActive y tag activado, quedarse en RFST_POLL_ACTIVE / RFST_LISTEN_ACTIVE
-    if (keepActive && status == PN7160_OK)
+    // 4. Dejar el tag activado (keepActive) o volver a RFST_IDLE
+    return pn7160_DiscoveryFinish(status, keepActive, rsp);
+}
+
+/**
+ * @brief Arranca el descubrimiento RF sin bloquear; PN7160_Process() lo atiende.
+ *
+ * @param keepActive 0 = volver a RFST_IDLE tras el callback; 1 = dejar el tag
+ *                   activado para PN7160_Transceive().
+ *
+ * @return PN7160_Status_t Estado de la operación.
+ */
+PN7160_Status_t PN7160_StartDiscoveryIT(uint8_t keepActive)
+{
+    uint8_t rsp[PN7160_NCI_MAX_LEN];
+
+    if (!PN7160_Initialized)
     {
-        PN7160_TagActive = 1U;
+        return PN7160_NOT_INITIALIZED;
+    }
+
+    PN7160_Status_t status = pn7160_StartDiscovery(rsp);
+    if (status != PN7160_OK) { return status; }
+
+    PN7160_ItKeepActive = keepActive;
+    PN7160_ItSelId      = 0U;
+    PN7160_ItArmed      = 1U;
+
+    return PN7160_OK;
+}
+
+/**
+ * @brief Marca que IRQ subió. Llamar desde HAL_GPIO_EXTI_Callback(); no usa SPI.
+ */
+void PN7160_IRQ_Handler(void)
+{
+    PN7160_IrqFlag = 1U;
+}
+
+/**
+ * @brief Atiende el descubrimiento IT desde el bucle principal: lee el paquete
+ *        pendiente y, al detectar un tag, llama a PN7160_TagDetectedCallback().
+ *
+ * @return PN7160_Status_t Estado de la operación.
+ */
+PN7160_Status_t PN7160_Process(void)
+{
+    uint8_t rsp[PN7160_NCI_MAX_LEN];
+    uint8_t done = 0U;
+
+    if (!PN7160_Initialized)
+    {
+        return PN7160_NOT_INITIALIZED;
+    }
+
+    if (!PN7160_ItArmed || !PN7160_IrqFlag)
+    {
         return PN7160_OK;
     }
 
-    // 6. En cualquier otro caso volver a RFST_IDLE
-    PN7160_Status_t stop = pn7160_Deactivate(rsp);
+    // La bandera solo avisa: se lee mientras IRQ siga en alto. Así no se espera
+    // por flancos de respuestas ya leídas (p. ej. el RF_DISCOVER_RSP), y un flanco
+    // que llegue tras limpiar la bandera la vuelve a poner para la siguiente llamada
+    PN7160_IrqFlag = 0U;
 
-    return (status != PN7160_OK) ? status : stop;
+    PN7160_Status_t status = PN7160_OK;
+    while (status == PN7160_OK && !done &&
+           HAL_GPIO_ReadPin(PN7160_IRQ_Port, PN7160_IRQ_Pin) == GPIO_PIN_SET)
+    {
+        status = pn7160_Read(rsp, PN7160_TIMEOUT_MS);
+        if (status == PN7160_OK)
+        {
+            status = pn7160_DiscoveryStep(rsp, &PN7160_ItTag, PN7160_ItKeepActive, &PN7160_ItSelId, &done);
+        }
+    }
+    if (status == PN7160_OK && !done) { return PN7160_OK; }
+
+    // Terminó: se desarma antes del callback para que este pueda volver a armar
+    PN7160_ItArmed = 0U;
+    status = pn7160_DiscoveryFinish(status, PN7160_ItKeepActive, rsp);
+    if (status == PN7160_OK) { PN7160_TagDetectedCallback(&PN7160_ItTag); }
+
+    return status;
+}
+
+/**
+ * @brief Callback de tag detectado. Implementación vacía; redefinirla en la aplicación.
+ *
+ * @param tag Datos del tag detectado.
+ */
+__weak void PN7160_TagDetectedCallback(const PN7160_Tag_t* tag)
+{
+    (void)tag;
 }
 
 /**
@@ -706,4 +863,27 @@ PN7160_Status_t PN7160_Transceive(const uint8_t* tx, uint16_t txLen, uint8_t* rx
     *rxLen = got;
 
     return overflow ? PN7160_ERROR : PN7160_OK;
+}
+
+/**
+ * @brief Desactiva el tag/lector y apaga el campo RF (vuelve a RFST_IDLE).
+ *
+ * @return PN7160_Status_t Estado de la operación.
+ */
+PN7160_Status_t PN7160_ReleaseTag(void)
+{
+    uint8_t rsp[PN7160_NCI_MAX_LEN];
+
+    if (!PN7160_Initialized)
+    {
+        return PN7160_NOT_INITIALIZED;
+    }
+
+    // Ya en RFST_IDLE: nada que hacer
+    if (PN7160_RfIdle)
+    {
+        return PN7160_OK;
+    }
+
+    return pn7160_Deactivate(rsp);
 }

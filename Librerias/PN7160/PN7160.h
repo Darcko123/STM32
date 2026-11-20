@@ -241,6 +241,104 @@ PN7160_Status_t PN7160_WaitTag(PN7160_Tag_t* tag, uint32_t timeoutMs, uint8_t ke
  */
 PN7160_Status_t PN7160_Transceive(const uint8_t* tx, uint16_t txLen, uint8_t* rx, uint16_t* rxLen);
 
+/**
+ * @brief Desactiva el tag/lector que dejó PN7160_WaitTag(..., keepActive = 1) y
+ *        apaga el campo RF.
+ *
+ * @details RF_DEACTIVATE_CMD (21 06 01 00) -> RSP (41 06) [-> NTF (61 06)]: el
+ *          PN7160 vuelve a RFST_IDLE. Llamarla tras el último PN7160_Transceive()
+ *          ahorra energía; si ya está en RFST_IDLE no hace nada. También sirve tras
+ *          un PN7160_Transceive() que devolvió error porque el tag/lector se fue.
+ *
+ * @return PN7160_OK si el PN7160 quedó en RFST_IDLE.
+ * @return PN7160_NOT_INITIALIZED si no se llamó antes a PN7160_Init().
+ * @return PN7160_TIMEOUT si IRQ no se activó a tiempo o el bus SPI no respondió.
+ * @return PN7160_ERROR si falla el bus o la respuesta NCI no es la esperada.
+ */
+PN7160_Status_t PN7160_ReleaseTag(void);
+
+// ----------------------------------------------------------------------------
+// Descubrimiento por interrupción (EXTI + callback), sin timeout
+// ----------------------------------------------------------------------------
+
+/**
+ * @brief Arranca el descubrimiento RF sin bloquear. Es la versión por
+ *        interrupción de PN7160_WaitTag(): no tiene timeout y el tag se entrega
+ *        en PN7160_TagDetectedCallback(), llamado desde PN7160_Process().
+ *
+ * @details Hace los pasos 1 y 2 de PN7160_WaitTag() y regresa; los pasos 3 y 4
+ *          los hace PN7160_Process() conforme llegan las NTF. El descubrimiento
+ *          sigue hasta que aparece un tag o se cancela con PN7160_ReleaseTag(),
+ *          PN7160_SetMode() o PN7160_WaitTag(). Es de un solo disparo: para seguir
+ *          leyendo tags hay que volver a llamarla (se puede desde el callback).
+ *
+ *          Configuración previa (p. ej. en STM32CubeMX):
+ *          - IRQ como GPIO_EXTI con flanco de subida (External Interrupt Mode with
+ *            Rising edge trigger detection) y su línea EXTI habilitada en el NVIC.
+ *          - HAL_GPIO_EXTI_Callback() debe llamar a PN7160_IRQ_Handler().
+ *
+ * @param keepActive 0 = volver a RFST_IDLE antes del callback; 1 = dejar el tag
+ *                   activado para PN7160_Transceive() (se puede usar dentro del
+ *                   callback) hasta PN7160_ReleaseTag() o el siguiente descubrimiento.
+ *
+ * @return PN7160_OK si el PN7160 quedó descubriendo.
+ * @return PN7160_NOT_INITIALIZED si no se llamó antes a PN7160_Init().
+ * @return PN7160_TIMEOUT si IRQ no se activó a tiempo o el bus SPI no respondió.
+ * @return PN7160_ERROR si falla el bus o la respuesta NCI no es la esperada.
+ */
+PN7160_Status_t PN7160_StartDiscoveryIT(uint8_t keepActive);
+
+/**
+ * @brief Manejador de IRQ del PN7160. Llamar desde HAL_GPIO_EXTI_Callback().
+ *
+ *        Se ejecuta en contexto de interrupción: solo activa una bandera, NO usa
+ *        SPI. El trabajo lo hace PN7160_Process() en el bucle principal.
+ *
+ * Ejemplo de integración en main.c:
+ * @code
+ *   void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+ *       if (GPIO_Pin == NFC_IRQ_Pin) {
+ *           PN7160_IRQ_Handler();
+ *       }
+ *   }
+ * @endcode
+ */
+void PN7160_IRQ_Handler(void);
+
+/**
+ * @brief Atiende el descubrimiento arrancado con PN7160_StartDiscoveryIT().
+ *        Llamar en el bucle principal, nunca desde una ISR.
+ *
+ * @details Si PN7160_IRQ_Handler() no marcó nada, regresa de inmediato. Si no,
+ *          lee los paquetes pendientes (mientras IRQ siga en alto) y, cuando se
+ *          activa un tag, cierra el descubrimiento como PN7160_WaitTag() (paso 4)
+ *          y llama a PN7160_TagDetectedCallback(). Solo bloquea lo que dura leer un
+ *          paquete o un intercambio comando/respuesta (PN7160_TIMEOUT_MS como máximo).
+ *
+ * @return PN7160_OK si no había nada que hacer, el descubrimiento sigue o se
+ *         entregó un tag al callback.
+ * @return PN7160_NOT_INITIALIZED si no se llamó antes a PN7160_Init().
+ * @return PN7160_TIMEOUT si el bus SPI no respondió a tiempo.
+ * @return PN7160_ERROR si falla el bus o una NTF no es válida. En ambos errores el
+ *         descubrimiento termina sin callback; volver a llamar a
+ *         PN7160_StartDiscoveryIT().
+ */
+PN7160_Status_t PN7160_Process(void);
+
+/**
+ * @brief Callback de tag detectado (modo lector) o lector externo activado
+ *        (modo tarjeta). Lo llama PN7160_Process().
+ *
+ *        Definida como __weak en la librería; redefinirla en la aplicación.
+ *        Se ejecuta en el contexto de PN7160_Process() (no en la ISR), así que
+ *        puede llamar a PN7160_Transceive(), PN7160_ReleaseTag() o
+ *        PN7160_StartDiscoveryIT().
+ *
+ * @param tag Datos del tag; el puntero sigue siendo válido hasta el siguiente
+ *            PN7160_StartDiscoveryIT().
+ */
+void PN7160_TagDetectedCallback(const PN7160_Tag_t* tag);
+
 #ifdef __cplusplus
 }
 #endif
