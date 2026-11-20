@@ -26,6 +26,10 @@
 #define PN7160_TIMEOUT_MS   100U    /**< Timeout de SPI y de espera de IRQ en ms (redefinible antes de incluir) */
 #endif
 
+#ifndef PN7160_RF_TIMEOUT_MS
+#define PN7160_RF_TIMEOUT_MS 1000U  /**< Espera de cada paquete de datos/créditos en PN7160_Transceive, en ms (redefinible antes de incluir) */
+#endif
+
 #ifndef PN7160_BOOT_MS
 #define PN7160_BOOT_MS      3U      /**< Espera tras subir VEN en ms; tboot = 2.5 ms máx. (redefinible antes de incluir) */
 #endif
@@ -172,18 +176,25 @@ PN7160_Status_t PN7160_SetMode(PN7160_Mode_t mode);
  *        que se active o se agote el tiempo.
  *
  * @details Secuencia NCI 2.0:
- *          1. RF_DISCOVER_CMD (21 03) -> RF_DISCOVER_RSP (41 03 01 00). En modo
+ *          1. Si una llamada anterior dejó un tag activado, RF_DEACTIVATE_CMD
+ *             primero (ver paso 4).
+ *          2. RF_DISCOVER_CMD (21 03) -> RF_DISCOVER_RSP (41 03 01 00). En modo
  *             lector, NFC-A/B/F/V en sondeo; en modo tarjeta, NFC-A en escucha
  *             (21 03 03 01 80 01). En modo tarjeta, tag->uidLen = 0.
- *          2. Espera RF_INTF_ACTIVATED_NTF (61 05), o RF_DISCOVER_NTF (61 03) si
+ *          3. Espera RF_INTF_ACTIVATED_NTF (61 05), o RF_DISCOVER_NTF (61 03) si
  *             hay varios tags o protocolos; se toma el primero. Del bloque "RF
- *             Technology Specific Parameters" se extrae el identificador.
- *          3. RF_DEACTIVATE_CMD (21 06 01 00) -> RSP (41 06) [-> NTF (61 06)],
- *             siempre, haya tag o no: el PN7160 vuelve a RFST_IDLE y se puede volver
- *             a llamar.
+ *             Technology Specific Parameters" se extrae el identificador. Con
+ *             keepActive y varios tags, tras la última 61 03 se activa el primero
+ *             con RF_DISCOVER_SELECT_CMD (21 04) y se espera su 61 05.
+ *          4. Sin keepActive, o si algo falló: RF_DEACTIVATE_CMD (21 06 01 00) ->
+ *             RSP (41 06) [-> NTF (61 06)] y el PN7160 vuelve a RFST_IDLE. Con
+ *             keepActive y éxito, el tag queda activado (campo RF encendido) para
+ *             PN7160_Transceive() hasta el siguiente WaitTag/SetMode.
  *
- * @param[out] tag       Datos del tag detectado.
- * @param      timeoutMs Tiempo máximo de espera de un tag, en ms.
+ * @param[out] tag        Datos del tag detectado.
+ * @param      timeoutMs  Tiempo máximo de espera de un tag, en ms.
+ * @param      keepActive 0 = volver a RFST_IDLE al terminar; 1 = dejar el tag
+ *                        activado para PN7160_Transceive().
  *
  * @return PN7160_OK si se detectó un tag y *tag es válido.
  * @return PN7160_NOT_INITIALIZED si no se llamó antes a PN7160_Init().
@@ -191,7 +202,44 @@ PN7160_Status_t PN7160_SetMode(PN7160_Mode_t mode);
  * @return PN7160_TIMEOUT si no apareció ningún tag en timeoutMs.
  * @return PN7160_ERROR si falla el bus o una respuesta NCI no es la esperada.
  */
-PN7160_Status_t PN7160_WaitTag(PN7160_Tag_t* tag, uint32_t timeoutMs);
+PN7160_Status_t PN7160_WaitTag(PN7160_Tag_t* tag, uint32_t timeoutMs, uint8_t keepActive);
+
+/**
+ * @brief Intercambia datos con el tag (modo lector) o el lector externo (modo
+ *        tarjeta) activado por PN7160_WaitTag(..., keepActive = 1).
+ *
+ * @details Usa paquetes de datos NCI por la conexión RF estática (ConnID 0):
+ *          1. tx se parte en segmentos de "Max Data Packet Payload Size" (del
+ *             RF_INTF_ACTIVATED_NTF) con PBF = 1 salvo el último. Cada segmento
+ *             gasta un crédito; si no quedan, se espera CORE_CONN_CREDITS_NTF (60 06).
+ *          2. Se reciben segmentos hasta el que trae PBF = 0 y se concatenan en rx.
+ *
+ *          Formato de los datos, según la interfaz que eligió el discover map:
+ *          - ISO-DEP (protocolo 0x04): APDU completos, sin bytes extra.
+ *          - Frame RF (T2T, T5T, ...): rx termina con un byte de estado NCI
+ *            (0x00 = OK) que no viene del tag.
+ *          - TAG-CMD (MIFARE Classic, 0x80): tx y rx llevan el formato propietario
+ *            NXP (0x10 = intercambio de datos, 0x40 = autenticación; UM11495).
+ *
+ *          En modo tarjeta el orden es inverso: con txLen = 0 se recibe el primer
+ *          C-APDU, y en las siguientes llamadas tx es la R-APDU y rx el siguiente
+ *          C-APDU.
+ *
+ * @param         tx    Datos a enviar; puede ser NULL si txLen = 0.
+ * @param         txLen Bytes a enviar; 0 = solo recibir.
+ * @param[out]    rx    Buffer de recepción.
+ * @param[in,out] rxLen Entrada: capacidad de rx. Salida: bytes guardados en rx.
+ *
+ * @return PN7160_OK si se envió tx y se recibió una respuesta completa.
+ * @return PN7160_NOT_INITIALIZED si no se llamó antes a PN7160_Init().
+ * @return PN7160_INVALID_PARAM si rx o rxLen son NULL, o tx es NULL con txLen > 0.
+ * @return PN7160_TIMEOUT si pasaron PN7160_RF_TIMEOUT_MS sin un paquete, o el
+ *         PN7160 reportó timeout RF (CORE_INTERFACE_ERROR_NTF 0xB2).
+ * @return PN7160_ERROR si no hay tag activado, el tag/lector se fue
+ *         (RF_DEACTIVATE_NTF), hubo otro error RF, o la respuesta no cupo en rx
+ *         (*rxLen = bytes que sí cupieron).
+ */
+PN7160_Status_t PN7160_Transceive(const uint8_t* tx, uint16_t txLen, uint8_t* rx, uint16_t* rxLen);
 
 #ifdef __cplusplus
 }

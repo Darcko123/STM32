@@ -9,6 +9,7 @@
  */
 
 #include "PN7160.h"
+#include <string.h>
 
 // ============================================================================
 // MACROS PRIVADAS
@@ -22,6 +23,9 @@
 #define PN7160_NCI_HEADER_LEN   3U      /**< Cabecera NCI: MT/GID, OID, longitud del payload */
 #define PN7160_NCI_MAX_LEN      (PN7160_NCI_HEADER_LEN + 255U)  /**< Paquete NCI más largo posible */
 #define PN7160_NCI_STATUS_OK    0x00U   /**< STATUS_OK en las respuestas NCI */
+#define PN7160_NCI_PBF          0x10U   /**< Packet Boundary Flag: 1 = siguen más segmentos */
+#define PN7160_NCI_RF_TIMEOUT   0xB2U   /**< STATUS_RF_TIMEOUT_EXCEPTION en CORE_INTERFACE_ERROR_NTF */
+#define PN7160_CREDITS_OFF      0xFFU   /**< Créditos = 0xFF: control de flujo deshabilitado */
 
 #define PN7160_MODEL_PN7160     0x61U   /**< Model ID del PN7160 en CORE_RESET_NTF */
 #define PN7160_MODEL_PN7161     0x71U   /**< Model ID del PN7161 en CORE_RESET_NTF */
@@ -39,6 +43,10 @@ static GPIO_TypeDef*        PN7160_IRQ_Port         = NULL; /**< Puerto del pin 
 static uint16_t             PN7160_IRQ_Pin          = 0U;   /**< Pin IRQ */
 static uint8_t              PN7160_Initialized      = 0U;   /**< Bandera para verificar si el módulo está inicializado */
 static PN7160_Mode_t        PN7160_Mode             = PN7160_MODE_READER;   /**< Modo RF configurado; decide qué sondea/escucha WaitTag */
+static uint8_t              PN7160_RfIdle           = 1U;   /**< 1 = RFST_IDLE; 0 = hay que mandar RF_DEACTIVATE antes de otro comando RF */
+static uint8_t              PN7160_TagActive        = 0U;   /**< 1 = tag/lector activado, se permite PN7160_Transceive */
+static uint8_t              PN7160_MaxPayload       = 0U;   /**< Max Data Packet Payload Size del RF_INTF_ACTIVATED_NTF */
+static uint8_t              PN7160_Credits          = 0U;   /**< Créditos de la conexión RF estática (0xFF = sin control de flujo) */
 
 // ============================================================================
 // FUNCIONES PRIVADAS
@@ -288,6 +296,79 @@ static PN7160_Status_t pn7160_ConfigMode(PN7160_Mode_t mode, uint8_t* rsp)
     return status;
 }
 
+/**
+ * @brief Vuelve a RFST_IDLE: RF_DEACTIVATE_CMD -> RSP (41 06) [-> NTF (61 06)],
+ *        ignorando las NTF que se crucen (p. ej. un tag activado justo al vencer
+ *        el timeout o créditos pendientes).
+ *
+ * @param[out] rsp Buffer de trabajo (al menos PN7160_NCI_MAX_LEN bytes).
+ *
+ * @return PN7160_Status_t Estado de la operación.
+ */
+static PN7160_Status_t pn7160_Deactivate(uint8_t* rsp)
+{
+    static const uint8_t rfDeactivate[] = { 0x21U, 0x06U, 0x01U, 0x00U };  /* RF_DEACTIVATE_CMD -> Idle */
+
+    PN7160_TagActive = 0U;
+
+    PN7160_Status_t status = pn7160_Write(rfDeactivate, sizeof(rfDeactivate));
+    while (status == PN7160_OK)
+    {
+        status = pn7160_Read(rsp, PN7160_TIMEOUT_MS);
+        if (rsp[0] == 0x41U && rsp[1] == 0x06U) { break; }
+    }
+    if (status == PN7160_OK && (rsp[2] < 1U || rsp[3] != PN7160_NCI_STATUS_OK))
+    {
+        status = PN7160_ERROR;
+    }
+
+    // RF_DEACTIVATE_NTF (61 06): llega si había un tag activado; desde
+    // RFST_DISCOVERY puede no llegar, así que su timeout no es un error
+    if (status == PN7160_OK)
+    {
+        (void)pn7160_Read(rsp, PN7160_TIMEOUT_MS);
+        PN7160_RfIdle = 1U;
+    }
+
+    return status;
+}
+
+/**
+ * @brief Lee un paquete durante el intercambio de datos y procesa los de control:
+ *        - CORE_CONN_CREDITS_NTF (60 06): suma los créditos devueltos.
+ *        - CORE_INTERFACE_ERROR_NTF (60 08): error RF del intercambio en curso.
+ *        - RF_DEACTIVATE_NTF (61 06): el tag/lector se fue.
+ *
+ * @param[out] buf       Buffer de destino (al menos PN7160_NCI_MAX_LEN bytes).
+ * @param      timeoutMs Tiempo máximo de espera de IRQ en ms.
+ *
+ * @return PN7160_Status_t PN7160_OK si se leyó un paquete (de datos o de créditos).
+ */
+static PN7160_Status_t pn7160_ReadData(uint8_t* buf, uint32_t timeoutMs)
+{
+    PN7160_Status_t status = pn7160_Read(buf, timeoutMs);
+    if (status != PN7160_OK) { return status; }
+
+    if (buf[0] == 0x60U && buf[1] == 0x06U && buf[2] >= 3U && PN7160_Credits != PN7160_CREDITS_OFF)
+    {
+        // 60 06 len | nEntradas, ConnID, créditos (solo existe la conexión 0)
+        PN7160_Credits += buf[5];
+    }
+    else if (buf[0] == 0x60U && buf[1] == 0x08U && buf[2] >= 1U)
+    {
+        return (buf[3] == PN7160_NCI_RF_TIMEOUT) ? PN7160_TIMEOUT : PN7160_ERROR;
+    }
+    else if (buf[0] == 0x61U && buf[1] == 0x06U)
+    {
+        // Sigue fuera de RFST_IDLE (vuelve a descubrimiento): el próximo
+        // WaitTag/SetMode manda RF_DEACTIVATE
+        PN7160_TagActive = 0U;
+        return PN7160_ERROR;
+    }
+
+    return PN7160_OK;
+}
+
 // ============================================================================
 // FUNCIONES PÚBLICAS
 // ============================================================================
@@ -333,6 +414,7 @@ PN7160_Status_t PN7160_Init(SPI_HandleTypeDef* hspi,
     PN7160_NSS_Port = nssPort;  PN7160_NSS_Pin = nssPin;
     PN7160_VEN_Port = venPort;  PN7160_VEN_Pin = venPin;
     PN7160_IRQ_Port = irqPort;  PN7160_IRQ_Pin = irqPin;
+    PN7160_RfIdle   = 1U;       PN7160_TagActive = 0U;      /* el reset por VEN deja RFST_IDLE */
 
     // 3. Reset por hardware: VEN en bajo >= tWL(VEN) = 10 µs, luego en alto
     //    y esperar tboot = 2.5 ms máx. (HAL_Delay garantiza al menos el valor pedido)
@@ -423,19 +505,29 @@ PN7160_Status_t PN7160_SetMode(PN7160_Mode_t mode)
         return PN7160_INVALID_PARAM;
     }
 
+    // Los comandos de configuración RF solo valen en RFST_IDLE
+    if (!PN7160_RfIdle)
+    {
+        PN7160_Status_t status = pn7160_Deactivate(rsp);
+        if (status != PN7160_OK) { return status; }
+    }
+
     return pn7160_ConfigMode(mode, rsp);
 }
+
 
 /**
  * @brief Sondea NFC-A/B/F/V (lector) o escucha como NFC-A (tarjeta) hasta que
  *        se active un tag/lector o se agote timeoutMs.
  *
- * @param[out] tag       Datos del tag detectado.
- * @param      timeoutMs Tiempo máximo de espera de un tag, en ms.
+ * @param[out] tag        Datos del tag detectado.
+ * @param      timeoutMs  Tiempo máximo de espera de un tag, en ms.
+ * @param      keepActive 0 = volver a RFST_IDLE al terminar; 1 = dejar el tag
+ *                        activado para PN7160_Transceive().
  *
  * @return PN7160_Status_t Estado de la operación.
  */
-PN7160_Status_t PN7160_WaitTag(PN7160_Tag_t* tag, uint32_t timeoutMs)
+PN7160_Status_t PN7160_WaitTag(PN7160_Tag_t* tag, uint32_t timeoutMs, uint8_t keepActive)
 {
     static const uint8_t rfDiscover[] = { 0x21U, 0x03U, 0x09U, 0x04U,   /* RF_DISCOVER_CMD, 4 configuraciones */
                                           0x00U, 0x01U,                 /* NFC-A sondeo pasivo, cada periodo */
@@ -444,8 +536,8 @@ PN7160_Status_t PN7160_WaitTag(PN7160_Tag_t* tag, uint32_t timeoutMs)
                                           0x06U, 0x01U };               /* NFC-V sondeo pasivo */
     static const uint8_t rfListen[]   = { 0x21U, 0x03U, 0x03U, 0x01U,   /* RF_DISCOVER_CMD, 1 configuración */
                                           0x80U, 0x01U };               /* NFC-A escucha pasiva */
-    static const uint8_t rfDeactivate[] = { 0x21U, 0x06U, 0x01U, 0x00U };  /* RF_DEACTIVATE_CMD -> Idle */
     uint8_t rsp[PN7160_NCI_MAX_LEN];
+    uint8_t selId = 0U;     /* RF Discovery ID elegido entre varios tags (0 = ninguno) */
     PN7160_Status_t status;
 
     // 1. Validar estado y parámetros
@@ -458,7 +550,14 @@ PN7160_Status_t PN7160_WaitTag(PN7160_Tag_t* tag, uint32_t timeoutMs)
         return PN7160_INVALID_PARAM;
     }
 
-    // 2. RF_DISCOVER_CMD -> RF_DISCOVER_RSP (41 03 01 00), según el modo
+    // 2. Si quedó un tag activado (keepActive) o un descubrimiento a medias, volver a RFST_IDLE
+    if (!PN7160_RfIdle)
+    {
+        status = pn7160_Deactivate(rsp);
+        if (status != PN7160_OK) { return status; }
+    }
+
+    // 3. RF_DISCOVER_CMD -> RF_DISCOVER_RSP (41 03 01 00), según el modo
     if (PN7160_Mode == PN7160_MODE_CARD)
     {
         status = pn7160_Transceive(rfListen, sizeof(rfListen), rsp);
@@ -468,10 +567,11 @@ PN7160_Status_t PN7160_WaitTag(PN7160_Tag_t* tag, uint32_t timeoutMs)
         status = pn7160_Transceive(rfDiscover, sizeof(rfDiscover), rsp);
     }
     if (status != PN7160_OK) { return status; }
+    PN7160_RfIdle = 0U;
 
-    // 3. Esperar RF_INTF_ACTIVATED_NTF (61 05) o RF_DISCOVER_NTF (61 03); el resto se ignora
+    // 4. Esperar RF_INTF_ACTIVATED_NTF (61 05) o RF_DISCOVER_NTF (61 03); el resto se ignora
     //    61 05: [3] ID, [4] interfaz, [5] protocolo, [6] tecnología, [7] max payload, [8] créditos, [9] long., [10..] parámetros
-    //    61 03: [3] ID, [4] protocolo, [5] tecnología, [6] long., [7..] parámetros
+    //    61 03: [3] ID, [4] protocolo, [5] tecnología, [6] long., [7..] parámetros, [7 + long.] tipo (0x02 = vienen más)
     uint32_t start = HAL_GetTick();
     for (;;)
     {
@@ -484,34 +584,126 @@ PN7160_Status_t PN7160_WaitTag(PN7160_Tag_t* tag, uint32_t timeoutMs)
         if (rsp[0] == 0x61U && rsp[1] == 0x05U && rsp[2] >= 7U && rsp[2] >= 7U + rsp[9])
         {
             status = pn7160_ParseTag(rsp[6], rsp[5], &rsp[10], rsp[9], tag);
+            PN7160_MaxPayload = (rsp[7] != 0U) ? rsp[7] : 1U;
+            PN7160_Credits    = rsp[8];
             break;
         }
         if (rsp[0] == 0x61U && rsp[1] == 0x03U && rsp[2] >= 4U && rsp[2] >= 4U + rsp[6])
         {
-            status = pn7160_ParseTag(rsp[5], rsp[4], &rsp[7], rsp[6], tag);
-            break;
+            // Varios tags o protocolos: se toma el primero. Sin keepActive basta con sus datos
+            if (selId == 0U)
+            {
+                status = pn7160_ParseTag(rsp[5], rsp[4], &rsp[7], rsp[6], tag);
+                if (status != PN7160_OK || !keepActive) { break; }
+                selId = rsp[3];
+            }
+
+            // Con keepActive hay que activarlo, pero solo tras la última NTF (RFST_W4_HOST_SELECT):
+            // RF_DISCOVER_SELECT_CMD (21 04) -> RSP (41 04 01 00) -> después llega 61 05
+            if (rsp[2] < 5U + rsp[6] || rsp[7U + rsp[6]] != 0x02U)
+            {
+                uint8_t intf = (tag->protocolo == 0x04U) ? 0x02U :     /* ISO-DEP -> interfaz ISO-DEP */
+                               (tag->protocolo == 0x80U) ? 0x80U :     /* MIFARE  -> interfaz TAG-CMD */
+                                                           0x01U;      /* resto   -> Frame RF */
+                uint8_t select[] = { 0x21U, 0x04U, 0x03U, selId, tag->protocolo, intf };
+
+                status = pn7160_Transceive(select, sizeof(select), rsp);
+                if (status != PN7160_OK) { break; }
+            }
         }
     }
 
-    // 4. Volver siempre a RFST_IDLE: RF_DEACTIVATE_CMD -> RSP (41 06), ignorando
-    //    las NTF que se crucen (p. ej. un tag activado justo al vencer el timeout)
-    PN7160_Status_t stop = pn7160_Write(rfDeactivate, sizeof(rfDeactivate));
-    while (stop == PN7160_OK)
+    // 5. Con keepActive y tag activado, quedarse en RFST_POLL_ACTIVE / RFST_LISTEN_ACTIVE
+    if (keepActive && status == PN7160_OK)
     {
-        stop = pn7160_Read(rsp, PN7160_TIMEOUT_MS);
-        if (rsp[0] == 0x41U && rsp[1] == 0x06U) { break; }
-    }
-    if (stop == PN7160_OK && (rsp[2] < 1U || rsp[3] != PN7160_NCI_STATUS_OK))
-    {
-        stop = PN7160_ERROR;
+        PN7160_TagActive = 1U;
+        return PN7160_OK;
     }
 
-    // 5. Descartar RF_DEACTIVATE_NTF (61 06): llega si había un tag activado; desde
-    //    RFST_DISCOVERY puede no llegar, así que su timeout no es un error
-    if (stop == PN7160_OK)
-    {
-        (void)pn7160_Read(rsp, PN7160_TIMEOUT_MS);
-    }
+    // 6. En cualquier otro caso volver a RFST_IDLE
+    PN7160_Status_t stop = pn7160_Deactivate(rsp);
 
     return (status != PN7160_OK) ? status : stop;
+}
+
+/**
+ * @brief Intercambia datos con el tag/lector activado por PN7160_WaitTag(..., 1).
+ *
+ * @param      tx    Datos a enviar (puede ser NULL si txLen = 0).
+ * @param      txLen Bytes a enviar; 0 = solo recibir (modo tarjeta: primer C-APDU).
+ * @param[out] rx    Buffer de recepción.
+ * @param[in,out] rxLen Entrada: capacidad de rx. Salida: bytes recibidos.
+ *
+ * @return PN7160_Status_t Estado de la operación.
+ */
+PN7160_Status_t PN7160_Transceive(const uint8_t* tx, uint16_t txLen, uint8_t* rx, uint16_t* rxLen)
+{
+    uint8_t buf[PN7160_NCI_MAX_LEN];
+    PN7160_Status_t status = PN7160_OK;
+    uint16_t sent     = 0U;
+    uint16_t got      = 0U;
+    uint8_t  overflow = 0U;
+
+    // 1. Validar estado y parámetros
+    if (!PN7160_Initialized)
+    {
+        return PN7160_NOT_INITIALIZED;
+    }
+    if ((tx == NULL && txLen > 0U) || rx == NULL || rxLen == NULL)
+    {
+        return PN7160_INVALID_PARAM;
+    }
+    if (!PN7160_TagActive)
+    {
+        return PN7160_ERROR;
+    }
+
+    uint16_t cap = *rxLen;
+    *rxLen = 0U;
+
+    // 2. Enviar tx por la conexión RF estática (ConnID 0) en segmentos de MaxPayload
+    //    bytes: 0x10 00 len (PBF = 1) ... 0x00 00 len (último). Cada uno gasta un crédito
+    while (sent < txLen)
+    {
+        uint16_t seg = txLen - sent;
+        if (seg > PN7160_MaxPayload) { seg = PN7160_MaxPayload; }
+
+        while (PN7160_Credits == 0U && status == PN7160_OK)
+        {
+            status = pn7160_ReadData(buf, PN7160_RF_TIMEOUT_MS);
+        }
+        if (status != PN7160_OK) { return status; }
+
+        buf[0] = (sent + seg < txLen) ? PN7160_NCI_PBF : 0x00U;
+        buf[1] = 0x00U;
+        buf[2] = (uint8_t)seg;
+        memcpy(&buf[PN7160_NCI_HEADER_LEN], &tx[sent], seg);
+
+        status = pn7160_Write(buf, PN7160_NCI_HEADER_LEN + seg);
+        if (status != PN7160_OK) { return status; }
+
+        if (PN7160_Credits != PN7160_CREDITS_OFF) { PN7160_Credits--; }
+        sent += seg;
+    }
+
+    // 3. Recibir segmentos de datos hasta el que trae PBF = 0. Los paquetes de
+    //    control (créditos) se procesan en pn7160_ReadData y aquí se saltan
+    for (;;)
+    {
+        status = pn7160_ReadData(buf, PN7160_RF_TIMEOUT_MS);
+        if (status != PN7160_OK) { return status; }
+
+        if ((buf[0] & (uint8_t)~PN7160_NCI_PBF) != 0x00U) { continue; }  /* no es dato de ConnID 0 */
+
+        uint16_t n = buf[2];
+        if (n > cap - got) { n = cap - got; overflow = 1U; }
+        memcpy(&rx[got], &buf[PN7160_NCI_HEADER_LEN], n);
+        got += n;
+
+        if ((buf[0] & PN7160_NCI_PBF) == 0U) { break; }
+    }
+
+    *rxLen = got;
+
+    return overflow ? PN7160_ERROR : PN7160_OK;
 }
