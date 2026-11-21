@@ -124,12 +124,32 @@ typedef enum {
     PN7160_MODE_CARD    = 1     /**< Emulación de tarjeta T4T (ISO-DEP sobre NFC-A); el host responde los APDU */
 } PN7160_Mode_t;
 
+/** @name RF Technology and Mode (PN7160_Tag_t::tecnologia)
+ *  @{ */
+#define PN7160_TEC_NFC_A            0x00U   /**< NFC-A en sondeo (ISO 14443-A) */
+#define PN7160_TEC_NFC_B            0x01U   /**< NFC-B en sondeo (ISO 14443-B) */
+#define PN7160_TEC_NFC_F            0x02U   /**< NFC-F en sondeo (FeliCa) */
+#define PN7160_TEC_NFC_V            0x06U   /**< NFC-V en sondeo (ISO 15693) */
+#define PN7160_TEC_NFC_A_ESCUCHA    0x80U   /**< NFC-A en escucha (modo tarjeta) */
+/** @} */
+
+/** @name RF Protocol (PN7160_Tag_t::protocolo)
+ *  @{ */
+#define PN7160_PROT_T1T             0x01U   /**< Type 1 Tag (Topaz) */
+#define PN7160_PROT_T2T             0x02U   /**< Type 2 Tag (NTAG, Ultralight) */
+#define PN7160_PROT_T3T             0x03U   /**< Type 3 Tag (FeliCa) */
+#define PN7160_PROT_ISODEP          0x04U   /**< ISO-DEP (ISO 14443-4: T4T, DESFire, bancarias) */
+#define PN7160_PROT_NFCDEP          0x05U   /**< NFC-DEP (P2P; no soportado desde el firmware 12.50.0B) */
+#define PN7160_PROT_T5T             0x06U   /**< Type 5 Tag (ISO 15693) */
+#define PN7160_PROT_MIFARE          0x80U   /**< MIFARE Classic (extensión propietaria NXP) */
+/** @} */
+
 /**
  * @brief Datos de un tag detectado por PN7160_WaitTag().
  */
 typedef struct {
-    uint8_t tecnologia;   /**< RF Tech & Mode: 0x00 NFC-A, 0x01 NFC-B, 0x02 NFC-F, 0x06 NFC-V; 0x80 NFC-A escucha (modo tarjeta) */
-    uint8_t protocolo;    /**< RF Protocol: 0x01 T1T, 0x02 T2T, 0x03 T3T, 0x04 ISO-DEP, 0x05 NFC-DEP, 0x06 T5T, 0x80 MIFARE Classic */
+    uint8_t tecnologia;   /**< RF Tech & Mode: PN7160_TEC_* */
+    uint8_t protocolo;    /**< RF Protocol: PN7160_PROT_* */
     uint8_t uid[10];      /**< NFCID1 / NFCID0 / NFCID2 / UID, según la tecnología (en el orden en que lo entrega NCI; NFC-V llega LSB primero) */
     uint8_t uidLen;       /**< Bytes válidos en uid: 4/7/10 (A), 4 (B), 8 (F), 8 (V); 0 en modo tarjeta */
     uint8_t atqa[2];      /**< SENS_RES (ATQA) de NFC-A, en el orden en que lo entrega NCI (p. ej. 04 00 Classic 1K,

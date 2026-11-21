@@ -365,11 +365,11 @@ static PN7160_Status_t pn7160_ParseTag(uint8_t tecnologia, uint8_t protocolo,
 
     switch (tecnologia)
     {
-        case 0x00U: off = 3U; len = (parLen > 2U) ? par[2] : 0xFFU; break;  /* NFC-A */
-        case 0x01U: off = 1U; len = 4U; break;                              /* NFC-B */
-        case 0x02U:                                                         /* NFC-F */
-        case 0x06U: off = 2U; len = 8U; break;                              /* NFC-V */
-        case 0x80U: break;                  /* NFC-A escucha: el lector remoto no tiene identificador */
+        case PN7160_TEC_NFC_A: off = 3U; len = (parLen > 2U) ? par[2] : 0xFFU; break;
+        case PN7160_TEC_NFC_B: off = 1U; len = 4U; break;
+        case PN7160_TEC_NFC_F:
+        case PN7160_TEC_NFC_V: off = 2U; len = 8U; break;
+        case PN7160_TEC_NFC_A_ESCUCHA: break;   /* el lector remoto no tiene identificador */
         default:    return PN7160_ERROR;
     }
 
@@ -381,12 +381,12 @@ static PN7160_Status_t pn7160_ParseTag(uint8_t tecnologia, uint8_t protocolo,
     for (uint8_t i = 0U; i < len; i++) { tag->uid[i] = par[off + i]; }
 
     // ATQA de NFC-A: los 2 primeros bytes (parLen > 2 ya está garantizado arriba)
-    tag->atqa[0] = (tecnologia == 0x00U) ? par[0] : 0U;
-    tag->atqa[1] = (tecnologia == 0x00U) ? par[1] : 0U;
+    tag->atqa[0] = (tecnologia == PN7160_TEC_NFC_A) ? par[0] : 0U;
+    tag->atqa[1] = (tecnologia == PN7160_TEC_NFC_A) ? par[1] : 0U;
 
     // SAK de NFC-A: tras el NFCID1 viene su longitud (0 en T1T, 1 en el resto) y el byte
     off += len;
-    tag->sak = (tecnologia == 0x00U && (uint16_t)off + 1U < parLen && par[off] == 1U) ? par[off + 1U] : 0U;
+    tag->sak = (tecnologia == PN7160_TEC_NFC_A && (uint16_t)off + 1U < parLen && par[off] == 1U) ? par[off + 1U] : 0U;
 
     return PN7160_OK;
 }
@@ -608,9 +608,9 @@ static PN7160_Status_t pn7160_DiscoveryStep(uint8_t* rsp, PN7160_Tag_t* tag, uin
         // RF_DISCOVER_SELECT_CMD (21 04) -> RSP (41 04 01 00) -> después llega 61 05
         if (rsp[2] < 5U + rsp[6] || rsp[7U + rsp[6]] != 0x02U)
         {
-            uint8_t intf = (tag->protocolo == 0x04U) ? 0x02U :     /* ISO-DEP -> interfaz ISO-DEP */
-                           (tag->protocolo == 0x80U) ? 0x80U :     /* MIFARE  -> interfaz TAG-CMD */
-                                                       0x01U;      /* resto   -> Frame RF */
+            uint8_t intf = (tag->protocolo == PN7160_PROT_ISODEP) ? 0x02U :     /* ISO-DEP -> interfaz ISO-DEP */
+                           (tag->protocolo == PN7160_PROT_MIFARE) ? 0x80U :     /* MIFARE  -> interfaz TAG-CMD */
+                                                                    0x01U;      /* resto   -> Frame RF */
             uint8_t select[] = { 0x21U, 0x04U, 0x03U, *selId, tag->protocolo, intf };
 
             status = pn7160_Transceive(select, sizeof(select), rsp);
