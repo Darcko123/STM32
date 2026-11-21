@@ -219,6 +219,13 @@ static PN7160_Status_t pn7160_ReadPacket(uint8_t* buf)
 {
     HAL_StatusTypeDef hal = HAL_I2C_Master_Receive(PN7160_hi2c, PN7160_I2C_ADDRESS,
                                                    buf, PN7160_NCI_HEADER_LEN, PN7160_TIMEOUT_MS);
+
+    // Tras leer un paquete IRQ sigue en alto un momento aunque el siguiente aún no esté
+    // listo, y el PN7160 no reconoce su dirección (NACK): "todavía no hay paquete", no error
+    if (hal == HAL_ERROR && (HAL_I2C_GetError(PN7160_hi2c) & HAL_I2C_ERROR_AF) != 0U)
+    {
+        return PN7160_TIMEOUT;
+    }
     if (hal == HAL_OK && buf[2] > 0U)
     {
         hal = HAL_I2C_Master_Receive(PN7160_hi2c, PN7160_I2C_ADDRESS,
@@ -253,10 +260,19 @@ static void pn7160_ReleaseBus(void)
  */
 static PN7160_Status_t pn7160_Read(uint8_t* buf, uint32_t timeoutMs)
 {
-    PN7160_Status_t status = pn7160_WaitIrq(timeoutMs);
-    if (status != PN7160_OK) { return status; }
+    uint32_t start = HAL_GetTick();
 
-    return pn7160_ReadPacket(buf);
+    // pn7160_ReadPacket devuelve TIMEOUT si el paquete aún no está listo (I2C: NACK con
+    // IRQ todavía en alto del paquete anterior): se vuelve a esperar dentro del mismo plazo
+    for (;;)
+    {
+        uint32_t elapsed = HAL_GetTick() - start;
+        PN7160_Status_t status = pn7160_WaitIrq((elapsed < timeoutMs) ? (timeoutMs - elapsed) : 0U);
+        if (status != PN7160_OK) { return status; }
+
+        status = pn7160_ReadPacket(buf);
+        if (status != PN7160_TIMEOUT || (HAL_GetTick() - start) >= timeoutMs) { return status; }
+    }
 }
 
 /**
@@ -775,6 +791,32 @@ PN7160_Status_t PN7160_Init(I2C_HandleTypeDef* hi2c,
     }
 
     PN7160_hi2c = hi2c;
+
+    // Bus trabado antes de empezar: con VEN en bajo desde el reset del MCU se observaron
+    // SCL/SDA retenidas en bajo y el periférico con BUSY sin transferencia en curso, así que
+    // rechaza todo con HAL_BUSY. Con VEN en alto el PN7160 suelta las líneas; se reinicia el
+    // periférico (DeInit/Init hace SWRST) hasta que BUSY se libere.
+    // ponytail: asume un solo maestro en el bus; con varios, BUSY puede ser legítimo
+    if (__HAL_I2C_GET_FLAG(hi2c, I2C_FLAG_BUSY) != RESET)
+    {
+        uint32_t start = HAL_GetTick();
+
+        HAL_GPIO_WritePin(venPort, venPin, GPIO_PIN_SET);
+        do
+        {
+            HAL_Delay(1U);
+            if (HAL_I2C_DeInit(hi2c) != HAL_OK || HAL_I2C_Init(hi2c) != HAL_OK)
+            {
+                return PN7160_ERROR;
+            }
+        } while (__HAL_I2C_GET_FLAG(hi2c, I2C_FLAG_BUSY) != RESET &&
+                 (HAL_GetTick() - start) < PN7160_TIMEOUT_MS);
+
+        if (__HAL_I2C_GET_FLAG(hi2c, I2C_FLAG_BUSY) != RESET)
+        {
+            return PN7160_ERROR;
+        }
+    }
 
     // 3 a 8. Comunes a ambos transportes
     return pn7160_Start(venPort, venPin, irqPort, irqPin);

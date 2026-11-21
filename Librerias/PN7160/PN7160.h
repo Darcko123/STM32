@@ -226,6 +226,14 @@ PN7160_Status_t PN7160_Init(SPI_HandleTypeDef* hspi,
  *            stretching) mientras está ocupado.
  *          - Si una escritura no recibe ACK (el PN7160 despertando de Standby), se
  *            reintenta una vez tras PN7160_I2C_RETRY_MS.
+ *          - Si una lectura no recibe ACK (IRQ sigue en alto un momento tras leer
+ *            el paquete anterior aunque el siguiente no esté listo), se vuelve a
+ *            esperar IRQ dentro del mismo plazo en lugar de devolver error.
+ *          - Si al empezar el periférico marca el bus ocupado (BUSY trabado; se
+ *            observó con SCL/SDA retenidas mientras VEN estuvo en bajo desde el
+ *            reset del MCU), se pone VEN en alto y se reinicia el I2C con
+ *            HAL_I2C_DeInit()/HAL_I2C_Init() hasta que BUSY se libere o pasen
+ *            PN7160_TIMEOUT_MS. Asume que el STM32 es el único maestro del bus.
  *
  *          Configuración previa (p. ej. en STM32CubeMX):
  *          - I2C en Standard (100 kHz) o Fast mode (400 kHz); el PN7160 admite
