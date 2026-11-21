@@ -1,7 +1,7 @@
 /**
  * @file PN7160.h
  *
- * @brief Librería para el control del CI NFC PN7160 mediante SPI.
+ * @brief Librería para el control del CI NFC PN7160 mediante SPI o I2C.
  *
  * @author Daniel Ruiz
  * @date Noviembre 19, 2026
@@ -19,12 +19,56 @@
 #include <stdint.h>
 
 // ============================================================================
+// SELECCIÓN DEL TRANSPORTE
+// ============================================================================
+
+/*
+ * Definir exactamente uno, y para todo el proyecto (PN7160.c tiene que verlo
+ * igual que la aplicación): como símbolo del compilador (-DPN7160_TRANSPORT_SPI)
+ * o en la sección USER CODE "Private defines" de main.h, que este archivo incluye.
+ *   - PN7160_TRANSPORT_SPI: PN7160_Init(hspi, NSS, VEN, IRQ)
+ *   - PN7160_TRANSPORT_I2C: PN7160_Init(hi2c, VEN, IRQ)
+ * La interfaz del PN7160 viene fijada de fábrica según el número de pedido.
+ */
+#if defined(PN7160_TRANSPORT_SPI) && defined(PN7160_TRANSPORT_I2C)
+#error "PN7160: define solo uno de PN7160_TRANSPORT_SPI o PN7160_TRANSPORT_I2C"
+#elif !defined(PN7160_TRANSPORT_SPI) && !defined(PN7160_TRANSPORT_I2C)
+#error "PN7160: define PN7160_TRANSPORT_SPI o PN7160_TRANSPORT_I2C (simbolo del compilador o main.h)"
+#endif
+
+// ============================================================================
 // MACROS Y CONSTANTES PN7160
 // ============================================================================
 
 #ifndef PN7160_TIMEOUT_MS
-#define PN7160_TIMEOUT_MS   100U    /**< Timeout de SPI y de espera de IRQ en ms (redefinible antes de incluir) */
+#define PN7160_TIMEOUT_MS   100U    /**< Timeout del bus (SPI/I2C) y de espera de IRQ en ms (redefinible antes de incluir) */
 #endif
+
+#if defined(PN7160_TRANSPORT_I2C)
+
+#ifndef PN7160_I2C_ADDRESS
+/**
+ * @brief Dirección I2C del PN7160 en formato HAL (7 bits desplazada, R/W = 0)
+ *        (redefinible antes de incluir).
+ *
+ * Cabecera fija 01010 + HIF2 + HIF1 (datasheet, tabla 14):
+ * 0x50 (HIF2 = 0, HIF1 = 0), 0x52 (0, 1), 0x54 (1, 0), 0x56 (1, 1).
+ */
+#define PN7160_I2C_ADDRESS  0x50U
+#endif
+
+#ifndef PN7160_I2C_RETRY_MS
+/**
+ * @brief Espera antes de reintentar una escritura I2C sin ACK, en ms (redefinible
+ *        antes de incluir).
+ *
+ * En Standby el PN7160 se despierta con su dirección y puede no reconocer esa
+ * primera trama; se reintenta una vez (valor de la librería de referencia de NXP).
+ */
+#define PN7160_I2C_RETRY_MS 10U
+#endif
+
+#endif /* PN7160_TRANSPORT_I2C */
 
 #ifndef PN7160_RF_TIMEOUT_MS
 #define PN7160_RF_TIMEOUT_MS 1000U  /**< Espera de cada paquete de datos/créditos en PN7160_Transceive, en ms (redefinible antes de incluir) */
@@ -110,6 +154,8 @@ typedef struct {
 extern "C" {
 #endif
 
+#if defined(PN7160_TRANSPORT_SPI)
+
 /**
  * @brief Inicializa el controlador NFC PN7160 y deja la pila NCI lista para usarse.
  *
@@ -163,11 +209,57 @@ PN7160_Status_t PN7160_Init(SPI_HandleTypeDef* hspi,
                             GPIO_TypeDef* venPort, uint16_t venPin,
                             GPIO_TypeDef* irqPort, uint16_t irqPin);
 
+#elif defined(PN7160_TRANSPORT_I2C)
+
+/**
+ * @brief Inicializa el controlador NFC PN7160 por I2C y deja la pila NCI lista
+ *        para usarse.
+ *
+ * @details Misma secuencia que la versión SPI (pasos 1 a 7: VEN, CORE_RESET,
+ *          CORE_INIT, extensiones NXP, CLOCK_SEL_CFG y discover map). Cambia solo
+ *          el transporte:
+ *          - Sin byte de dirección: la dirección de esclavo PN7160_I2C_ADDRESS
+ *            (R/W) indica escritura o lectura. Cada paquete se lee en dos
+ *            lecturas: cabecera (3 bytes) y payload.
+ *          - Sin espera fija tras escribir: igual que en SPI, cada respuesta se
+ *            espera a que IRQ suba, y el PN7160 puede alargar SCL (clock
+ *            stretching) mientras está ocupado.
+ *          - Si una escritura no recibe ACK (el PN7160 despertando de Standby), se
+ *            reintenta una vez tras PN7160_I2C_RETRY_MS.
+ *
+ *          Configuración previa (p. ej. en STM32CubeMX):
+ *          - I2C en Standard (100 kHz) o Fast mode (400 kHz); el PN7160 admite
+ *            también High-speed (3.4 MHz). Direccionamiento de 7 bits.
+ *          - Pull-ups en SDA/SCL a VDD(PAD), que debe estar siempre presente
+ *            (HIF3/HIF4 no son fail-safe).
+ *          - HIF1/HIF2 (I2C_ADR0/I2C_ADR1) a nivel fijo según PN7160_I2C_ADDRESS.
+ *          - VEN como salida push-pull; IRQ como entrada. VBAT, VDD(PAD) y DWL_REQ
+ *            como en la versión SPI.
+ *
+ * @param hi2c    Handle del I2C ya inicializado por CubeMX.
+ * @param venPort Puerto GPIO del pin VEN (reset / Hard Power Down).
+ * @param venPin  Pin GPIO del pin VEN.
+ * @param irqPort Puerto GPIO del pin IRQ.
+ * @param irqPin  Pin GPIO del pin IRQ.
+ *
+ * @return PN7160_OK si la inicialización fue exitosa.
+ * @return PN7160_INVALID_PARAM si hi2c o algún puerto GPIO es NULL.
+ * @return PN7160_TIMEOUT si IRQ no se activó a tiempo o el bus I2C no respondió.
+ * @return PN7160_ERROR si falla el bus (p. ej. NACK en la dirección), una
+ *         respuesta NCI no es la esperada o el model ID no corresponde a un
+ *         PN7160/PN7161.
+ */
+PN7160_Status_t PN7160_Init(I2C_HandleTypeDef* hi2c,
+                            GPIO_TypeDef* venPort, uint16_t venPin,
+                            GPIO_TypeDef* irqPort, uint16_t irqPin);
+
+#endif /* PN7160_TRANSPORT_SPI / PN7160_TRANSPORT_I2C */
+
 /**
  * @brief Desinicializa el controlador NFC PN7160 dejándolo en Hard Power Down.
  *
  * @details Pone VEN en bajo (Hard Power Down, 10.5 µA típ.), cancela el
- *          descubrimiento por interrupción y libera el handle SPI almacenado.
+ *          descubrimiento por interrupción y libera el handle del bus almacenado.
  *          No envía comandos NCI.
  *
  * @return PN7160_OK si se desinicializó correctamente.
@@ -213,7 +305,7 @@ PN7160_Status_t PN7160_GetInfo(PN7160_Info_t* info);
  * @return PN7160_OK si el modo quedó configurado.
  * @return PN7160_INVALID_PARAM si mode no es un PN7160_Mode_t válido.
  * @return PN7160_NOT_INITIALIZED si no se llamó antes a PN7160_Init().
- * @return PN7160_TIMEOUT si IRQ no se activó a tiempo o el bus SPI no respondió.
+ * @return PN7160_TIMEOUT si IRQ no se activó a tiempo o el bus (SPI/I2C) no respondió.
  * @return PN7160_ERROR si falla el bus o una respuesta NCI no es la esperada. El
  *         modo anterior se conserva, aunque la configuración puede quedar a medias.
  */
@@ -330,7 +422,7 @@ PN7160_Status_t PN7160_Transceive(const uint8_t* tx, uint16_t txLen, uint8_t* rx
  *
  * @return PN7160_OK si el PN7160 quedó en RFST_IDLE.
  * @return PN7160_NOT_INITIALIZED si no se llamó antes a PN7160_Init().
- * @return PN7160_TIMEOUT si IRQ no se activó a tiempo o el bus SPI no respondió.
+ * @return PN7160_TIMEOUT si IRQ no se activó a tiempo o el bus (SPI/I2C) no respondió.
  * @return PN7160_ERROR si falla el bus o la respuesta NCI no es la esperada.
  */
 PN7160_Status_t PN7160_ReleaseTag(void);
@@ -390,7 +482,7 @@ PN7160_Status_t PN7160_WaitTagRemoval(uint32_t timeoutMs);
  *
  * @return PN7160_OK si el PN7160 quedó descubriendo.
  * @return PN7160_NOT_INITIALIZED si no se llamó antes a PN7160_Init().
- * @return PN7160_TIMEOUT si IRQ no se activó a tiempo o el bus SPI no respondió.
+ * @return PN7160_TIMEOUT si IRQ no se activó a tiempo o el bus (SPI/I2C) no respondió.
  * @return PN7160_ERROR si falla el bus o la respuesta NCI no es la esperada.
  */
 PN7160_Status_t PN7160_StartDiscoveryIT(uint8_t keepActive);
@@ -399,7 +491,7 @@ PN7160_Status_t PN7160_StartDiscoveryIT(uint8_t keepActive);
  * @brief Manejador de IRQ del PN7160. Llamar desde HAL_GPIO_EXTI_Callback().
  *
  *        Se ejecuta en contexto de interrupción: solo activa una bandera, NO usa
- *        SPI. El trabajo lo hace PN7160_Process() en el bucle principal.
+ *        el bus. El trabajo lo hace PN7160_Process() en el bucle principal.
  *
  * Ejemplo de integración en main.c:
  * @code
@@ -425,7 +517,7 @@ void PN7160_IRQ_Handler(void);
  * @return PN7160_OK si no había nada que hacer, el descubrimiento sigue o se
  *         entregó un tag al callback.
  * @return PN7160_NOT_INITIALIZED si no se llamó antes a PN7160_Init().
- * @return PN7160_TIMEOUT si el bus SPI no respondió a tiempo.
+ * @return PN7160_TIMEOUT si el bus (SPI/I2C) no respondió a tiempo.
  * @return PN7160_ERROR si falla el bus o una NTF no es válida. En ambos errores el
  *         descubrimiento termina sin callback; volver a llamar a
  *         PN7160_StartDiscoveryIT().

@@ -1,7 +1,7 @@
 /**
  * @file PN7160.c
  *
- * @brief Librería para el control del CI NFC PN7160 mediante SPI.
+ * @brief Librería para el control del CI NFC PN7160 mediante SPI o I2C.
  *
  * @author Daniel Ruiz
  * @date Noviembre 19, 2026
@@ -35,10 +35,17 @@
 // VARIABLES PRIVADAS
 // ============================================================================
 
+/* -- Transporte: solo existen las variables del bus seleccionado -- */
+#if defined(PN7160_TRANSPORT_SPI)
 static SPI_HandleTypeDef*   PN7160_hspi             = NULL; /**< Handle de SPI utilizado para comunicarse con el PN7160 */
 static GPIO_TypeDef*        PN7160_NSS_Port         = NULL; /**< Puerto del pin NSS */
 static uint16_t             PN7160_NSS_Pin          = 0U;   /**< Pin NSS */
-static GPIO_TypeDef*        PN7160_VEN_Port         = NULL; /**< Puerto del pin VEN */
+#elif defined(PN7160_TRANSPORT_I2C)
+static I2C_HandleTypeDef*   PN7160_hi2c             = NULL; /**< Handle de I2C utilizado para comunicarse con el PN7160 */
+#endif
+
+/* -- Comunes a ambos transportes -- */
+static GPIO_TypeDef*      PN7160_VEN_Port         = NULL; /**< Puerto del pin VEN */
 static uint16_t             PN7160_VEN_Pin          = 0U;   /**< Pin VEN */
 static GPIO_TypeDef*        PN7160_IRQ_Port         = NULL; /**< Puerto del pin IRQ */
 static uint16_t             PN7160_IRQ_Pin          = 0U;   /**< Pin IRQ */
@@ -97,6 +104,18 @@ static PN7160_Status_t pn7160_WaitIrq(uint32_t timeoutMs)
     return PN7160_OK;
 }
 
+// ----------------------------------------------------------------------------
+// Transporte. Cada bus implementa la misma interfaz y el resto del archivo solo
+// usa estas funciones:
+//   - pn7160_Write(cmd, len): escribe un paquete NCI completo.
+//   - pn7160_ReadPacket(buf): lee un paquete NCI (cabecera + payload); se llama
+//     con IRQ ya en alto (pn7160_Read espera IRQ antes).
+//   - pn7160_ReleaseBus():    olvida el handle del bus en DeInit.
+// VEN e IRQ son GPIO comunes a ambos buses y se manejan fuera de esta capa.
+// ----------------------------------------------------------------------------
+
+#if defined(PN7160_TRANSPORT_SPI)
+
 /**
  * @brief Envía un paquete NCI al PN7160.
  *
@@ -123,19 +142,14 @@ static PN7160_Status_t pn7160_Write(const uint8_t* cmd, uint16_t len)
 }
 
 /**
- * @brief Espera a IRQ y lee un paquete NCI del PN7160.
+ * @brief Lee un paquete NCI del PN7160 (IRQ ya en alto).
  *
- * @param[out] buf       Buffer de destino (al menos PN7160_NCI_MAX_LEN bytes).
- * @param      timeoutMs Tiempo máximo de espera de IRQ en ms.
+ * @param[out] buf Buffer de destino (al menos PN7160_NCI_MAX_LEN bytes).
  *
- * @return PN7160_Status_t Estado de la operación. El paquete leído mide
- *         PN7160_NCI_HEADER_LEN + buf[2] bytes.
+ * @return PN7160_Status_t Estado de la operación.
  */
-static PN7160_Status_t pn7160_Read(uint8_t* buf, uint32_t timeoutMs)
+static PN7160_Status_t pn7160_ReadPacket(uint8_t* buf)
 {
-    PN7160_Status_t status = pn7160_WaitIrq(timeoutMs);
-    if (status != PN7160_OK) { return status; }
-
     uint8_t dir = PN7160_SPI_READ;
 
     HAL_GPIO_WritePin(PN7160_NSS_Port, PN7160_NSS_Pin, GPIO_PIN_RESET);
@@ -153,6 +167,96 @@ static PN7160_Status_t pn7160_Read(uint8_t* buf, uint32_t timeoutMs)
     HAL_GPIO_WritePin(PN7160_NSS_Port, PN7160_NSS_Pin, GPIO_PIN_SET);
 
     return pn7160_FromHal(hal);
+}
+
+/**
+ * @brief Olvida el handle SPI almacenado (DeInit).
+ */
+static void pn7160_ReleaseBus(void)
+{
+    PN7160_hspi = NULL;
+}
+
+#elif defined(PN7160_TRANSPORT_I2C)
+
+/**
+ * @brief Envía un paquete NCI al PN7160 por I2C. No hay byte de dirección como en
+ *        SPI: la dirección de esclavo con R/W = 0 ya indica escritura.
+ *
+ *        En Standby el PN7160 se despierta con su propia dirección I2C y puede no
+ *        reconocer (NACK) esa primera trama; se reintenta una vez tras
+ *        PN7160_I2C_RETRY_MS, igual que la librería de referencia de NXP.
+ *
+ * @param cmd Paquete NCI completo (cabecera + payload).
+ * @param len Longitud del paquete en bytes.
+ *
+ * @return PN7160_Status_t Estado de la operación.
+ */
+static PN7160_Status_t pn7160_Write(const uint8_t* cmd, uint16_t len)
+{
+    HAL_StatusTypeDef hal = HAL_I2C_Master_Transmit(PN7160_hi2c, PN7160_I2C_ADDRESS,
+                                                    (uint8_t*)cmd, len, PN7160_TIMEOUT_MS);
+    if (hal != HAL_OK)
+    {
+        HAL_Delay(PN7160_I2C_RETRY_MS);
+        hal = HAL_I2C_Master_Transmit(PN7160_hi2c, PN7160_I2C_ADDRESS,
+                                      (uint8_t*)cmd, len, PN7160_TIMEOUT_MS);
+    }
+
+    return pn7160_FromHal(hal);
+}
+
+/**
+ * @brief Lee un paquete NCI del PN7160 (IRQ ya en alto) en dos lecturas I2C:
+ *        la cabecera (3 bytes) y después buf[2] bytes de payload. IRQ baja al
+ *        terminar de leer el paquete completo.
+ *
+ * @param[out] buf Buffer de destino (al menos PN7160_NCI_MAX_LEN bytes).
+ *
+ * @return PN7160_Status_t Estado de la operación.
+ */
+static PN7160_Status_t pn7160_ReadPacket(uint8_t* buf)
+{
+    HAL_StatusTypeDef hal = HAL_I2C_Master_Receive(PN7160_hi2c, PN7160_I2C_ADDRESS,
+                                                   buf, PN7160_NCI_HEADER_LEN, PN7160_TIMEOUT_MS);
+    if (hal == HAL_OK && buf[2] > 0U)
+    {
+        hal = HAL_I2C_Master_Receive(PN7160_hi2c, PN7160_I2C_ADDRESS,
+                                     &buf[PN7160_NCI_HEADER_LEN], buf[2], PN7160_TIMEOUT_MS);
+    }
+
+    return pn7160_FromHal(hal);
+}
+
+/**
+ * @brief Olvida el handle I2C almacenado (DeInit).
+ */
+static void pn7160_ReleaseBus(void)
+{
+    PN7160_hi2c = NULL;
+}
+
+#endif /* PN7160_TRANSPORT_SPI / PN7160_TRANSPORT_I2C */
+
+// ----------------------------------------------------------------------------
+// Protocolo NCI (común a ambos transportes)
+// ----------------------------------------------------------------------------
+
+/**
+ * @brief Espera a IRQ y lee un paquete NCI del PN7160.
+ *
+ * @param[out] buf       Buffer de destino (al menos PN7160_NCI_MAX_LEN bytes).
+ * @param      timeoutMs Tiempo máximo de espera de IRQ en ms.
+ *
+ * @return PN7160_Status_t Estado de la operación. El paquete leído mide
+ *         PN7160_NCI_HEADER_LEN + buf[2] bytes.
+ */
+static PN7160_Status_t pn7160_Read(uint8_t* buf, uint32_t timeoutMs)
+{
+    PN7160_Status_t status = pn7160_WaitIrq(timeoutMs);
+    if (status != PN7160_OK) { return status; }
+
+    return pn7160_ReadPacket(buf);
 }
 
 /**
@@ -523,16 +627,11 @@ static PN7160_Status_t pn7160_DiscoveryFinish(PN7160_Status_t status, uint8_t ke
     return (status != PN7160_OK) ? status : stop;
 }
 
-// ============================================================================
-// FUNCIONES PÚBLICAS
-// ============================================================================
-
 /**
- * @brief Inicializa el controlador NFC PN7160.
+ * @brief Parte de PN7160_Init común a ambos transportes (pasos 3 a 8): reset por
+ *        VEN, pila NCI, CLOCK_SEL_CFG y modo lector. El PN7160_Init del bus ya
+ *        validó los parámetros, desinicializó y guardó su handle.
  *
- * @param hspi    Handle del SPI ya inicializado por CubeMX.
- * @param nssPort Puerto GPIO del pin NSS.
- * @param nssPin  Pin GPIO del pin NSS.
  * @param venPort Puerto GPIO del pin VEN.
  * @param venPin  Pin GPIO del pin VEN.
  * @param irqPort Puerto GPIO del pin IRQ.
@@ -540,10 +639,8 @@ static PN7160_Status_t pn7160_DiscoveryFinish(PN7160_Status_t status, uint8_t ke
  *
  * @return PN7160_Status_t Estado de la operación.
  */
-PN7160_Status_t PN7160_Init(SPI_HandleTypeDef* hspi,
-                            GPIO_TypeDef* nssPort, uint16_t nssPin,
-                            GPIO_TypeDef* venPort, uint16_t venPin,
-                            GPIO_TypeDef* irqPort, uint16_t irqPin)
+static PN7160_Status_t pn7160_Start(GPIO_TypeDef* venPort, uint16_t venPin,
+                                    GPIO_TypeDef* irqPort, uint16_t irqPin)
 {
     static const uint8_t getClock[]  = { 0x20U, 0x03U, 0x03U, 0x01U, 0xA0U, 0x03U };   /* CORE_GET_CONFIG_CMD: CLOCK_SEL_CFG */
     static const uint8_t setClock[]  = { 0x20U, 0x02U, 0x05U, 0x01U, 0xA0U, 0x03U,     /* CORE_SET_CONFIG_CMD: CLOCK_SEL_CFG */
@@ -551,21 +648,6 @@ PN7160_Status_t PN7160_Init(SPI_HandleTypeDef* hspi,
     uint8_t rsp[PN7160_NCI_MAX_LEN];
     PN7160_Status_t status;
 
-    // 1. Validar parámetros
-    if (hspi == NULL || nssPort == NULL || venPort == NULL || irqPort == NULL)
-    {
-        return PN7160_INVALID_PARAM;
-    }
-
-    // 2. Re-Init: limpiar estado anterior. Se ignora a propósito: solo puede
-    //    devolver NOT_INITIALIZED, y aquí sabemos que sí lo está.
-    if (PN7160_Initialized)
-    {
-        (void)PN7160_DeInit();
-    }
-
-    PN7160_hspi     = hspi;
-    PN7160_NSS_Port = nssPort;  PN7160_NSS_Pin = nssPin;
     PN7160_VEN_Port = venPort;  PN7160_VEN_Pin = venPin;
     PN7160_IRQ_Port = irqPort;  PN7160_IRQ_Pin = irqPin;
     PN7160_RfIdle   = 1U;       PN7160_TagActive = 0U;      /* el reset por VEN deja RFST_IDLE */
@@ -573,7 +655,6 @@ PN7160_Status_t PN7160_Init(SPI_HandleTypeDef* hspi,
 
     // 3. Reset por hardware: VEN en bajo >= tWL(VEN) = 10 µs, luego en alto
     //    y esperar tboot = 2.5 ms máx. (HAL_Delay garantiza al menos el valor pedido)
-    HAL_GPIO_WritePin(PN7160_NSS_Port, PN7160_NSS_Pin, GPIO_PIN_SET);
     HAL_GPIO_WritePin(PN7160_VEN_Port, PN7160_VEN_Pin, GPIO_PIN_RESET);
     HAL_Delay(1U);
     HAL_GPIO_WritePin(PN7160_VEN_Port, PN7160_VEN_Pin, GPIO_PIN_SET);
@@ -619,6 +700,88 @@ PN7160_Status_t PN7160_Init(SPI_HandleTypeDef* hspi,
     return PN7160_OK;
 }
 
+// ============================================================================
+// FUNCIONES PÚBLICAS
+// ============================================================================
+
+#if defined(PN7160_TRANSPORT_SPI)
+
+/**
+ * @brief Inicializa el controlador NFC PN7160.
+ *
+ * @param hspi    Handle del SPI ya inicializado por CubeMX.
+ * @param nssPort Puerto GPIO del pin NSS.
+ * @param nssPin  Pin GPIO del pin NSS.
+ * @param venPort Puerto GPIO del pin VEN.
+ * @param venPin  Pin GPIO del pin VEN.
+ * @param irqPort Puerto GPIO del pin IRQ.
+ * @param irqPin  Pin GPIO del pin IRQ.
+ *
+ * @return PN7160_Status_t Estado de la operación.
+ */
+PN7160_Status_t PN7160_Init(SPI_HandleTypeDef* hspi,
+                            GPIO_TypeDef* nssPort, uint16_t nssPin,
+                            GPIO_TypeDef* venPort, uint16_t venPin,
+                            GPIO_TypeDef* irqPort, uint16_t irqPin)
+{
+    // 1. Validar parámetros
+    if (hspi == NULL || nssPort == NULL || venPort == NULL || irqPort == NULL)
+    {
+        return PN7160_INVALID_PARAM;
+    }
+
+    // 2. Re-Init: limpiar estado anterior. Se ignora a propósito: solo puede
+    //    devolver NOT_INITIALIZED, y aquí sabemos que sí lo está.
+    if (PN7160_Initialized)
+    {
+        (void)PN7160_DeInit();
+    }
+
+    PN7160_hspi     = hspi;
+    PN7160_NSS_Port = nssPort;  PN7160_NSS_Pin = nssPin;
+    HAL_GPIO_WritePin(PN7160_NSS_Port, PN7160_NSS_Pin, GPIO_PIN_SET);
+
+    // 3 a 8. Comunes a ambos transportes
+    return pn7160_Start(venPort, venPin, irqPort, irqPin);
+}
+
+#elif defined(PN7160_TRANSPORT_I2C)
+
+/**
+ * @brief Inicializa el controlador NFC PN7160 por I2C.
+ *
+ * @param hi2c    Handle del I2C ya inicializado por CubeMX.
+ * @param venPort Puerto GPIO del pin VEN.
+ * @param venPin  Pin GPIO del pin VEN.
+ * @param irqPort Puerto GPIO del pin IRQ.
+ * @param irqPin  Pin GPIO del pin IRQ.
+ *
+ * @return PN7160_Status_t Estado de la operación.
+ */
+PN7160_Status_t PN7160_Init(I2C_HandleTypeDef* hi2c,
+                            GPIO_TypeDef* venPort, uint16_t venPin,
+                            GPIO_TypeDef* irqPort, uint16_t irqPin)
+{
+    // 1. Validar parámetros
+    if (hi2c == NULL || venPort == NULL || irqPort == NULL)
+    {
+        return PN7160_INVALID_PARAM;
+    }
+
+    // 2. Re-Init: limpiar estado anterior (ver la versión SPI)
+    if (PN7160_Initialized)
+    {
+        (void)PN7160_DeInit();
+    }
+
+    PN7160_hi2c = hi2c;
+
+    // 3 a 8. Comunes a ambos transportes
+    return pn7160_Start(venPort, venPin, irqPort, irqPin);
+}
+
+#endif /* PN7160_TRANSPORT_SPI / PN7160_TRANSPORT_I2C */
+
 /**
  * @brief Desinicializa el controlador NFC PN7160 dejándolo en Hard Power Down.
  *
@@ -634,7 +797,7 @@ PN7160_Status_t PN7160_DeInit(void)
     // VEN en bajo = Hard Power Down (10.5 µA típ.)
     HAL_GPIO_WritePin(PN7160_VEN_Port, PN7160_VEN_Pin, GPIO_PIN_RESET);
 
-    PN7160_hspi         =   NULL;
+    pn7160_ReleaseBus();
     PN7160_Initialized  =   0U;
     PN7160_ItArmed      =   0U;
 
@@ -797,7 +960,7 @@ PN7160_Status_t PN7160_StartDiscoveryIT(uint8_t keepActive)
 }
 
 /**
- * @brief Marca que IRQ subió. Llamar desde HAL_GPIO_EXTI_Callback(); no usa SPI.
+ * @brief Marca que IRQ subió. Llamar desde HAL_GPIO_EXTI_Callback(); no usa el bus (SPI/I2C).
  */
 void PN7160_IRQ_Handler(void)
 {
