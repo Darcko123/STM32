@@ -31,6 +31,15 @@
 #define PN7160_MODEL_PN7161     0x71U   /**< Model ID del PN7161 en CORE_RESET_NTF */
 #define PN7160_CARD_UID_UNSET   0xFFU   /**< PN7160_CardUidLen: nunca se llamó a SetCardUid, no se envía LA_NFCID1 */
 
+/* -- TAG-CMD de MIFARE Classic (propietario NXP, UM11495) -- */
+#define PN7160_MFC_XCHG         0x10U   /**< Intercambio de datos crudo (el PN7160 añade/quita el CRC y el cifrado Crypto1) */
+#define PN7160_MFC_AUTH         0x40U   /**< Autenticación de un sector */
+#define PN7160_MFC_KEY_EMBEDDED 0x10U   /**< Key selector: la clave va en el comando (bit 7 = 1 -> clave B) */
+#define PN7160_MFC_KEY_B        0x80U   /**< Key selector: clave B en lugar de A */
+#define PN7160_MFC_READ         0x30U   /**< Comando MIFARE READ (16 bytes) */
+#define PN7160_MFC_WRITE        0xA0U   /**< Comando MIFARE WRITE (dos fases: dirección y 16 bytes) */
+#define PN7160_MFC_MAX_SECTOR   39U     /**< Último sector de una Classic 4K (1K: 0-15) */
+
 // ============================================================================
 // VARIABLES PRIVADAS
 // ============================================================================
@@ -53,6 +62,7 @@ static uint8_t              PN7160_Initialized      = 0U;   /**< Bandera para ve
 static PN7160_Mode_t        PN7160_Mode             = PN7160_MODE_READER;   /**< Modo RF configurado; decide qué sondea/escucha WaitTag */
 static uint8_t              PN7160_RfIdle           = 1U;   /**< 1 = RFST_IDLE; 0 = hay que mandar RF_DEACTIVATE antes de otro comando RF */
 static uint8_t              PN7160_TagActive        = 0U;   /**< 1 = tag/lector activado, se permite PN7160_Transceive */
+static uint8_t              PN7160_ActiveProt       = 0U;   /**< RF Protocol del último RF_INTF_ACTIVATED_NTF; vale solo con PN7160_TagActive */
 static uint8_t              PN7160_MaxPayload       = 0U;   /**< Max Data Packet Payload Size del RF_INTF_ACTIVATED_NTF */
 static uint8_t              PN7160_Credits          = 0U;   /**< Créditos de la conexión RF estática (0xFF = sin control de flujo) */
 
@@ -592,6 +602,7 @@ static PN7160_Status_t pn7160_DiscoveryStep(uint8_t* rsp, PN7160_Tag_t* tag, uin
         status = pn7160_ParseTag(rsp[6], rsp[5], &rsp[10], rsp[9], tag);
         PN7160_MaxPayload = (rsp[7] != 0U) ? rsp[7] : 1U;
         PN7160_Credits    = rsp[8];
+        PN7160_ActiveProt = rsp[5];
         *done = 1U;
     }
     else if (rsp[0] == 0x61U && rsp[1] == 0x03U && rsp[2] >= 4U && rsp[2] >= 4U + rsp[6])
@@ -641,6 +652,36 @@ static PN7160_Status_t pn7160_DiscoveryFinish(PN7160_Status_t status, uint8_t ke
     PN7160_Status_t stop = pn7160_Deactivate(rsp);
 
     return (status != PN7160_OK) ? status : stop;
+}
+
+/**
+ * @brief Envía un TAG-CMD de MIFARE Classic y valida la respuesta: repite el byte
+ *        de comando y termina en un estado 0x00.
+ *
+ * @param         tx    Comando TAG-CMD (tx[0] = PN7160_MFC_AUTH o PN7160_MFC_XCHG).
+ * @param         txLen Bytes de tx.
+ * @param[out]    rx    Respuesta completa (eco + datos + estado).
+ * @param[in,out] rxLen Entrada: capacidad de rx. Salida: bytes recibidos.
+ *
+ * @return PN7160_Status_t Estado de la operación; PN7160_ERROR si el tag activado
+ *         no es MIFARE Classic o el PN7160/tag rechazó el comando.
+ */
+static PN7160_Status_t pn7160_MfcCmd(const uint8_t* tx, uint16_t txLen, uint8_t* rx, uint16_t* rxLen)
+{
+    if (!PN7160_Initialized)
+    {
+        return PN7160_NOT_INITIALIZED;
+    }
+    if (!PN7160_TagActive || PN7160_ActiveProt != PN7160_PROT_MIFARE)
+    {
+        return PN7160_ERROR;
+    }
+
+    PN7160_Status_t status = PN7160_Transceive(tx, txLen, rx, rxLen);
+    if (status != PN7160_OK) { return status; }
+
+    return (*rxLen >= 2U && rx[0] == tx[0] && rx[*rxLen - 1U] == PN7160_NCI_STATUS_OK)
+           ? PN7160_OK : PN7160_ERROR;
 }
 
 /**
@@ -1206,4 +1247,92 @@ PN7160_Status_t PN7160_WaitTagRemoval(uint32_t timeoutMs)
     if (status == PN7160_TIMEOUT) { return PN7160_OK; }
 
     return (status == PN7160_OK) ? PN7160_TIMEOUT : status;
+}
+
+/**
+ * @brief Autentica un sector de la MIFARE Classic activada (TAG-CMD 0x40).
+ *
+ * @param sector Sector a autenticar (0-15 en 1K, 0-39 en 4K).
+ * @param keyB   0 = clave A; 1 = clave B.
+ * @param key    Clave de 6 bytes.
+ *
+ * @return PN7160_Status_t Estado de la operación.
+ */
+PN7160_Status_t PN7160_MfcAuth(uint8_t sector, uint8_t keyB, const uint8_t key[6])
+{
+    uint8_t rx[4];
+    uint16_t n = sizeof(rx);
+
+    if (key == NULL || sector > PN7160_MFC_MAX_SECTOR || keyB > 1U)
+    {
+        return PN7160_INVALID_PARAM;
+    }
+
+    // 40 sector selector clave[6]: la clave va embebida en el comando
+    uint8_t tx[3U + 6U] = { PN7160_MFC_AUTH, sector,
+                            (uint8_t)(PN7160_MFC_KEY_EMBEDDED | (keyB ? PN7160_MFC_KEY_B : 0U)) };
+    memcpy(&tx[3], key, 6U);
+
+    return pn7160_MfcCmd(tx, sizeof(tx), rx, &n);
+}
+
+/**
+ * @brief Lee un bloque de 16 bytes de la MIFARE Classic (MIFARE READ por TAG-CMD 0x10).
+ *
+ * @param      block Bloque absoluto (0-63 en 1K, 0-255 en 4K).
+ * @param[out] out   Destino de los 16 bytes.
+ *
+ * @return PN7160_Status_t Estado de la operación.
+ */
+PN7160_Status_t PN7160_MfcRead(uint8_t block, uint8_t out[16])
+{
+    const uint8_t tx[] = { PN7160_MFC_XCHG, PN7160_MFC_READ, block };
+    uint8_t rx[1U + 16U + 1U];      /* eco 0x10 + datos + estado */
+    uint16_t n = sizeof(rx);
+
+    if (out == NULL)
+    {
+        return PN7160_INVALID_PARAM;
+    }
+
+    PN7160_Status_t status = pn7160_MfcCmd(tx, sizeof(tx), rx, &n);
+    if (status != PN7160_OK) { return status; }
+    if (n != sizeof(rx)) { return PN7160_ERROR; }
+
+    memcpy(out, &rx[1], 16U);
+
+    return PN7160_OK;
+}
+
+/**
+ * @brief Escribe un bloque de 16 bytes en la MIFARE Classic (MIFARE WRITE en dos
+ *        fases por TAG-CMD 0x10: dirección y después los datos).
+ *
+ * @param block Bloque absoluto (0-63 en 1K, 0-255 en 4K).
+ * @param data  16 bytes a escribir.
+ *
+ * @return PN7160_Status_t Estado de la operación.
+ */
+PN7160_Status_t PN7160_MfcWrite(uint8_t block, const uint8_t data[16])
+{
+    const uint8_t cmd[] = { PN7160_MFC_XCHG, PN7160_MFC_WRITE, block };
+    uint8_t tx[1U + 16U];
+    uint8_t rx[4];
+    uint16_t n = sizeof(rx);
+
+    if (data == NULL)
+    {
+        return PN7160_INVALID_PARAM;
+    }
+
+    // 1. WRITE + dirección; el tag responde ACK
+    PN7160_Status_t status = pn7160_MfcCmd(cmd, sizeof(cmd), rx, &n);
+    if (status != PN7160_OK) { return status; }
+
+    // 2. Los 16 bytes; el tag responde ACK al grabarlos
+    tx[0] = PN7160_MFC_XCHG;
+    memcpy(&tx[1], data, 16U);
+    n = sizeof(rx);
+
+    return pn7160_MfcCmd(tx, sizeof(tx), rx, &n);
 }

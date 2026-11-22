@@ -485,6 +485,87 @@ PN7160_Status_t PN7160_ReleaseTag(void);
 PN7160_Status_t PN7160_WaitTagRemoval(uint32_t timeoutMs);
 
 // ----------------------------------------------------------------------------
+// MIFARE Classic (interfaz TAG-CMD, propietaria de NXP)
+// ----------------------------------------------------------------------------
+
+/*
+ * Requieren un tag con protocolo PN7160_PROT_MIFARE activado por
+ * PN7160_WaitTag(..., keepActive = 1) (o por el descubrimiento IT). Formato TAG-CMD
+ * (UM11495): el PN7160 hace Crypto1 y el CRC; cada respuesta repite el byte de
+ * comando (0x40 / 0x10) y termina en un estado (0x00 = OK).
+ *
+ * Bloques absolutos: en 1K el sector s ocupa los bloques 4s..4s+3; en 4K los
+ * sectores 32-39 tienen 16 bloques (128 + 16(s-32)...). El último bloque de cada
+ * sector es el trailer (claves y access bits).
+ *
+ * Si una autenticación falla, la tarjeta pasa a HALT y deja de responder: hay que
+ * volver a activarla con PN7160_WaitTag() antes de reintentar con otra clave.
+ */
+
+/**
+ * @brief Autentica un sector de la MIFARE Classic activada.
+ *
+ * @details TAG-CMD 40 <sector> <selector> <clave[6]> -> 40 <estado>. Selector
+ *          0x10 = clave A embebida en el comando, 0x90 = clave B embebida.
+ *          La autenticación vale para los bloques de ese sector hasta autenticar
+ *          otro sector o desactivar el tag.
+ *
+ * @param sector Sector (0-15 en 1K, 0-39 en 4K; no se valida contra el tamaño real).
+ * @param keyB   0 = clave A; 1 = clave B.
+ * @param key    Clave de 6 bytes (de fábrica: FF FF FF FF FF FF).
+ *
+ * @return PN7160_OK si la tarjeta aceptó la clave.
+ * @return PN7160_INVALID_PARAM si key es NULL, sector > 39 o keyB > 1.
+ * @return PN7160_NOT_INITIALIZED si no se llamó antes a PN7160_Init().
+ * @return PN7160_TIMEOUT como PN7160_Transceive().
+ * @return PN7160_ERROR si no hay tag activado, no es MIFARE Classic, la clave es
+ *         incorrecta (la tarjeta queda en HALT) o falla el bus.
+ */
+PN7160_Status_t PN7160_MfcAuth(uint8_t sector, uint8_t keyB, const uint8_t key[6]);
+
+/**
+ * @brief Lee un bloque de 16 bytes de la MIFARE Classic activada.
+ *
+ * @details TAG-CMD 10 30 <bloque> -> 10 <16 bytes> <estado>. El sector del bloque
+ *          debe estar autenticado con PN7160_MfcAuth(). En el trailer, la clave A
+ *          se lee siempre como ceros.
+ *
+ * @param      block Bloque absoluto (0-63 en 1K, 0-255 en 4K).
+ * @param[out] out   16 bytes leídos.
+ *
+ * @return PN7160_OK si se leyó el bloque.
+ * @return PN7160_INVALID_PARAM si out es NULL.
+ * @return PN7160_NOT_INITIALIZED si no se llamó antes a PN7160_Init().
+ * @return PN7160_TIMEOUT como PN7160_Transceive().
+ * @return PN7160_ERROR si no hay tag MIFARE Classic activado, el sector no está
+ *         autenticado, los access bits no permiten leer o falla el bus.
+ */
+PN7160_Status_t PN7160_MfcRead(uint8_t block, uint8_t out[16]);
+
+/**
+ * @brief Escribe un bloque de 16 bytes en la MIFARE Classic activada.
+ *
+ * @details MIFARE WRITE en dos fases: TAG-CMD 10 A0 <bloque> -> ACK y después
+ *          10 <16 bytes> -> ACK. El sector debe estar autenticado.
+ *
+ * @warning Escribir un trailer con claves o access bits mal formados puede dejar
+ *          el sector inaccesible para siempre. El bloque 0 (fabricante) es de solo
+ *          lectura en tarjetas genuinas.
+ *
+ * @param block Bloque absoluto (0-63 en 1K, 0-255 en 4K).
+ * @param data  16 bytes a escribir.
+ *
+ * @return PN7160_OK si la tarjeta confirmó la escritura.
+ * @return PN7160_INVALID_PARAM si data es NULL.
+ * @return PN7160_NOT_INITIALIZED si no se llamó antes a PN7160_Init().
+ * @return PN7160_TIMEOUT como PN7160_Transceive().
+ * @return PN7160_ERROR si no hay tag MIFARE Classic activado, el sector no está
+ *         autenticado, los access bits no permiten escribir o falla el bus. Si
+ *         falla la segunda fase, el bloque puede no haberse escrito.
+ */
+PN7160_Status_t PN7160_MfcWrite(uint8_t block, const uint8_t data[16]);
+
+// ----------------------------------------------------------------------------
 // Descubrimiento por interrupción (EXTI + callback), sin timeout
 // ----------------------------------------------------------------------------
 
