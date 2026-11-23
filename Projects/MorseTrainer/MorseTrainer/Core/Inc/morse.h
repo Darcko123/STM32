@@ -84,4 +84,28 @@ void Morse_DecodInit(Morse_Decodificador *d, Morse_Tiempos t);
  */
 char Morse_DecodTick(Morse_Decodificador *d, uint8_t pulsado);
 
+/* ---------------------------------------------------------------------------
+ * Progresión Koch: los caracteres se desbloquean en el orden KOCH_ORDEN (LCWO);
+ * el siguiente llega al acertar KOCH_ACIERTOS de los últimos KOCH_VENTANA intentos.
+ * ------------------------------------------------------------------------- */
+#define KOCH_TOTAL     36U
+#define KOCH_MINIMO    2U
+#define KOCH_VENTANA   20U
+#define KOCH_ACIERTOS  18U   /* 90 % de la ventana */
+
+extern const char KOCH_ORDEN[KOCH_TOTAL + 1U];
+
+typedef struct
+{
+  uint8_t  nivel;      /* Desbloqueados: KOCH_ORDEN[0 .. nivel - 1] */
+  uint8_t  intentos;   /* Intentos en la ventana (satura en KOCH_VENTANA) */
+  uint32_t historial;  /* Bit 0 = último intento, 1 = acierto */
+} Koch_Progreso;
+
+/** @brief Fija el nivel (recortado a [KOCH_MINIMO, KOCH_TOTAL]) y vacía la ventana. */
+void    Koch_Init(Koch_Progreso *p, uint8_t nivel);
+uint8_t Koch_Aciertos(const Koch_Progreso *p);
+/** @return 1 si el intento desbloqueó KOCH_ORDEN[nivel - 1] (la ventana vuelve a empezar). */
+uint8_t Koch_Registrar(Koch_Progreso *p, uint8_t acierto);
+
 #endif /* MORSE_H */

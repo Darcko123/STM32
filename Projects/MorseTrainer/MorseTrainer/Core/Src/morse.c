@@ -198,3 +198,34 @@ char Morse_DecodTick(Morse_Decodificador *d, uint8_t pulsado)
   }
   return 0;
 }
+
+/* ====================== Progresión Koch ====================== */
+
+const char KOCH_ORDEN[KOCH_TOTAL + 1U] = "KMURESNAPTLWIJZFOYVG5Q92H38B47C1D60X";
+
+void Koch_Init(Koch_Progreso *p, uint8_t nivel)
+{
+  p->nivel     = (nivel < KOCH_MINIMO) ? KOCH_MINIMO : (nivel > KOCH_TOTAL) ? KOCH_TOTAL : nivel;
+  p->intentos  = 0;
+  p->historial = 0;
+}
+
+uint8_t Koch_Aciertos(const Koch_Progreso *p)
+{
+  return (uint8_t)__builtin_popcount(p->historial);
+}
+
+uint8_t Koch_Registrar(Koch_Progreso *p, uint8_t acierto)
+{
+  p->historial = ((p->historial << 1) | (acierto != 0U)) & ((1UL << KOCH_VENTANA) - 1U);
+  if (p->intentos < KOCH_VENTANA)
+  {
+    p->intentos++;
+  }
+  if (p->intentos < KOCH_VENTANA || Koch_Aciertos(p) < KOCH_ACIERTOS || p->nivel >= KOCH_TOTAL)
+  {
+    return 0;
+  }
+  Koch_Init(p, (uint8_t)(p->nivel + 1U));
+  return 1;
+}
