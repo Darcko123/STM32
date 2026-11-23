@@ -22,7 +22,8 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "SSD1306.h"
-#include <stdio.h>
+#include "morse.h"
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -38,6 +39,10 @@
 #define LED_PIN         GPIO_PIN_13     /* LED de la Black Pill, activo en bajo */
 #define ANTIRREBOTE_MS  5U              /* Muestras iguales seguidas para aceptar un cambio */
 #define PRUEBA_TONO_MS  300U            /* Bip de arranque para comprobar la frecuencia */
+#define WPM_CARACTER    18U             /* Velocidad de los símbolos */
+#define WPM_EFECTIVO    8U              /* Velocidad con el espaciado Farnsworth */
+#define TEXTO_ARRANQUE  "KM"            /* Prueba del reproductor al encender */
+#define COLUMNAS        11U             /* Caracteres de Font_11x18 en 128 px */
 
 /* USER CODE END PD */
 
@@ -53,9 +58,10 @@ TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 
 /* USER CODE BEGIN PV */
-/* -- Escritas en la ISR de TIM2, leídas en el bucle principal -- */
-static volatile uint32_t pulsaciones = 0;   /* Pulsaciones completas (soltar cuenta) */
-static volatile uint32_t ultima_ms   = 0;   /* Duración de la última pulsación */
+/* -- Avanzados en la ISR de TIM2; el bucle principal solo los toca con la IRQ parada -- */
+static Morse_Reproductor   reproductor;
+static Morse_Decodificador decodificador;
+static volatile char       recibido = 0;    /* Último carácter decodificado; 0 = ya leído */
 
 /* USER CODE END PV */
 
@@ -127,14 +133,20 @@ int main(void)
   HAL_Delay(PRUEBA_TONO_MS);
   Tono(0);
 
-  /* -- Tick de 1 ms: antirrebote y tono local -- */
+  /* -- Se inicializan antes del tick, así no hay carrera con la ISR -- */
+  Morse_Tiempos tiempos = Morse_CalcularTiempos(WPM_CARACTER, WPM_EFECTIVO);
+  Morse_DecodInit(&decodificador, tiempos);
+  Morse_Reproducir(&reproductor, TEXTO_ARRANQUE, tiempos);
+
+  /* -- Tick de 1 ms: antirrebote, tono, reproductor y decodificador -- */
   if (HAL_TIM_Base_Start_IT(&htim2) != HAL_OK)
   {
     Error_Handler();
   }
 
-  uint32_t mostradas = UINT32_MAX;          /* Fuerza el primer dibujado */
-  char linea[22];
+  char texto[COLUMNAS + 1U] = "";           /* Línea de texto decodificado */
+  char patron[MORSE_MAX_SIMBOLOS + 1U] = "";
+  uint8_t redibujar = 1;
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -144,20 +156,39 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    /* -- Solo se redibuja al cambiar: UpdateScreen bloquea ~25 ms -- */
-    uint32_t n = pulsaciones;
-    if (n != mostradas)
+    /* -- Entre dos caracteres hay ≥ 2 puntos de silencio: sobra tiempo para leer -- */
+    char c = recibido;
+    if (c != 0)
     {
-      mostradas = n;
+      recibido = 0;
+      if (c != ' ')
+      {
+        /* ponytail: el patrón puede pisarse si se vuelve a soltar el manipulador antes
+           de copiarlo (imposible a velocidades humanas); copiarlo en la ISR si molesta */
+        memcpy(patron, decodificador.patron, sizeof patron);
+      }
+      size_t n = strlen(texto);
+      if (n == COLUMNAS)                    /* Línea llena: desplaza a la izquierda */
+      {
+        memmove(texto, texto + 1, COLUMNAS);
+        n--;
+      }
+      texto[n]     = c;
+      texto[n + 1] = '\0';
+      redibujar = 1;
+    }
+
+    /* -- Solo se redibuja al cambiar: UpdateScreen bloquea ~25 ms -- */
+    if (redibujar)
+    {
+      redibujar = 0;
       SSD1306_Fill(SSD1306_COLOR_BLACK);
       SSD1306_GotoXY(0, 0);
       SSD1306_Puts("Morse", &Font_11x18, SSD1306_COLOR_WHITE);
-      SSD1306_GotoXY(0, 30);
-      snprintf(linea, sizeof linea, "Pulsos: %lu", (unsigned long)n);
-      SSD1306_Puts(linea, &Font_7x10, SSD1306_COLOR_WHITE);
-      SSD1306_GotoXY(0, 45);
-      snprintf(linea, sizeof linea, "Ultima: %lu ms", (unsigned long)ultima_ms);
-      SSD1306_Puts(linea, &Font_7x10, SSD1306_COLOR_WHITE);
+      SSD1306_GotoXY(0, 24);
+      SSD1306_Puts(texto, &Font_11x18, SSD1306_COLOR_WHITE);
+      SSD1306_GotoXY(0, 50);
+      SSD1306_Puts(patron, &Font_7x10, SSD1306_COLOR_WHITE);
       if (SSD1306_UpdateScreen() != SSD1306_OK)
       {
         Error_Handler();
@@ -403,16 +434,16 @@ static void Tono(uint8_t encendido)
 }
 
 /**
- * @brief ISR de 1 ms (TIM2): antirrebote del manipulador y tono local.
+ * @brief ISR de 1 ms (TIM2): antirrebote del manipulador, reproductor y decodificador.
  *        Un cambio se acepta tras ANTIRREBOTE_MS muestras seguidas distintas del
- *        estado estable. El retardo es igual al pulsar y al soltar, así que la
- *        duración medida no se ve afectada.
+ *        estado estable. El retardo es igual al pulsar y al soltar, así que las
+ *        duraciones que ve el decodificador no se ven afectadas.
+ *        Suena el tono local del manipulador o el del reproductor; el LED lo sigue.
  */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-  static uint8_t  estable = 0;   /* 1 = manipulador pulsado */
-  static uint8_t  cuenta  = 0;
-  static uint32_t inicio  = 0;
+  static uint8_t estable = 0;    /* 1 = manipulador pulsado */
+  static uint8_t cuenta  = 0;
 
   if (htim->Instance != TIM2)
   {
@@ -423,26 +454,21 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   if (crudo == estable)
   {
     cuenta = 0;
-    return;
   }
-  if (++cuenta < ANTIRREBOTE_MS)
+  else if (++cuenta >= ANTIRREBOTE_MS)
   {
-    return;
+    cuenta  = 0;
+    estable = crudo;
   }
 
-  cuenta  = 0;
-  estable = crudo;
-  Tono(estable);
-  HAL_GPIO_WritePin(LED_PORT, LED_PIN, estable ? GPIO_PIN_RESET : GPIO_PIN_SET);
+  uint8_t sonar = Morse_ReprodTick(&reproductor) | estable;
+  Tono(sonar);
+  HAL_GPIO_WritePin(LED_PORT, LED_PIN, sonar ? GPIO_PIN_RESET : GPIO_PIN_SET);
 
-  if (estable)
+  char c = Morse_DecodTick(&decodificador, estable);
+  if (c != 0)
   {
-    inicio = HAL_GetTick();
-  }
-  else
-  {
-    ultima_ms = HAL_GetTick() - inicio;
-    pulsaciones++;
+    recibido = c;
   }
 }
 /* USER CODE END 4 */
