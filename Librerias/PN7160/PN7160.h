@@ -23,17 +23,18 @@
 // ============================================================================
 
 /*
- * Definir exactamente uno, y para todo el proyecto (PN7160.c tiene que verlo
- * igual que la aplicación): como símbolo del compilador (-DPN7160_TRANSPORT_SPI)
- * o en la sección USER CODE "Private defines" de main.h, que este archivo incluye.
+ * I2C es el transporte por defecto. Para usar SPI, definir PN7160_TRANSPORT_SPI
+ * para todo el proyecto (PN7160.c tiene que verlo igual que la aplicación): como
+ * símbolo del compilador (-DPN7160_TRANSPORT_SPI) o en la sección USER CODE
+ * "Private defines" de main.h, que este archivo incluye.
+ *   - PN7160_TRANSPORT_I2C (por defecto): PN7160_Init(hi2c, VEN, IRQ)
  *   - PN7160_TRANSPORT_SPI: PN7160_Init(hspi, NSS, VEN, IRQ)
- *   - PN7160_TRANSPORT_I2C: PN7160_Init(hi2c, VEN, IRQ)
  * La interfaz del PN7160 viene fijada de fábrica según el número de pedido.
  */
 #if defined(PN7160_TRANSPORT_SPI) && defined(PN7160_TRANSPORT_I2C)
 #error "PN7160: define solo uno de PN7160_TRANSPORT_SPI o PN7160_TRANSPORT_I2C"
 #elif !defined(PN7160_TRANSPORT_SPI) && !defined(PN7160_TRANSPORT_I2C)
-#error "PN7160: define PN7160_TRANSPORT_SPI o PN7160_TRANSPORT_I2C (simbolo del compilador o main.h)"
+#define PN7160_TRANSPORT_I2C
 #endif
 
 // ============================================================================
