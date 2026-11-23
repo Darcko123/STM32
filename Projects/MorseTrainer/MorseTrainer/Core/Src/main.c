@@ -23,26 +23,38 @@
 /* USER CODE BEGIN Includes */
 #include "SSD1306.h"
 #include "morse.h"
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+typedef enum { MENU, APRENDER, IDENTIFICAR } Modo;
+typedef enum { SONANDO, RESPUESTA, PAUSA } Paso;
+typedef enum { OPC_APRENDER, OPC_IDENTIFICAR, OPC_NIVEL, OPC_PATRON, OPCIONES } Opcion;
 
+typedef struct
+{
+  uint8_t estable;   /* 1 = pulsado */
+  uint8_t cuenta;    /* Muestras seguidas distintas de 'estable' */
+} Entrada;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define KEY_PORT        GPIOB
 #define KEY_PIN         GPIO_PIN_0      /* Manipulador, activo en bajo */
+#define MENU_PORT       GPIOB
+#define MENU_PIN        GPIO_PIN_1      /* Botón de menú, activo en bajo */
 #define LED_PORT        GPIOC
 #define LED_PIN         GPIO_PIN_13     /* LED de la Black Pill, activo en bajo */
 #define ANTIRREBOTE_MS  5U              /* Muestras iguales seguidas para aceptar un cambio */
 #define PRUEBA_TONO_MS  300U            /* Bip de arranque para comprobar la frecuencia */
 #define WPM_CARACTER    18U             /* Velocidad de los símbolos */
 #define WPM_EFECTIVO    8U              /* Velocidad con el espaciado Farnsworth */
-#define TEXTO_ARRANQUE  "KM"            /* Prueba del reproductor al encender */
-#define COLUMNAS        11U             /* Caracteres de Font_11x18 en 128 px */
+#define BIP_MS          60U             /* Bip de acierto, al doble de la frecuencia del tono */
+#define PAUSA_MS        800U            /* Silencio antes del siguiente carácter */
 
 /* USER CODE END PD */
 
@@ -62,6 +74,28 @@ TIM_HandleTypeDef htim3;
 static Morse_Reproductor   reproductor;
 static Morse_Decodificador decodificador;
 static volatile char       recibido = 0;    /* Último carácter decodificado; 0 = ya leído */
+static volatile uint8_t    menu_pulsado = 0;  /* Se pulsó el botón de menú; 0 = ya leído */
+static volatile uint16_t   bip_ms = 0;      /* Lo que queda del bip de acierto */
+
+/* -- Solo bucle principal -- */
+static Morse_Tiempos tiempos;
+static Koch_Progreso koch;
+static Modo     modo = MENU;
+static Opcion   opcion = OPC_APRENDER;      /* Resaltada en el menú */
+static uint8_t  mostrar_patron = 1;         /* Patrón al presentar y al fallar */
+static Paso     paso;
+static Paso     tras_sonar;                 /* RESPUESTA o PAUSA al acabar de sonar */
+static uint32_t pausa_desde;
+static char     actual;                     /* Carácter que se espera como respuesta */
+static uint8_t  siguiente;                  /* Aprender: índice en KOCH_ORDEN del próximo */
+static uint8_t  presentar;                  /* Identificar: presentar el recién desbloqueado */
+static char     sonido[4];                  /* Lo que suena; debe vivir hasta que acabe */
+static char     tu[10];                     /* "Tu: " + patrón manipulado */
+/* -- Pantalla -- */
+static char        grande;                  /* Carácter en grande; 0 = ninguno */
+static uint8_t     ver_patron;
+static const char *estado = "";             /* Línea inferior */
+static uint8_t     redibujar = 1;
 
 /* USER CODE END PV */
 
@@ -72,7 +106,16 @@ static void MX_I2C1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
 /* USER CODE BEGIN PFP */
-static void Tono(uint8_t encendido);
+static void Tono(uint16_t arr);
+static uint8_t Antirrebote(Entrada *e, uint8_t crudo);
+static void Reiniciar(const char *texto);
+static void Sonar(Paso despues);
+static void Escuchar(void);
+static void Pausa(void);
+static void Preguntar(void);
+static void Responder(char c);
+static void ElegirOpcion(void);
+static void Dibujar(void);
 
 /* USER CODE END PFP */
 
@@ -129,24 +172,21 @@ int main(void)
   }
 
   /* -- Bip de arranque: medir aquí la frecuencia (700 Hz esperados) -- */
-  Tono(1);
+  Tono((uint16_t)htim3.Init.Period);
   HAL_Delay(PRUEBA_TONO_MS);
   Tono(0);
 
   /* -- Se inicializan antes del tick, así no hay carrera con la ISR -- */
-  Morse_Tiempos tiempos = Morse_CalcularTiempos(WPM_CARACTER, WPM_EFECTIVO);
+  tiempos = Morse_CalcularTiempos(WPM_CARACTER, WPM_EFECTIVO);
   Morse_DecodInit(&decodificador, tiempos);
-  Morse_Reproducir(&reproductor, TEXTO_ARRANQUE, tiempos);
+  Morse_Reproducir(&reproductor, "", tiempos);
+  Koch_Init(&koch, KOCH_MINIMO);
 
   /* -- Tick de 1 ms: antirrebote, tono, reproductor y decodificador -- */
   if (HAL_TIM_Base_Start_IT(&htim2) != HAL_OK)
   {
     Error_Handler();
   }
-
-  char texto[COLUMNAS + 1U] = "";           /* Línea de texto decodificado */
-  char patron[MORSE_MAX_SIMBOLOS + 1U] = "";
-  uint8_t redibujar = 1;
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -161,38 +201,62 @@ int main(void)
     if (c != 0)
     {
       recibido = 0;
-      if (c != ' ')
+    }
+    uint8_t boton = menu_pulsado;
+    if (boton)
+    {
+      menu_pulsado = 0;
+    }
+
+    if (modo == MENU)
+    {
+      if (boton)                            /* Botón: siguiente opción */
       {
-        /* ponytail: el patrón puede pisarse si se vuelve a soltar el manipulador antes
-           de copiarlo (imposible a velocidades humanas); copiarlo en la ISR si molesta */
-        memcpy(patron, decodificador.patron, sizeof patron);
+        opcion = (Opcion)((opcion + 1U) % OPCIONES);
+        redibujar = 1;
       }
-      size_t n = strlen(texto);
-      if (n == COLUMNAS)                    /* Línea llena: desplaza a la izquierda */
+      else if (c != 0 && c != ' ')          /* Cualquier letra manipulada: elegir */
       {
-        memmove(texto, texto + 1, COLUMNAS);
-        n--;
+        ElegirOpcion();
       }
-      texto[n]     = c;
-      texto[n + 1] = '\0';
+    }
+    else if (boton)                         /* Botón en una lección: volver al menú */
+    {
+      modo = MENU;
+      Reiniciar("");                        /* Corta lo que esté sonando */
       redibujar = 1;
+    }
+    else if (paso == SONANDO)
+    {
+      if (!Morse_Reproduciendo(&reproductor))
+      {
+        if (tras_sonar == PAUSA)
+        {
+          Pausa();
+        }
+        else
+        {
+          Escuchar();
+        }
+      }
+    }
+    else if (paso == RESPUESTA)
+    {
+      if (c != 0 && c != ' ')
+      {
+        Responder(c);
+      }
+    }
+    else if (HAL_GetTick() - pausa_desde >= PAUSA_MS)
+    {
+      Preguntar();
     }
 
     /* -- Solo se redibuja al cambiar: UpdateScreen bloquea ~25 ms -- */
     if (redibujar)
     {
       redibujar = 0;
-      SSD1306_Fill(SSD1306_COLOR_BLACK);
-      SSD1306_GotoXY(0, 0);
-      SSD1306_Puts("Morse", &Font_11x18, SSD1306_COLOR_WHITE);
-      SSD1306_GotoXY(0, 24);
-      SSD1306_Puts(texto, &Font_11x18, SSD1306_COLOR_WHITE);
-      SSD1306_GotoXY(0, 50);
-      SSD1306_Puts(patron, &Font_7x10, SSD1306_COLOR_WHITE);
-      if (SSD1306_UpdateScreen() != SSD1306_OK)
-      {
-        Error_Handler();
-      }
+      Dibujar();
     }
   }
   /* USER CODE END 3 */
@@ -347,7 +411,7 @@ static void MX_TIM3_Init(void)
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim3.Init.Period = 1427;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
   {
     Error_Handler();
@@ -423,52 +487,270 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 /**
- * @brief Abre o cierra el tono del buzzer (50 % de ciclo sobre el ARR actual).
- *        Con CCR = 0 la salida PWM1 queda fija en bajo. Seguro desde la ISR.
- *        Para cambiar la frecuencia basta con cambiar el ARR: ARR = 1 000 000 / f - 1.
+ * @brief Tono del buzzer: arr = 0 lo silencia; si no, suena a f = 1 MHz / (arr + 1)
+ *        con ciclo del 50 %. ARR y CCR tienen precarga, así que el cambio entra al
+ *        acabar el periodo en curso, sin cortes. Seguro desde la ISR.
+ *        La frecuencia del tono es htim3.Init.Period (.ioc): ARR = 1 000 000 / f - 1.
+ *        Se escribe TIM3->ARR directamente porque __HAL_TIM_SET_AUTORELOAD pisaría Init.Period.
  */
-static void Tono(uint8_t encendido)
+static void Tono(uint16_t arr)
 {
-  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1,
-                        encendido ? (__HAL_TIM_GET_AUTORELOAD(&htim3) + 1U) / 2U : 0U);
+  if (arr != 0U)
+  {
+    TIM3->ARR = arr;
+  }
+  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, (arr + 1U) / 2U);
 }
 
 /**
- * @brief ISR de 1 ms (TIM2): antirrebote del manipulador, reproductor y decodificador.
- *        Un cambio se acepta tras ANTIRREBOTE_MS muestras seguidas distintas del
- *        estado estable. El retardo es igual al pulsar y al soltar, así que las
- *        duraciones que ve el decodificador no se ven afectadas.
- *        Suena el tono local del manipulador o el del reproductor; el LED lo sigue.
+ * @brief Antirrebote: un cambio se acepta tras ANTIRREBOTE_MS muestras seguidas
+ *        distintas del estado estable. El retardo es igual al pulsar y al soltar,
+ *        así que las duraciones que ve el decodificador no se ven afectadas.
+ * @return El estado estable (1 = pulsado).
+ */
+static uint8_t Antirrebote(Entrada *e, uint8_t crudo)
+{
+  if (crudo == e->estable)
+  {
+    e->cuenta = 0;
+  }
+  else if (++e->cuenta >= ANTIRREBOTE_MS)
+  {
+    e->cuenta  = 0;
+    e->estable = crudo;
+  }
+  return e->estable;
+}
+
+/**
+ * @brief ISR de 1 ms (TIM2): antirrebote del manipulador y del botón de menú,
+ *        reproductor, bip de acierto y decodificador.
+ *        Suena el tono local del manipulador o el del reproductor (el LED lo sigue);
+ *        el bip solo se oye si no suena ninguno de los dos.
  */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-  static uint8_t estable = 0;    /* 1 = manipulador pulsado */
-  static uint8_t cuenta  = 0;
+  static Entrada manipulador = {0};
+  static Entrada boton       = {0};
 
   if (htim->Instance != TIM2)
   {
     return;
   }
 
-  uint8_t crudo = (HAL_GPIO_ReadPin(KEY_PORT, KEY_PIN) == GPIO_PIN_RESET);
-  if (crudo == estable)
+  uint8_t pulsado = Antirrebote(&manipulador, HAL_GPIO_ReadPin(KEY_PORT, KEY_PIN) == GPIO_PIN_RESET);
+  uint8_t antes   = boton.estable;
+  if (Antirrebote(&boton, HAL_GPIO_ReadPin(MENU_PORT, MENU_PIN) == GPIO_PIN_RESET) && !antes)
   {
-    cuenta = 0;
-  }
-  else if (++cuenta >= ANTIRREBOTE_MS)
-  {
-    cuenta  = 0;
-    estable = crudo;
+    menu_pulsado = 1;
   }
 
-  uint8_t sonar = Morse_ReprodTick(&reproductor) | estable;
-  Tono(sonar);
-  HAL_GPIO_WritePin(LED_PORT, LED_PIN, sonar ? GPIO_PIN_RESET : GPIO_PIN_SET);
+  uint8_t morse = Morse_ReprodTick(&reproductor) | pulsado;
+  uint8_t bip   = 0;
+  if (bip_ms != 0U)
+  {
+    bip_ms--;
+    bip = 1;
+  }
+  uint16_t arr = (uint16_t)htim3.Init.Period;
+  Tono(morse ? arr : bip ? (uint16_t)(arr / 2U) : 0U);
+  HAL_GPIO_WritePin(LED_PORT, LED_PIN, morse ? GPIO_PIN_RESET : GPIO_PIN_SET);
 
-  char c = Morse_DecodTick(&decodificador, estable);
+  char c = Morse_DecodTick(&decodificador, pulsado);
   if (c != 0)
   {
     recibido = c;
+  }
+}
+
+/* ============================ Lecciones ============================ */
+
+/**
+ * @brief Empieza a reproducir un texto ("" = silencio) y vacía el decodificador:
+ *        lo manipulado antes no cuenta como respuesta.
+ */
+static void Reiniciar(const char *texto)
+{
+  HAL_NVIC_DisableIRQ(TIM2_IRQn);
+  Morse_Reproducir(&reproductor, texto, tiempos);
+  Morse_DecodInit(&decodificador, tiempos);
+  recibido = 0;
+  HAL_NVIC_EnableIRQ(TIM2_IRQn);
+}
+
+/** @brief Reproduce 'sonido'; al acabar pasa a 'despues' (RESPUESTA o PAUSA). */
+static void Sonar(Paso despues)
+{
+  Reiniciar(sonido);
+  paso       = SONANDO;
+  tras_sonar = despues;
+  redibujar  = 1;
+}
+
+/** @brief Espera la respuesta. El patrón se oculta: se responde de oído. */
+static void Escuchar(void)
+{
+  Reiniciar("");
+  paso       = RESPUESTA;
+  ver_patron = 0;
+  estado     = "Manipula";
+  redibujar  = 1;
+}
+
+static void Pausa(void)
+{
+  paso        = PAUSA;
+  pausa_desde = HAL_GetTick();
+}
+
+/** @brief Presenta (×3, con patrón) o pregunta (×1, sin mostrarlo) el siguiente carácter. */
+static void Preguntar(void)
+{
+  if (modo == APRENDER || presentar)
+  {
+    actual = KOCH_ORDEN[(modo == APRENDER) ? siguiente : koch.nivel - 1U];
+    memset(sonido, actual, 3);
+    sonido[3]  = '\0';
+    grande     = actual;
+    ver_patron = mostrar_patron;
+    estado     = presentar ? "Nuevo caracter" : "Escucha";
+    Sonar(presentar ? PAUSA : RESPUESTA);
+    presentar = 0;
+    return;
+  }
+
+  actual     = KOCH_ORDEN[(uint32_t)rand() % koch.nivel];
+  sonido[0]  = actual;
+  sonido[1]  = '\0';
+  grande     = 0;
+  ver_patron = 0;
+  estado     = "Escucha";
+  Sonar(RESPUESTA);
+}
+
+/**
+ * @brief Acierto: bip y siguiente. Fallo: se muestra el correcto y suenan el
+ *        correcto y lo manipulado; en Aprender se repite, en Identificar se sigue.
+ */
+static void Responder(char c)
+{
+  uint8_t acierto = (c == actual);
+  grande = actual;
+
+  if (acierto)
+  {
+    bip_ms = BIP_MS;
+    if (modo == APRENDER)
+    {
+      siguiente = (uint8_t)((siguiente + 1U) % koch.nivel);
+    }
+    else
+    {
+      presentar = Koch_Registrar(&koch, 1);
+    }
+    ver_patron = 0;
+    estado     = "Bien";
+    redibujar  = 1;
+    Pausa();
+    return;
+  }
+
+  if (modo == IDENTIFICAR)
+  {
+    Koch_Registrar(&koch, 0);
+  }
+  /* Antes de Sonar(), que vacía el decodificador */
+  snprintf(tu, sizeof tu, "Tu: %s", decodificador.patron);
+  ver_patron = mostrar_patron;
+  estado     = mostrar_patron ? tu : "Fallo";
+  /* "K M": el correcto, pausa de palabra y lo manipulado ('?' no suena) */
+  sonido[0] = actual;
+  sonido[1] = ' ';
+  sonido[2] = c;
+  sonido[3] = '\0';
+  Sonar((modo == APRENDER) ? RESPUESTA : PAUSA);
+}
+
+static void ElegirOpcion(void)
+{
+  switch (opcion)
+  {
+    case OPC_APRENDER:
+    case OPC_IDENTIFICAR:
+      srand(HAL_GetTick());                 /* El momento de la pulsación es azar suficiente */
+      modo      = (opcion == OPC_APRENDER) ? APRENDER : IDENTIFICAR;
+      siguiente = (uint8_t)(koch.nivel - 1U);   /* Aprender empieza por el más nuevo */
+      presentar = 0;
+      Preguntar();
+      break;
+    case OPC_NIVEL:                         /* Sustituye a la persistencia: se elige al encender */
+      Koch_Init(&koch, (koch.nivel >= KOCH_TOTAL) ? KOCH_MINIMO : (uint8_t)(koch.nivel + 1U));
+      break;
+    default:
+      mostrar_patron = !mostrar_patron;
+      break;
+  }
+  redibujar = 1;
+}
+
+static void Dibujar(void)
+{
+  char linea[20];
+  SSD1306_Fill(SSD1306_COLOR_BLACK);
+
+  if (modo == MENU)
+  {
+    for (uint8_t i = 0; i < OPCIONES; i++)
+    {
+      char marca = (i == opcion) ? '>' : ' ';
+      switch (i)
+      {
+        case OPC_APRENDER:    snprintf(linea, sizeof linea, "%c Aprender", marca); break;
+        case OPC_IDENTIFICAR: snprintf(linea, sizeof linea, "%c Identificar", marca); break;
+        case OPC_NIVEL:
+          snprintf(linea, sizeof linea, "%c Nivel %u (..%c)", marca, koch.nivel,
+                   KOCH_ORDEN[koch.nivel - 1U]);
+          break;
+        default:
+          snprintf(linea, sizeof linea, "%c Patron: %s", marca, mostrar_patron ? "si" : "no");
+          break;
+      }
+      SSD1306_GotoXY(0, (uint16_t)(i * 12U));
+      SSD1306_Puts(linea, &Font_7x10, SSD1306_COLOR_WHITE);
+    }
+    SSD1306_GotoXY(0, 52);
+    SSD1306_Puts("Menu=sig Tecla=ok", &Font_7x10, SSD1306_COLOR_WHITE);
+  }
+  else
+  {
+    if (modo == APRENDER)
+    {
+      snprintf(linea, sizeof linea, "Aprender");
+    }
+    else
+    {
+      snprintf(linea, sizeof linea, "Nivel %u  %u/%u", koch.nivel, Koch_Aciertos(&koch),
+               koch.intentos);
+    }
+    SSD1306_GotoXY(0, 0);
+    SSD1306_Puts(linea, &Font_7x10, SSD1306_COLOR_WHITE);
+    if (grande != 0)
+    {
+      SSD1306_GotoXY(8, 16);
+      SSD1306_Putc(grande, &Font_16x26, SSD1306_COLOR_WHITE);
+      if (ver_patron)
+      {
+        SSD1306_GotoXY(40, 20);
+        SSD1306_Puts((char *)Morse_Patron(grande), &Font_11x18, SSD1306_COLOR_WHITE);
+      }
+    }
+    SSD1306_GotoXY(0, 52);
+    SSD1306_Puts((char *)estado, &Font_7x10, SSD1306_COLOR_WHITE);
+  }
+
+  if (SSD1306_UpdateScreen() != SSD1306_OK)
+  {
+    Error_Handler();
   }
 }
 /* USER CODE END 4 */
