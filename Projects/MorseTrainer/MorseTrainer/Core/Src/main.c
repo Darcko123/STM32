@@ -30,9 +30,12 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-typedef enum { MENU, APRENDER, IDENTIFICAR } Modo;
+typedef enum { MENU, APRENDER, IDENTIFICAR, ESTADISTICAS } Modo;
 typedef enum { SONANDO, RESPUESTA, PAUSA } Paso;
-typedef enum { OPC_APRENDER, OPC_IDENTIFICAR, OPC_NIVEL, OPC_PATRON, OPCIONES } Opcion;
+typedef enum
+{
+  OPC_APRENDER, OPC_IDENTIFICAR, OPC_ESTADISTICAS, OPC_NIVEL, OPC_PATRON, OPCIONES
+} Opcion;
 
 typedef struct
 {
@@ -44,9 +47,9 @@ typedef struct
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define KEY_PORT        GPIOB
-#define KEY_PIN         GPIO_PIN_0      /* Manipulador, activo en bajo */
-#define MENU_PORT       GPIOB
-#define MENU_PIN        GPIO_PIN_1      /* Botón de menú, activo en bajo */
+#define KEY_PIN         GPIO_PIN_1      /* Manipulador a 3V3 con pull-down, activo en alto */
+#define MENU_PORT       GPIOA
+#define MENU_PIN        GPIO_PIN_0      /* Botón KEY de la Black Pill, a GND con pull-up, activo en bajo */
 #define LED_PORT        GPIOC
 #define LED_PIN         GPIO_PIN_13     /* LED de la Black Pill, activo en bajo */
 #define ANTIRREBOTE_MS  5U              /* Muestras iguales seguidas para aceptar un cambio */
@@ -55,6 +58,10 @@ typedef struct
 #define WPM_EFECTIVO    8U              /* Velocidad con el espaciado Farnsworth */
 #define BIP_MS          60U             /* Bip de acierto, al doble de la frecuencia del tono */
 #define PAUSA_MS        800U            /* Silencio antes del siguiente carácter */
+#define LATENCIA_MAX_MS 2000U           /* Más hasta la primera pulsación = no reconocido */
+#define ESPERA_MAX_MS   6000U           /* Sin pulsar en este tiempo = sin respuesta */
+#define SESION_MS       (15UL * 60UL * 1000UL)  /* Duración recomendada de la sesión */
+#define AVISO_MS        500U            /* Bip largo de fin de sesión */
 
 /* USER CODE END PD */
 
@@ -76,6 +83,7 @@ static Morse_Decodificador decodificador;
 static volatile char       recibido = 0;    /* Último carácter decodificado; 0 = ya leído */
 static volatile uint8_t    menu_pulsado = 0;  /* Se pulsó el botón de menú; 0 = ya leído */
 static volatile uint16_t   bip_ms = 0;      /* Lo que queda del bip de acierto */
+static volatile uint32_t   pulsado_en = 0;  /* HAL_GetTick() de la primera pulsación; 0 = ninguna */
 
 /* -- Solo bucle principal -- */
 static Morse_Tiempos tiempos;
@@ -91,6 +99,11 @@ static uint8_t  siguiente;                  /* Aprender: índice en KOCH_ORDEN d
 static uint8_t  presentar;                  /* Identificar: presentar el recién desbloqueado */
 static char     sonido[4];                  /* Lo que suena; debe vivir hasta que acabe */
 static char     tu[10];                     /* "Tu: " + patrón manipulado */
+static uint32_t escucha_desde;              /* Fin de la reproducción: origen de la latencia */
+static Sesion   sesion;
+static uint32_t sesion_desde;               /* Primera lección; 0 = sin empezar */
+static uint8_t  sesion_avisada;
+static uint8_t  fin_sesion;                 /* Estadísticas abiertas por el temporizador */
 /* -- Pantalla -- */
 static char        grande;                  /* Carácter en grande; 0 = ninguno */
 static uint8_t     ver_patron;
@@ -115,6 +128,7 @@ static void Pausa(void);
 static void Preguntar(void);
 static void Responder(char c);
 static void ElegirOpcion(void);
+static void DibujarEstadisticas(void);
 static void Dibujar(void);
 
 /* USER CODE END PFP */
@@ -181,6 +195,7 @@ int main(void)
   Morse_DecodInit(&decodificador, tiempos);
   Morse_Reproducir(&reproductor, "", tiempos);
   Koch_Init(&koch, KOCH_MINIMO);
+  Sesion_Init(&sesion);
 
   /* -- Tick de 1 ms: antirrebote, tono, reproductor y decodificador -- */
   if (HAL_TIM_Base_Start_IT(&htim2) != HAL_OK)
@@ -220,11 +235,16 @@ int main(void)
         ElegirOpcion();
       }
     }
-    else if (boton)                         /* Botón en una lección: volver al menú */
+    else if (boton)                         /* Botón fuera del menú: volver */
     {
-      modo = MENU;
+      modo       = MENU;
+      fin_sesion = 0;
       Reiniciar("");                        /* Corta lo que esté sonando */
       redibujar = 1;
+    }
+    else if (modo == ESTADISTICAS)
+    {
+      /* Pantalla fija: solo se sale con el botón */
     }
     else if (paso == SONANDO)
     {
@@ -245,6 +265,11 @@ int main(void)
       if (c != 0 && c != ' ')
       {
         Responder(c);
+      }
+      else if (modo == IDENTIFICAR && pulsado_en == 0U &&
+               HAL_GetTick() - escucha_desde >= ESPERA_MAX_MS)
+      {
+        Responder(0);                       /* Sin respuesta */
       }
     }
     else if (HAL_GetTick() - pausa_desde >= PAUSA_MS)
@@ -474,10 +499,22 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PB0 PB1 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1;
+  /*Configure GPIO pin : PA0 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PB0 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PB1 */
+  GPIO_InitStruct.Pin = GPIO_PIN_1;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
@@ -538,8 +575,13 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     return;
   }
 
-  uint8_t pulsado = Antirrebote(&manipulador, HAL_GPIO_ReadPin(KEY_PORT, KEY_PIN) == GPIO_PIN_RESET);
-  uint8_t antes   = boton.estable;
+  uint8_t antes   = manipulador.estable;
+  uint8_t pulsado = Antirrebote(&manipulador, HAL_GPIO_ReadPin(KEY_PORT, KEY_PIN) == GPIO_PIN_SET);
+  if (pulsado && !antes && pulsado_en == 0U)
+  {
+    pulsado_en = HAL_GetTick();             /* Retrasado ANTIRREBOTE_MS: despreciable */
+  }
+  antes = boton.estable;
   if (Antirrebote(&boton, HAL_GPIO_ReadPin(MENU_PORT, MENU_PIN) == GPIO_PIN_RESET) && !antes)
   {
     menu_pulsado = 1;
@@ -574,7 +616,8 @@ static void Reiniciar(const char *texto)
   HAL_NVIC_DisableIRQ(TIM2_IRQn);
   Morse_Reproducir(&reproductor, texto, tiempos);
   Morse_DecodInit(&decodificador, tiempos);
-  recibido = 0;
+  recibido   = 0;
+  pulsado_en = 0;
   HAL_NVIC_EnableIRQ(TIM2_IRQn);
 }
 
@@ -590,6 +633,7 @@ static void Sonar(Paso despues)
 /** @brief Espera la respuesta. El patrón se oculta: se responde de oído. */
 static void Escuchar(void)
 {
+  escucha_desde = HAL_GetTick();          /* Antes de Reiniciar: pulsado_en >= escucha_desde */
   Reiniciar("");
   paso       = RESPUESTA;
   ver_patron = 0;
@@ -603,9 +647,22 @@ static void Pausa(void)
   pausa_desde = HAL_GetTick();
 }
 
-/** @brief Presenta (×3, con patrón) o pregunta (×1, sin mostrarlo) el siguiente carácter. */
+/**
+ * @brief Presenta (×3, con patrón) o pregunta (×1, sin mostrarlo) el siguiente carácter.
+ *        Cumplido el tiempo de sesión, avisa una vez y muestra las estadísticas.
+ */
 static void Preguntar(void)
 {
+  if (!sesion_avisada && HAL_GetTick() - sesion_desde >= SESION_MS)
+  {
+    sesion_avisada = 1;
+    fin_sesion     = 1;
+    bip_ms         = AVISO_MS;
+    modo           = ESTADISTICAS;
+    redibujar      = 1;
+    return;
+  }
+
   if (modo == APRENDER || presentar)
   {
     actual = KOCH_ORDEN[(modo == APRENDER) ? siguiente : koch.nivel - 1U];
@@ -619,7 +676,7 @@ static void Preguntar(void)
     return;
   }
 
-  actual     = KOCH_ORDEN[(uint32_t)rand() % koch.nivel];
+  actual     = Sesion_Elegir(&sesion, koch.nivel, (uint32_t)rand());
   sonido[0]  = actual;
   sonido[1]  = '\0';
   grande     = 0;
@@ -629,41 +686,50 @@ static void Preguntar(void)
 }
 
 /**
- * @brief Acierto: bip y siguiente. Fallo: se muestra el correcto y suenan el
- *        correcto y lo manipulado; en Aprender se repite, en Identificar se sigue.
+ * @brief Evalúa la respuesta (c = 0: sin respuesta).
+ *        Reconocido (correcto y, en Identificar, primera pulsación antes de
+ *        LATENCIA_MAX_MS): bip y siguiente. Correcto pero lento: cuenta como fallo,
+ *        sin bip. Fallo: se muestra el correcto y suenan el correcto y lo manipulado;
+ *        en Aprender se repite, en Identificar se sigue.
  */
 static void Responder(char c)
 {
-  uint8_t acierto = (c == actual);
+  uint32_t pulsado  = pulsado_en;
+  uint32_t espera   = pulsado - escucha_desde;
+  uint16_t latencia = (pulsado == 0U) ? SESION_SIN_LATENCIA
+                    : (espera < SESION_SIN_LATENCIA) ? (uint16_t)espera : SESION_SIN_LATENCIA - 1U;
+  uint8_t  correcto   = (c == actual);
+  uint8_t  reconocido = correcto && (modo == APRENDER || latencia <= LATENCIA_MAX_MS);
   grande = actual;
 
-  if (acierto)
+  if (modo == IDENTIFICAR)
   {
-    bip_ms = BIP_MS;
-    if (modo == APRENDER)
+    Sesion_Registrar(&sesion, actual, c, reconocido, latencia);
+    presentar = Koch_Registrar(&koch, reconocido);
+  }
+
+  if (correcto)
+  {
+    if (reconocido)
     {
-      siguiente = (uint8_t)((siguiente + 1U) % koch.nivel);
-    }
-    else
-    {
-      presentar = Koch_Registrar(&koch, 1);
+      bip_ms = BIP_MS;
+      if (modo == APRENDER)
+      {
+        siguiente = (uint8_t)((siguiente + 1U) % koch.nivel);
+      }
     }
     ver_patron = 0;
-    estado     = "Bien";
+    estado     = reconocido ? "Bien" : "Bien, pero lento";
     redibujar  = 1;
     Pausa();
     return;
   }
 
-  if (modo == IDENTIFICAR)
-  {
-    Koch_Registrar(&koch, 0);
-  }
   /* Antes de Sonar(), que vacía el decodificador */
   snprintf(tu, sizeof tu, "Tu: %s", decodificador.patron);
   ver_patron = mostrar_patron;
-  estado     = mostrar_patron ? tu : "Fallo";
-  /* "K M": el correcto, pausa de palabra y lo manipulado ('?' no suena) */
+  estado     = (c == 0) ? "Sin respuesta" : mostrar_patron ? tu : "Fallo";
+  /* "K M": el correcto, pausa de palabra y lo manipulado ('?' y 0 no suenan) */
   sonido[0] = actual;
   sonido[1] = ' ';
   sonido[2] = c;
@@ -678,10 +744,17 @@ static void ElegirOpcion(void)
     case OPC_APRENDER:
     case OPC_IDENTIFICAR:
       srand(HAL_GetTick());                 /* El momento de la pulsación es azar suficiente */
+      if (sesion_desde == 0U)
+      {
+        sesion_desde = HAL_GetTick();       /* La sesión empieza con la primera lección */
+      }
       modo      = (opcion == OPC_APRENDER) ? APRENDER : IDENTIFICAR;
       siguiente = (uint8_t)(koch.nivel - 1U);   /* Aprender empieza por el más nuevo */
       presentar = 0;
       Preguntar();
+      break;
+    case OPC_ESTADISTICAS:
+      modo = ESTADISTICAS;
       break;
     case OPC_NIVEL:                         /* Sustituye a la persistencia: se elige al encender */
       Koch_Init(&koch, (koch.nivel >= KOCH_TOTAL) ? KOCH_MINIMO : (uint8_t)(koch.nivel + 1U));
@@ -691,6 +764,66 @@ static void ElegirOpcion(void)
       break;
   }
   redibujar = 1;
+}
+
+/** @brief Resumen de la sesión (solo cuenta el modo Identificar). */
+static void DibujarEstadisticas(void)
+{
+  char linea[20];
+  uint32_t intentos = 0;
+  uint32_t aciertos = 0;
+  for (uint8_t i = 0; i < KOCH_TOTAL; i++)
+  {
+    intentos += sesion.intentos[i];
+    aciertos += sesion.aciertos[i];
+  }
+  uint32_t minutos = (sesion_desde != 0U) ? (HAL_GetTick() - sesion_desde) / 60000U : 0U;
+
+  snprintf(linea, sizeof linea, fin_sesion ? "Fin: %lu min" : "Sesion %lu min",
+           (unsigned long)minutos);
+  SSD1306_GotoXY(0, 0);
+  SSD1306_Puts(linea, &Font_7x10, SSD1306_COLOR_WHITE);
+
+  snprintf(linea, sizeof linea, "Bien %lu/%lu %lu%%", (unsigned long)aciertos,
+           (unsigned long)intentos, (unsigned long)(intentos ? 100U * aciertos / intentos : 0U));
+  SSD1306_GotoXY(0, 10);
+  SSD1306_Puts(linea, &Font_7x10, SSD1306_COLOR_WHITE);
+
+  if (sesion.latencias != 0U)
+  {
+    snprintf(linea, sizeof linea, "Latencia %lu ms",
+             (unsigned long)(sesion.latencia_total_ms / sesion.latencias));
+  }
+  else
+  {
+    snprintf(linea, sizeof linea, "Latencia -");
+  }
+  SSD1306_GotoXY(0, 20);
+  SSD1306_Puts(linea, &Font_7x10, SSD1306_COLOR_WHITE);
+
+  char    fallados[4];
+  uint8_t n     = Sesion_MasFallados(&sesion, fallados, 3);
+  int     largo = snprintf(linea, sizeof linea, "Fallos");
+  for (uint8_t i = 0; i < n; i++)
+  {
+    largo += snprintf(linea + largo, sizeof linea - (size_t)largo, " %c", fallados[i]);
+  }
+  SSD1306_GotoXY(0, 30);
+  SSD1306_Puts(linea, &Font_7x10, SSD1306_COLOR_WHITE);
+
+  char pares[7];
+  n     = Sesion_Confusiones(&sesion, pares, 3);
+  largo = snprintf(linea, sizeof linea, "Conf");
+  for (uint8_t i = 0; i < n; i++)           /* oído>respondido */
+  {
+    largo += snprintf(linea + largo, sizeof linea - (size_t)largo, " %c>%c",
+                      pares[2 * i], pares[2 * i + 1]);
+  }
+  SSD1306_GotoXY(0, 40);
+  SSD1306_Puts(linea, &Font_7x10, SSD1306_COLOR_WHITE);
+
+  SSD1306_GotoXY(0, 52);
+  SSD1306_Puts("Menu=volver", &Font_7x10, SSD1306_COLOR_WHITE);
 }
 
 static void Dibujar(void)
@@ -707,6 +840,7 @@ static void Dibujar(void)
       {
         case OPC_APRENDER:    snprintf(linea, sizeof linea, "%c Aprender", marca); break;
         case OPC_IDENTIFICAR: snprintf(linea, sizeof linea, "%c Identificar", marca); break;
+        case OPC_ESTADISTICAS: snprintf(linea, sizeof linea, "%c Estadisticas", marca); break;
         case OPC_NIVEL:
           snprintf(linea, sizeof linea, "%c Nivel %u (..%c)", marca, koch.nivel,
                    KOCH_ORDEN[koch.nivel - 1U]);
@@ -715,11 +849,15 @@ static void Dibujar(void)
           snprintf(linea, sizeof linea, "%c Patron: %s", marca, mostrar_patron ? "si" : "no");
           break;
       }
-      SSD1306_GotoXY(0, (uint16_t)(i * 12U));
+      SSD1306_GotoXY(0, (uint16_t)(i * 10U));
       SSD1306_Puts(linea, &Font_7x10, SSD1306_COLOR_WHITE);
     }
     SSD1306_GotoXY(0, 52);
     SSD1306_Puts("Menu=sig Tecla=ok", &Font_7x10, SSD1306_COLOR_WHITE);
+  }
+  else if (modo == ESTADISTICAS)
+  {
+    DibujarEstadisticas();
   }
   else
   {
