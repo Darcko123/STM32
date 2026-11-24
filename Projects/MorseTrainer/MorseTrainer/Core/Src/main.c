@@ -30,11 +30,11 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-typedef enum { MENU, APRENDER, IDENTIFICAR, GRUPOS, ESTADISTICAS } Modo;
+typedef enum { MENU, APRENDER, IDENTIFICAR, GRUPOS, LIBRE, ESTADISTICAS } Modo;
 typedef enum { SONANDO, RESPUESTA, PAUSA } Paso;
 typedef enum
 {
-  OPC_APRENDER, OPC_IDENTIFICAR, OPC_GRUPOS, OPC_ESTADISTICAS, OPC_NIVEL, OPC_PATRON, OPCIONES
+  OPC_APRENDER, OPC_IDENTIFICAR, OPC_GRUPOS, OPC_LIBRE, OPC_ESTADISTICAS, OPC_NIVEL, OPC_PATRON, OPCIONES
 } Opcion;
 
 typedef struct
@@ -63,6 +63,9 @@ typedef struct
 #define SESION_MS       (15UL * 60UL * 1000UL)  /* Duración recomendada de la sesión */
 #define AVISO_MS        500U            /* Bip largo de fin de sesión */
 #define GRUPO_LARGO     5U              /* Caracteres por grupo (práctica clásica de Koch) */
+#define FILAS_MENU      6U              /* Opciones visibles; el resto se desplaza */
+#define LIBRE_COLUMNAS  18U             /* Font_7x10 en 128 px */
+#define LIBRE_FILAS     4U
 
 /* USER CODE END PD */
 
@@ -103,6 +106,7 @@ static char     sonido[GRUPO_LARGO + 1U];   /* Lo que suena; debe vivir hasta qu
 static char     respuesta[GRUPO_LARGO + 1U];  /* Grupos: lo manipulado hasta ahora */
 static uint8_t  n_respuesta;
 static uint32_t ultima_en;                  /* Grupos: última letra (o fin de la reproducción) */
+static char     libre[LIBRE_COLUMNAS * LIBRE_FILAS + 1U];  /* Libre: texto decodificado */
 static char     tu[12];                     /* "Tu: " + patrón manipulado, o "N/5 bien" */
 static uint32_t escucha_desde;              /* Fin de la reproducción: origen de la latencia */
 static Sesion   sesion;
@@ -135,6 +139,7 @@ static void Pausa(void);
 static void Preguntar(void);
 static void Responder(char c);
 static void Copiar(char c);
+static void Anotar(char c);
 static void ElegirOpcion(void);
 static void DibujarEstadisticas(void);
 static void Dibujar(void);
@@ -253,6 +258,13 @@ int main(void)
     else if (modo == ESTADISTICAS)
     {
       /* Pantalla fija: solo se sale con el botón */
+    }
+    else if (modo == LIBRE)
+    {
+      if (c != 0)
+      {
+        Anotar(c);
+      }
     }
     else if (paso == SONANDO)
     {
@@ -841,6 +853,37 @@ static void Copiar(char c)
   }
 }
 
+/**
+ * @brief Libre: añade lo decodificado al texto; al llenarse las LIBRE_FILAS líneas,
+ *        sube una. La línea inferior muestra el último carácter y lo manipulado.
+ */
+static void Anotar(char c)
+{
+  size_t n = strlen(libre);
+  if (c == ' ' && (n == 0U || libre[n - 1U] == ' '))
+  {
+    return;                                 /* Fin de la palabra con la que se eligió */
+  }
+  if (n == LIBRE_COLUMNAS * LIBRE_FILAS)
+  {
+    n -= LIBRE_COLUMNAS;
+    memmove(libre, libre + LIBRE_COLUMNAS, n);
+  }
+  libre[n]      = c;
+  libre[n + 1U] = '\0';
+
+  if (c != ' ')
+  {
+    char patron[sizeof decodificador.patron];
+    HAL_NVIC_DisableIRQ(TIM2_IRQn);
+    memcpy(patron, decodificador.patron, sizeof patron);
+    HAL_NVIC_EnableIRQ(TIM2_IRQn);
+    snprintf(tu, sizeof tu, "%c %s", c, patron);
+    estado = tu;
+  }
+  redibujar = 1;
+}
+
 static void ElegirOpcion(void)
 {
   switch (opcion)
@@ -858,6 +901,14 @@ static void ElegirOpcion(void)
       siguiente = (uint8_t)(koch.nivel - 1U);   /* Aprender empieza por el más nuevo */
       presentar = 0;
       Preguntar();
+      break;
+    case OPC_LIBRE:
+      modo     = LIBRE;
+      libre[0] = '\0';
+      /* Fin de palabra a 5 puntos del usuario (entre 3 y 7) en vez del umbral Farnsworth
+         de la reproducción. Solo Libre usa los espacios: no hace falta restaurarlo. */
+      decodificador.palabra_ms = 0;
+      estado   = "Manipula";
       break;
     case OPC_ESTADISTICAS:
       modo = ESTADISTICAS;
@@ -943,7 +994,8 @@ static void Dibujar(void)
 
   if (modo == MENU)
   {
-    for (uint8_t i = 0; i < OPCIONES; i++)
+    uint8_t primera = (opcion >= FILAS_MENU) ? (uint8_t)(opcion - FILAS_MENU + 1U) : 0U;
+    for (uint8_t i = primera; i < OPCIONES && i < primera + FILAS_MENU; i++)
     {
       char marca = (i == opcion) ? '>' : ' ';
       switch (i)
@@ -951,6 +1003,7 @@ static void Dibujar(void)
         case OPC_APRENDER:    snprintf(linea, sizeof linea, "%c Aprender", marca); break;
         case OPC_IDENTIFICAR: snprintf(linea, sizeof linea, "%c Identificar", marca); break;
         case OPC_GRUPOS:      snprintf(linea, sizeof linea, "%c Grupos de %u", marca, GRUPO_LARGO); break;
+        case OPC_LIBRE:       snprintf(linea, sizeof linea, "%c Libre", marca); break;
         case OPC_ESTADISTICAS: snprintf(linea, sizeof linea, "%c Estadisticas", marca); break;
         case OPC_NIVEL:
           snprintf(linea, sizeof linea, "%c Nivel %u (..%c)", marca, koch.nivel,
@@ -960,7 +1013,7 @@ static void Dibujar(void)
           snprintf(linea, sizeof linea, "%c Patron: %s", marca, mostrar_patron ? "si" : "no");
           break;
       }
-      SSD1306_GotoXY(0, (uint16_t)(i * 9U));   /* 6 opciones + ayuda: filas de 9 px */
+      SSD1306_GotoXY(0, (uint16_t)((i - primera) * 9U));  /* FILAS_MENU + ayuda: filas de 9 px */
       SSD1306_Puts(linea, &Font_7x10, SSD1306_COLOR_WHITE);
     }
     SSD1306_GotoXY(0, 54);
@@ -969,6 +1022,21 @@ static void Dibujar(void)
   else if (modo == ESTADISTICAS)
   {
     DibujarEstadisticas();
+  }
+  else if (modo == LIBRE)
+  {
+    snprintf(linea, sizeof linea, "Libre  Tu %u WPM", (uint8_t)(1200U / decodificador.punto_ms));
+    SSD1306_GotoXY(0, 0);
+    SSD1306_Puts(linea, &Font_7x10, SSD1306_COLOR_WHITE);
+    for (uint8_t f = 0; f < LIBRE_FILAS; f++)
+    {
+      snprintf(linea, sizeof linea, "%.*s", (int)LIBRE_COLUMNAS,
+               libre + (strnlen(libre, f * LIBRE_COLUMNAS)));
+      SSD1306_GotoXY(0, (uint16_t)(12U + f * 10U));
+      SSD1306_Puts(linea, &Font_7x10, SSD1306_COLOR_WHITE);
+    }
+    SSD1306_GotoXY(0, 52);
+    SSD1306_Puts((char *)estado, &Font_7x10, SSD1306_COLOR_WHITE);
   }
   else
   {
