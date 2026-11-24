@@ -118,6 +118,11 @@ void    Koch_Init(Koch_Progreso *p, uint8_t nivel);
 uint8_t Koch_Aciertos(const Koch_Progreso *p);
 /** @return 1 si el intento desbloqueó KOCH_ORDEN[nivel - 1] (la ventana vuelve a empezar). */
 uint8_t Koch_Registrar(Koch_Progreso *p, uint8_t acierto);
+/**
+ * @brief  Velocidad efectiva (Farnsworth) para un nivel: 'inicial' en KOCH_MINIMO y
+ *         crece en línea recta hasta 'caracter' (sin Farnsworth) en KOCH_TOTAL.
+ */
+uint8_t Koch_WpmEfectivo(uint8_t nivel, uint8_t inicial, uint8_t caracter);
 
 /* ---------------------------------------------------------------------------
  * Estadísticas de la sesión (modo Identificar) y selección ponderada.

@@ -283,6 +283,14 @@ uint8_t Koch_Registrar(Koch_Progreso *p, uint8_t acierto)
   return 1;
 }
 
+uint8_t Koch_WpmEfectivo(uint8_t nivel, uint8_t inicial, uint8_t caracter)
+{
+  nivel   = (nivel < KOCH_MINIMO) ? KOCH_MINIMO : (nivel > KOCH_TOTAL) ? KOCH_TOTAL : nivel;
+  inicial = (inicial > caracter) ? caracter : inicial;
+  return (uint8_t)(inicial + (uint32_t)(caracter - inicial) * (nivel - KOCH_MINIMO)
+                             / (KOCH_TOTAL - KOCH_MINIMO));
+}
+
 /* ================= Estadísticas de la sesión ================= */
 
 /* Índice en KOCH_ORDEN, o -1 si no está (incluido 0, que strchr encontraría) */
