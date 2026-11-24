@@ -30,11 +30,11 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-typedef enum { MENU, APRENDER, IDENTIFICAR, ESTADISTICAS } Modo;
+typedef enum { MENU, APRENDER, IDENTIFICAR, GRUPOS, ESTADISTICAS } Modo;
 typedef enum { SONANDO, RESPUESTA, PAUSA } Paso;
 typedef enum
 {
-  OPC_APRENDER, OPC_IDENTIFICAR, OPC_ESTADISTICAS, OPC_NIVEL, OPC_PATRON, OPCIONES
+  OPC_APRENDER, OPC_IDENTIFICAR, OPC_GRUPOS, OPC_ESTADISTICAS, OPC_NIVEL, OPC_PATRON, OPCIONES
 } Opcion;
 
 typedef struct
@@ -62,6 +62,7 @@ typedef struct
 #define ESPERA_MAX_MS   6000U           /* Sin pulsar en este tiempo = sin respuesta */
 #define SESION_MS       (15UL * 60UL * 1000UL)  /* Duración recomendada de la sesión */
 #define AVISO_MS        500U            /* Bip largo de fin de sesión */
+#define GRUPO_LARGO     5U              /* Caracteres por grupo (práctica clásica de Koch) */
 
 /* USER CODE END PD */
 
@@ -97,8 +98,12 @@ static uint32_t pausa_desde;
 static char     actual;                     /* Carácter que se espera como respuesta */
 static uint8_t  siguiente;                  /* Aprender: índice en KOCH_ORDEN del próximo */
 static uint8_t  presentar;                  /* Identificar: presentar el recién desbloqueado */
-static char     sonido[4];                  /* Lo que suena; debe vivir hasta que acabe */
-static char     tu[10];                     /* "Tu: " + patrón manipulado */
+static char     sonido[GRUPO_LARGO + 1U];   /* Lo que suena; debe vivir hasta que acabe.
+                                               En Grupos es también el grupo que se espera */
+static char     respuesta[GRUPO_LARGO + 1U];  /* Grupos: lo manipulado hasta ahora */
+static uint8_t  n_respuesta;
+static uint32_t ultima_en;                  /* Grupos: última letra (o fin de la reproducción) */
+static char     tu[12];                     /* "Tu: " + patrón manipulado, o "N/5 bien" */
 static uint32_t escucha_desde;              /* Fin de la reproducción: origen de la latencia */
 static Sesion   sesion;
 static uint32_t sesion_desde;               /* Primera lección; 0 = sin empezar */
@@ -129,6 +134,7 @@ static void Escuchar(void);
 static void Pausa(void);
 static void Preguntar(void);
 static void Responder(char c);
+static void Copiar(char c);
 static void ElegirOpcion(void);
 static void DibujarEstadisticas(void);
 static void Dibujar(void);
@@ -264,7 +270,11 @@ int main(void)
     }
     else if (paso == RESPUESTA)
     {
-      if (c != 0 && c != ' ')
+      if (modo == GRUPOS)
+      {
+        Copiar(c);
+      }
+      else if (c != 0 && c != ' ')
       {
         Responder(c);
       }
@@ -648,6 +658,7 @@ static void Sonar(Paso despues)
 static void Escuchar(void)
 {
   escucha_desde = HAL_GetTick();          /* Antes de Reiniciar: pulsado_en >= escucha_desde */
+  ultima_en     = escucha_desde;
   Reiniciar("");
   paso       = RESPUESTA;
   ver_patron = 0;
@@ -691,9 +702,22 @@ static void Preguntar(void)
     return;
   }
 
-  actual     = Sesion_Elegir(&sesion, koch.nivel, (uint32_t)rand());
-  sonido[0]  = actual;
-  sonido[1]  = '\0';
+  if (modo == GRUPOS)                     /* Letras seguidas, con el espaciado Farnsworth */
+  {
+    for (uint8_t i = 0; i < GRUPO_LARGO; i++)
+    {
+      sonido[i] = Sesion_Elegir(&sesion, koch.nivel, (uint32_t)rand());
+    }
+    sonido[GRUPO_LARGO] = '\0';
+    memset(respuesta, 0, sizeof respuesta);
+    n_respuesta = 0;
+  }
+  else
+  {
+    actual    = Sesion_Elegir(&sesion, koch.nivel, (uint32_t)rand());
+    sonido[0] = actual;
+    sonido[1] = '\0';
+  }
   grande     = 0;
   ver_patron = 0;
   estado     = "Escucha";
@@ -761,18 +785,76 @@ static void Responder(char c)
   Sonar((modo == APRENDER) ? RESPUESTA : PAUSA);
 }
 
+/**
+ * @brief Grupos: acumula lo manipulado y corrige al completar el grupo o tras
+ *        ESPERA_MAX_MS sin letras nuevas. Cada carácter cuenta en la progresión Koch
+ *        y en las estadísticas (sin latencia). Si todo está bien, bip; si no, se ven
+ *        el grupo oído y lo manipulado y el grupo vuelve a sonar.
+ *        Un carácter no reconocido se marca con 6 o más puntos ('?'), así el resto
+ *        no se desplaza.
+ */
+static void Copiar(char c)
+{
+  if (c != 0 && c != ' ')
+  {
+    respuesta[n_respuesta++] = c;
+    ultima_en = HAL_GetTick();
+    redibujar = 1;
+    if (n_respuesta < GRUPO_LARGO)
+    {
+      return;
+    }
+  }
+  else if (HAL_GetTick() - ultima_en < ESPERA_MAX_MS)
+  {
+    return;
+  }
+
+  /* ponytail: comparación posición a posición; una letra saltada desplaza el resto.
+     Por eso las confusiones solo se anotan con el grupo completo. Alinear si molesta. */
+  uint8_t bien = 0;
+  for (uint8_t i = 0; i < GRUPO_LARGO; i++)
+  {
+    uint8_t ok = (respuesta[i] == sonido[i]);   /* Lo que falta es '\0': fallo */
+    bien += ok;
+    Sesion_Registrar(&sesion, sonido[i], (n_respuesta == GRUPO_LARGO) ? respuesta[i] : 0,
+                     ok, SESION_SIN_LATENCIA);
+    presentar |= Koch_Registrar(&koch, ok);
+  }
+  if (presentar)
+  {
+    AjustarVelocidad();
+  }
+
+  snprintf(tu, sizeof tu, "%u/%u bien", bien, GRUPO_LARGO);
+  estado     = tu;
+  ver_patron = 1;                           /* En Grupos: mostrar el grupo oído */
+  redibujar  = 1;
+  if (bien == GRUPO_LARGO)
+  {
+    bip_ms = BIP_MS;
+    Pausa();
+  }
+  else
+  {
+    Sonar(PAUSA);                           /* El grupo otra vez, ya viéndolo */
+  }
+}
+
 static void ElegirOpcion(void)
 {
   switch (opcion)
   {
     case OPC_APRENDER:
     case OPC_IDENTIFICAR:
+    case OPC_GRUPOS:
       srand(HAL_GetTick());                 /* El momento de la pulsación es azar suficiente */
       if (sesion_desde == 0U)
       {
         sesion_desde = HAL_GetTick();       /* La sesión empieza con la primera lección */
       }
-      modo      = (opcion == OPC_APRENDER) ? APRENDER : IDENTIFICAR;
+      modo      = (opcion == OPC_APRENDER) ? APRENDER : (opcion == OPC_IDENTIFICAR) ? IDENTIFICAR
+                                                                       : GRUPOS;
       siguiente = (uint8_t)(koch.nivel - 1U);   /* Aprender empieza por el más nuevo */
       presentar = 0;
       Preguntar();
@@ -791,7 +873,7 @@ static void ElegirOpcion(void)
   redibujar = 1;
 }
 
-/** @brief Resumen de la sesión (solo cuenta el modo Identificar). */
+/** @brief Resumen de la sesión (cuentan Identificar y Grupos). */
 static void DibujarEstadisticas(void)
 {
   char linea[20];
@@ -868,6 +950,7 @@ static void Dibujar(void)
       {
         case OPC_APRENDER:    snprintf(linea, sizeof linea, "%c Aprender", marca); break;
         case OPC_IDENTIFICAR: snprintf(linea, sizeof linea, "%c Identificar", marca); break;
+        case OPC_GRUPOS:      snprintf(linea, sizeof linea, "%c Grupos de %u", marca, GRUPO_LARGO); break;
         case OPC_ESTADISTICAS: snprintf(linea, sizeof linea, "%c Estadisticas", marca); break;
         case OPC_NIVEL:
           snprintf(linea, sizeof linea, "%c Nivel %u (..%c)", marca, koch.nivel,
@@ -877,10 +960,10 @@ static void Dibujar(void)
           snprintf(linea, sizeof linea, "%c Patron: %s", marca, mostrar_patron ? "si" : "no");
           break;
       }
-      SSD1306_GotoXY(0, (uint16_t)(i * 10U));
+      SSD1306_GotoXY(0, (uint16_t)(i * 9U));   /* 6 opciones + ayuda: filas de 9 px */
       SSD1306_Puts(linea, &Font_7x10, SSD1306_COLOR_WHITE);
     }
-    SSD1306_GotoXY(0, 52);
+    SSD1306_GotoXY(0, 54);
     SSD1306_Puts("Menu=sig Tecla=ok", &Font_7x10, SSD1306_COLOR_WHITE);
   }
   else if (modo == ESTADISTICAS)
@@ -896,12 +979,26 @@ static void Dibujar(void)
     }
     else
     {
-      snprintf(linea, sizeof linea, "Nivel %u  %u/%u", koch.nivel, Koch_Aciertos(&koch),
-               koch.intentos);
+      snprintf(linea, sizeof linea, "%s %u  %u/%u", (modo == GRUPOS) ? "Grupos" : "Nivel",
+               koch.nivel, Koch_Aciertos(&koch), koch.intentos);
     }
     SSD1306_GotoXY(0, 0);
     SSD1306_Puts(linea, &Font_7x10, SSD1306_COLOR_WHITE);
-    if (grande != 0)
+    if (modo == GRUPOS && grande == 0)      /* grande != 0: presentación de uno nuevo */
+    {
+      if (ver_patron)                       /* Tras corregir: el grupo oído */
+      {
+        SSD1306_GotoXY(0, 13);
+        SSD1306_Puts(sonido, &Font_11x18, SSD1306_COLOR_WHITE);
+        SSD1306_GotoXY(66, 17);
+        SSD1306_Puts("oido", &Font_7x10, SSD1306_COLOR_WHITE);
+      }
+      SSD1306_GotoXY(0, 33);
+      SSD1306_Puts(respuesta, &Font_11x18, SSD1306_COLOR_WHITE);
+      SSD1306_GotoXY(66, 37);
+      SSD1306_Puts("tu", &Font_7x10, SSD1306_COLOR_WHITE);
+    }
+    else if (grande != 0)
     {
       SSD1306_GotoXY(8, 16);
       SSD1306_Putc(grande, &Font_16x26, SSD1306_COLOR_WHITE);
