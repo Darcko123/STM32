@@ -22,7 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "SSD1306.h"
-#include "morse.h"
+#include "MORSE.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -87,8 +87,8 @@ TIM_HandleTypeDef htim3;
 
 /* USER CODE BEGIN PV */
 /* -- Avanzados en la ISR de TIM2; el bucle principal solo los toca con la IRQ parada -- */
-static Morse_Reproductor   reproductor;
-static Morse_Decodificador decodificador;
+static MORSE_Reproductor_t   reproductor;
+static MORSE_Decodificador_t decodificador;
 static volatile char       recibido = 0;    /* Último carácter decodificado; 0 = ya leído */
 static volatile uint8_t    menu_pulsado = 0;  /* Se pulsó el botón de menú; 0 = ya leído */
 static volatile uint16_t   bip_ms = 0;      /* Lo que queda del bip de acierto */
@@ -96,8 +96,8 @@ static volatile uint32_t   pulsado_en = 0;  /* HAL_GetTick() de la primera pulsa
 static volatile uint16_t   tono_arr = (uint16_t)(1000000UL / TONO_HZ - 1U);  /* ARR del tono */
 
 /* -- Solo bucle principal -- */
-static Morse_Tiempos tiempos;
-static Koch_Progreso koch;
+static MORSE_Tiempos_t tiempos;
+static MORSE_KochProgreso_t koch;
 static uint8_t  wpm_caracter = WPM_CARACTER;
 static uint8_t  wpm_efectivo = WPM_EFECTIVO;  /* Nunca mayor que wpm_caracter */
 static uint16_t tono_hz      = TONO_HZ;
@@ -108,10 +108,10 @@ static Paso     paso;
 static Paso     tras_sonar;                 /* RESPUESTA o PAUSA al acabar de sonar */
 static uint32_t pausa_desde;
 static char     actual;                     /* Carácter que se espera como respuesta */
-static uint8_t  siguiente;                  /* Aprender: índice en KOCH_ORDEN del próximo */
+static uint8_t  siguiente;                  /* Aprender: índice en MORSE_KochOrden del próximo */
 static uint8_t  presentar;                  /* Identificar: presentar el recién desbloqueado */
 static uint8_t  repaso;                     /* Identificar solo entre fallados y confundidos */
-static char     repasar[SESION_REPASO_MAX + 1U];  /* Repaso: caracteres de la última elección */
+static char     repasar[MORSE_SESION_REPASO_MAX + 1U];  /* Repaso: caracteres de la última elección */
 static char     sonido[GRUPO_LARGO + 1U];   /* Lo que suena; debe vivir hasta que acabe.
                                                En Grupos es también el grupo que se espera */
 static char     respuesta[GRUPO_LARGO + 1U];  /* Grupos: lo manipulado hasta ahora */
@@ -120,7 +120,7 @@ static uint32_t ultima_en;                  /* Grupos: última letra (o fin de l
 static char     libre[LIBRE_COLUMNAS * LIBRE_FILAS + 1U];  /* Libre: texto decodificado */
 static char     tu[12];                     /* "Tu: " + patrón manipulado, o "N/5 bien" */
 static uint32_t escucha_desde;              /* Fin de la reproducción: origen de la latencia */
-static Sesion   sesion;
+static MORSE_Sesion_t   sesion;
 static uint32_t sesion_desde;               /* Primera lección; 0 = sin empezar */
 static uint8_t  sesion_avisada;
 static uint8_t  fin_sesion;                 /* Estadísticas abiertas por el temporizador */
@@ -214,12 +214,13 @@ int main(void)
   HAL_Delay(PRUEBA_TONO_MS);
   Tono(0);
 
-  /* -- Se inicializan antes del tick, así no hay carrera con la ISR -- */
-  Koch_Init(&koch, KOCH_MINIMO);
+  /* -- Se inicializan antes del tick, así no hay carrera con la ISR --
+     Se ignora el estado: solo falla con punteros NULL y estos son estáticos */
+  (void)MORSE_KochInit(&koch, MORSE_KOCH_MINIMO);
   AjustarVelocidad();
-  Morse_DecodInit(&decodificador, tiempos);
-  Morse_Reproducir(&reproductor, "", tiempos);
-  Sesion_Init(&sesion);
+  (void)MORSE_DecodInit(&decodificador, tiempos);
+  (void)MORSE_Reproducir(&reproductor, "", tiempos);
+  (void)MORSE_SesionInit(&sesion);
 
   /* -- Tick de 1 ms: antirrebote, tono, reproductor y decodificador -- */
   if (HAL_TIM_Base_Start_IT(&htim2) != HAL_OK)
@@ -279,7 +280,7 @@ int main(void)
     }
     else if (paso == SONANDO)
     {
-      if (!Morse_Reproduciendo(&reproductor))
+      if (!MORSE_Reproduciendo(&reproductor))
       {
         if (tras_sonar == PAUSA)
         {
@@ -622,7 +623,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     menu_pulsado = 1;
   }
 
-  uint8_t morse = Morse_ReprodTick(&reproductor) | pulsado;
+  uint8_t morse = MORSE_ReprodTick(&reproductor) | pulsado;
   uint8_t bip   = 0;
   if (bip_ms != 0U)
   {
@@ -633,7 +634,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   Tono(morse ? arr : bip ? (uint16_t)(arr / 2U) : 0U);
   HAL_GPIO_WritePin(LED_PORT, LED_PIN, morse ? GPIO_PIN_RESET : GPIO_PIN_SET);
 
-  char c = Morse_DecodTick(&decodificador, pulsado);
+  char c = MORSE_DecodTick(&decodificador, pulsado);
   if (c != 0)
   {
     recibido = c;
@@ -649,8 +650,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
  */
 static void AjustarVelocidad(void)
 {
-  tiempos = Morse_CalcularTiempos(wpm_caracter,
-                                  Koch_WpmEfectivo(koch.nivel, wpm_efectivo, wpm_caracter));
+  tiempos = MORSE_CalcularTiempos(wpm_caracter,
+                                  MORSE_KochWpmEfectivo(koch.nivel, wpm_efectivo, wpm_caracter));
 }
 
 /**
@@ -661,8 +662,8 @@ static void AjustarVelocidad(void)
 static void Reiniciar(const char *texto)
 {
   HAL_NVIC_DisableIRQ(TIM2_IRQn);
-  Morse_Reproducir(&reproductor, texto, tiempos);
-  Morse_DecodVaciar(&decodificador);
+  (void)MORSE_Reproducir(&reproductor, texto, tiempos);   /* texto nunca es NULL aquí */
+  (void)MORSE_DecodVaciar(&decodificador);
   recibido   = 0;
   pulsado_en = 0;
   HAL_NVIC_EnableIRQ(TIM2_IRQn);
@@ -714,7 +715,7 @@ static void Preguntar(void)
   aviso = NULL;
   if (modo == APRENDER || presentar)
   {
-    actual = KOCH_ORDEN[(modo == APRENDER) ? siguiente : koch.nivel - 1U];
+    actual = MORSE_KochOrden[(modo == APRENDER) ? siguiente : koch.nivel - 1U];
     memset(sonido, actual, 3);
     sonido[3]  = '\0';
     grande     = actual;
@@ -729,7 +730,7 @@ static void Preguntar(void)
   {
     for (uint8_t i = 0; i < GRUPO_LARGO; i++)
     {
-      sonido[i] = Sesion_Elegir(&sesion, koch.nivel, NULL, (uint32_t)rand());
+      sonido[i] = MORSE_SesionElegir(&sesion, koch.nivel, NULL, (uint32_t)rand());
     }
     sonido[GRUPO_LARGO] = '\0';
     memset(respuesta, 0, sizeof respuesta);
@@ -739,9 +740,9 @@ static void Preguntar(void)
   {
     if (repaso)                           /* Se recalcula con cada respuesta */
     {
-      Sesion_Repaso(&sesion, koch.nivel, repasar);
+      MORSE_SesionRepaso(&sesion, koch.nivel, repasar);
     }
-    actual    = Sesion_Elegir(&sesion, koch.nivel, repaso ? repasar : NULL, (uint32_t)rand());
+    actual    = MORSE_SesionElegir(&sesion, koch.nivel, repaso ? repasar : NULL, (uint32_t)rand());
     sonido[0] = actual;
     sonido[1] = '\0';
   }
@@ -762,23 +763,23 @@ static void Responder(char c)
 {
   uint32_t pulsado  = pulsado_en;
   uint32_t espera   = pulsado - escucha_desde;
-  uint16_t latencia = (pulsado == 0U) ? SESION_SIN_LATENCIA
-                    : (espera < SESION_SIN_LATENCIA) ? (uint16_t)espera : SESION_SIN_LATENCIA - 1U;
+  uint16_t latencia = (pulsado == 0U) ? MORSE_SESION_SIN_LATENCIA
+                    : (espera < MORSE_SESION_SIN_LATENCIA) ? (uint16_t)espera : MORSE_SESION_SIN_LATENCIA - 1U;
   uint8_t  correcto   = (c == actual);
   uint8_t  reconocido = correcto && (modo == APRENDER || latencia <= LATENCIA_MAX_MS);
   grande = actual;
 
   /* Copia con la IRQ parada: si ya empezó otra letra, la ISR pisaría las duraciones */
   HAL_NVIC_DisableIRQ(TIM2_IRQn);
-  Morse_Decodificador manip = decodificador;
+  MORSE_Decodificador_t manip = decodificador;
   HAL_NVIC_EnableIRQ(TIM2_IRQn);
-  aviso = (c != 0) ? Morse_EvaluarManip(&manip, actual, koch.nivel) : NULL;
+  aviso = (c != 0) ? MORSE_EvaluarManip(&manip, actual, koch.nivel) : NULL;
 
   if (modo == IDENTIFICAR)
   {
-    Sesion_Registrar(&sesion, actual, c, reconocido, latencia);
+    (void)MORSE_SesionRegistrar(&sesion, actual, c, reconocido, latencia);  /* actual sale de MORSE_KochOrden */
     /* El repaso no cuenta en la progresión: su muestra está sesgada hacia lo difícil */
-    presentar = repaso ? 0U : Koch_Registrar(&koch, reconocido);
+    presentar = repaso ? 0U : MORSE_KochRegistrar(&koch, reconocido);
     if (presentar)
     {
       AjustarVelocidad();
@@ -845,9 +846,9 @@ static void Copiar(char c)
   {
     uint8_t ok = (respuesta[i] == sonido[i]);   /* Lo que falta es '\0': fallo */
     bien += ok;
-    Sesion_Registrar(&sesion, sonido[i], (n_respuesta == GRUPO_LARGO) ? respuesta[i] : 0,
-                     ok, SESION_SIN_LATENCIA);
-    presentar |= Koch_Registrar(&koch, ok);
+    (void)MORSE_SesionRegistrar(&sesion, sonido[i], (n_respuesta == GRUPO_LARGO) ? respuesta[i] : 0,
+                                ok, MORSE_SESION_SIN_LATENCIA);  /* sonido sale de MORSE_KochOrden */
+    presentar |= MORSE_KochRegistrar(&koch, ok);
   }
   if (presentar)
   {
@@ -932,7 +933,7 @@ static void ElegirOpcion(void)
       modo = ESTADISTICAS;
       break;
     case OPC_NIVEL:                         /* Sustituye a la persistencia: se elige al encender */
-      Koch_Init(&koch, (koch.nivel >= KOCH_TOTAL) ? KOCH_MINIMO : (uint8_t)(koch.nivel + 1U));
+      (void)MORSE_KochInit(&koch, (koch.nivel >= MORSE_KOCH_TOTAL) ? MORSE_KOCH_MINIMO : (uint8_t)(koch.nivel + 1U));
       AjustarVelocidad();
       break;
     case OPC_WPM:
@@ -967,7 +968,7 @@ static void DibujarEstadisticas(void)
   char linea[20];
   uint32_t intentos = 0;
   uint32_t aciertos = 0;
-  for (uint8_t i = 0; i < KOCH_TOTAL; i++)
+  for (uint8_t i = 0; i < MORSE_KOCH_TOTAL; i++)
   {
     intentos += sesion.intentos[i];
     aciertos += sesion.aciertos[i];
@@ -997,7 +998,7 @@ static void DibujarEstadisticas(void)
   SSD1306_Puts(linea, &Font_7x10, SSD1306_COLOR_WHITE);
 
   char    fallados[4];
-  uint8_t n     = Sesion_MasFallados(&sesion, fallados, 3);
+  uint8_t n     = MORSE_SesionMasFallados(&sesion, fallados, 3);
   int     largo = snprintf(linea, sizeof linea, "Fallos");
   for (uint8_t i = 0; i < n; i++)
   {
@@ -1007,7 +1008,7 @@ static void DibujarEstadisticas(void)
   SSD1306_Puts(linea, &Font_7x10, SSD1306_COLOR_WHITE);
 
   char pares[7];
-  n     = Sesion_Confusiones(&sesion, pares, 3);
+  n     = MORSE_SesionConfusiones(&sesion, pares, 3);
   largo = snprintf(linea, sizeof linea, "Conf");
   for (uint8_t i = 0; i < n; i++)           /* oído>respondido */
   {
@@ -1045,7 +1046,7 @@ static void Dibujar(void)
         case OPC_ESTADISTICAS: snprintf(linea, sizeof linea, "%c Estadisticas", marca); break;
         case OPC_NIVEL:
           snprintf(linea, sizeof linea, "%c Nivel %u (..%c)", marca, koch.nivel,
-                   KOCH_ORDEN[koch.nivel - 1U]);
+                   MORSE_KochOrden[koch.nivel - 1U]);
           break;
         case OPC_WPM:
           snprintf(linea, sizeof linea, "%c Velocidad %u WPM", marca, wpm_caracter);
@@ -1097,7 +1098,7 @@ static void Dibujar(void)
     if (modo == APRENDER)
     {
       snprintf(linea, sizeof linea, "Aprender %u/%u WPM", wpm_caracter,
-               Koch_WpmEfectivo(koch.nivel, wpm_efectivo, wpm_caracter));
+               MORSE_KochWpmEfectivo(koch.nivel, wpm_efectivo, wpm_caracter));
     }
     else if (repaso)                        /* Sin fallos aún: elige entre todos */
     {
@@ -1106,7 +1107,7 @@ static void Dibujar(void)
     else
     {
       snprintf(linea, sizeof linea, "%s %u  %u/%u", (modo == GRUPOS) ? "Grupos" : "Nivel",
-               koch.nivel, Koch_Aciertos(&koch), koch.intentos);
+               koch.nivel, MORSE_KochAciertos(&koch), koch.intentos);
     }
     SSD1306_GotoXY(0, 0);
     SSD1306_Puts(linea, &Font_7x10, SSD1306_COLOR_WHITE);
@@ -1128,10 +1129,11 @@ static void Dibujar(void)
     {
       SSD1306_GotoXY(8, 16);
       SSD1306_Putc(grande, &Font_16x26, SSD1306_COLOR_WHITE);
-      if (ver_patron)
+      const char *patron;
+      if (ver_patron && MORSE_Patron(grande, &patron) == MORSE_OK)
       {
         SSD1306_GotoXY(40, 20);
-        SSD1306_Puts((char *)Morse_Patron(grande), &Font_11x18, SSD1306_COLOR_WHITE);
+        SSD1306_Puts((char *)patron, &Font_11x18, SSD1306_COLOR_WHITE);
       }
     }
     if (aviso != NULL)                      /* Línea libre bajo el carácter grande */
