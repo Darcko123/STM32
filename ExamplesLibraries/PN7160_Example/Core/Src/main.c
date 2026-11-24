@@ -44,10 +44,14 @@
 /* -- Tags para TestTransceive: 1 = hay que acercar uno de ese tipo, 0 = no se tiene -- */
 #define TEST_CON_T2T        1       /**< NTAG / Ultralight */
 #define TEST_CON_ISODEP     1       /**< Tarjeta ISO-DEP (bancaria, DESFire, ...) */
-#define TEST_CON_MFC        0       /**< MIFARE Classic (pendiente: no hay tarjeta a la mano) */
+#define TEST_CON_MFC        1       /**< MIFARE Classic 1K */
 
-/* -- Clave A del sector 0 de la MIFARE Classic (de fábrica: FF FF FF FF FF FF) -- */
+/* -- Clave con formato válido para las pruebas de errores (no toca RF) -- */
 #define MFC_CLAVE           0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU
+
+/* -- MIFARE Classic: las claves conocidas están en mfcClaves (PV) -- */
+#define MFC_SECTORES        16U     /**< ponytail: solo 1K; la 4K tiene 40 (32-39 de 16 bloques) */
+#define TEST_MFC_BLOQUE     60U     /**< Bloque de datos que se escribe y se restaura */
 
 /* -- UID que anuncia el PN7160 en modo tarjeta (4 bytes, sin 0x08 ni 0x88 al inicio) -- */
 #define TEST_CARD_UID       0x12U, 0x34U, 0x56U, 0x78U
@@ -73,6 +77,17 @@ static PN7160_Info_t info;              /* identificación leída tras el primer
 static PN7160_Tag_t tag;                /* último tag de WaitTag */
 static PN7160_Tag_t tagIT;              /* copia del tag que entrega el callback */
 static volatile uint8_t tagITListo;     /* lo pone PN7160_TagDetectedCallback */
+
+/* Claves conocidas: en cada sector se prueban, en este orden, como clave A y como clave B */
+static const uint8_t mfcClaves[][6] = {
+	{ 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU },   /* de fábrica */
+	{ 0xA0U, 0xA1U, 0xA2U, 0xA3U, 0xA4U, 0xA5U },   /* MAD */
+	{ 0xD3U, 0xF7U, 0xD3U, 0xF7U, 0xD3U, 0xF7U },   /* NDEF */
+};
+
+/* Ni el bloque 0 (fabricante) ni un trailer: escribir ahí puede inutilizar la tarjeta */
+_Static_assert(TEST_MFC_BLOQUE != 0U && (TEST_MFC_BLOQUE % 4U) != 3U && TEST_MFC_BLOQUE < 4U * MFC_SECTORES,
+               "TEST_MFC_BLOQUE debe ser un bloque de datos");
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -710,23 +725,97 @@ static void PN7160_ProbarIsoDep(void)
 	PN_ASSERT((sw1 & 0xF0U) == 0x60U || (sw1 & 0xF0U) == 0x90U);
 }
 
-/* MIFARE Classic con los wrappers del driver (TAG-CMD de NXP): autenticar el sector 0 y leer el
-   bloque 0 */
+/* Una clave incorrecta deja la tarjeta en HALT: se apaga el campo y se vuelve a activar */
+static void PN7160_ReactivarMfc(void)
+{
+	PN7160_Tag_t antes = tag;
+
+	PN_CHECK(PN7160_ReleaseTag());
+	PN_CHECK(PN7160_WaitTag(&tag, TEST_REDETECTAR_MS, 1U));
+	PN_ASSERT(PN7160_MismoTag(&tag, &antes));
+}
+
+/* Prueba las claves de mfcClaves en el sector (keyB: 0 = A, 1 = B) y devuelve el índice de la que
+   entra. Una clave incorrecta debe dar exactamente ERROR; si ninguna entra, la prueba falla */
+static uint8_t PN7160_BuscarClaveMfc(uint8_t sector, uint8_t keyB)
+{
+	char nombre[24];
+
+	for (uint8_t k = 0; k < sizeof(mfcClaves) / sizeof(mfcClaves[0]); k++)
+	{
+		status = PN7160_MfcAuth(sector, keyB, mfcClaves[k]);
+		if (status == PN7160_OK)
+		{
+			snprintf(nombre, sizeof(nombre), "Sector %2u, clave %c:", (unsigned)sector, keyB ? 'B' : 'A');
+			PN7160_ImprimirHex(nombre, mfcClaves[k], 6U);
+			return k;
+		}
+		PN_ASSERT(status == PN7160_ERROR);
+		PN7160_ReactivarMfc();
+	}
+
+	printf("  Sector %u: ninguna clave %c conocida\r\n", (unsigned)sector, keyB ? 'B' : 'A');
+	Error_Handler();
+	return 0U;
+}
+
+/* MIFARE Classic con los wrappers del driver (TAG-CMD de NXP): busca las claves A y B de cada
+   sector, vuelca la tarjeta y escribe TEST_MFC_BLOQUE restaurándolo después */
 static void PN7160_ProbarMfc(void)
 {
-	static const uint8_t clave[6] = { MFC_CLAVE };
-	uint8_t rx[16];
+	static const uint8_t ceros[6] = { 0 };
+	uint8_t claveA[MFC_SECTORES];
+	uint8_t rx[16], orig[16], patron[16];
+	char nombre[24];
 
-	PN_CHECK(PN7160_MfcAuth(0U, 0U, clave));     /* falla: clave MFC_CLAVE incorrecta */
-	PN_CHECK(PN7160_MfcRead(0U, rx));
-	PN7160_ImprimirHex("Bloque 0:", rx, sizeof(rx));
-
-	/* El bloque 0 (fabricante) empieza por el UID; con 4 bytes le sigue el BCC (XOR del UID) */
-	PN_ASSERT(memcmp(rx, tag.uid, tag.uidLen) == 0);
-	if (tag.uidLen == 4U)
+	/* -- Volcado: claves B y A de cada sector, y lectura de sus 4 bloques con la A -- */
+	for (uint8_t s = 0; s < MFC_SECTORES; s++)
 	{
-		PN_ASSERT(rx[4] == (uint8_t)(tag.uid[0] ^ tag.uid[1] ^ tag.uid[2] ^ tag.uid[3]));
+		/* La B solo se busca: si los access bits dejan leerla, autentica pero no da acceso a los
+		   bloques. La A va después porque es con la que se lee */
+		(void)PN7160_BuscarClaveMfc(s, 1U);
+		claveA[s] = PN7160_BuscarClaveMfc(s, 0U);
+
+		for (uint8_t b = 4U * s; b < 4U * s + 4U; b++)
+		{
+			PN_CHECK(PN7160_MfcRead(b, rx));
+			snprintf(nombre, sizeof(nombre), "  Bloque %2u:", (unsigned)b);
+			PN7160_ImprimirHex(nombre, rx, sizeof(rx));
+		}
+
+		/* La clave A nunca se puede leer: el trailer (último bloque leído) la devuelve en ceros */
+		PN_ASSERT(memcmp(rx, ceros, sizeof(ceros)) == 0);
+
+		/* El bloque 0 (fabricante) empieza por el UID; con 4 bytes le sigue el BCC (XOR del UID) */
+		if (s == 0U)
+		{
+			PN_CHECK(PN7160_MfcRead(0U, rx));
+			PN_ASSERT(memcmp(rx, tag.uid, tag.uidLen) == 0);
+			if (tag.uidLen == 4U)
+			{
+				PN_ASSERT(rx[4] == (uint8_t)(tag.uid[0] ^ tag.uid[1] ^ tag.uid[2] ^ tag.uid[3]));
+			}
+		}
 	}
+
+	/* -- Escritura: patrón invertido, relectura, y se restaura el original antes de comprobar -- */
+	const uint8_t s = TEST_MFC_BLOQUE / 4U;
+	PN_CHECK(PN7160_MfcAuth(s, 0U, mfcClaves[claveA[s]]));
+	PN_CHECK(PN7160_MfcRead(TEST_MFC_BLOQUE, orig));
+	for (uint8_t i = 0; i < sizeof(patron); i++)
+	{
+		patron[i] = (uint8_t)~orig[i];
+	}
+
+	PN_CHECK(PN7160_MfcWrite(TEST_MFC_BLOQUE, patron));
+	PN_CHECK(PN7160_MfcRead(TEST_MFC_BLOQUE, rx));
+	uint8_t escrito = (memcmp(rx, patron, sizeof(rx)) == 0);
+
+	PN_CHECK(PN7160_MfcWrite(TEST_MFC_BLOQUE, orig));
+	PN_CHECK(PN7160_MfcRead(TEST_MFC_BLOQUE, rx));
+	printf("  Bloque %u: escrito %s, restaurado %s\r\n", (unsigned)TEST_MFC_BLOQUE,
+	       escrito ? "OK" : "MAL", (memcmp(rx, orig, sizeof(rx)) == 0) ? "OK" : "MAL");
+	PN_ASSERT(escrito && memcmp(rx, orig, sizeof(rx)) == 0);
 }
 
 static void PN7160_TestTransceive(void)
