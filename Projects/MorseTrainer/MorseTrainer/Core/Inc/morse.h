@@ -58,25 +58,36 @@ uint8_t Morse_Reproduciendo(const Morse_Reproductor *r);
 
 /* ---------------------------------------------------------------------------
  * Decodificador: Morse_DecodTick() se llama cada 1 ms con el estado ya sin
- * rebotes del manipulador. Umbrales:
- *   pulsación < 2 puntos → punto, si no raya; silencio > 2 puntos → fin de letra;
- *   silencio > (letra_ms + palabra_ms) / 2 → fin de palabra (5 puntos sin Farnsworth).
+ * rebotes del manipulador. Se adapta a la velocidad del usuario: 'punto_ms'
+ * empieza en el punto de reproducción y sigue al punto real con cada letra válida.
+ * Umbrales (u = punto estimado):
+ *   silencio > 2u → fin de letra; silencio > máx((letra_ms + palabra_ms) / 2, 5u)
+ *   → fin de palabra (5u sin Farnsworth).
+ *   Punto o raya, al cerrar la letra: si mezcla pulsaciones cortas y largas (la más
+ *   larga ≥ 2× la más corta), el umbral es el punto medio entre ambas, sea cual sea
+ *   la velocidad; si todas se parecen (E, T, M, S, O…), raya = pulsación ≥ 2u.
  * ------------------------------------------------------------------------- */
 #define MORSE_MAX_SIMBOLOS 5U   /* El carácter soportado más largo (números) */
+#define MORSE_PUNTO_MIN_MS 20U  /* Límites del punto estimado: 60 y 3 WPM */
+#define MORSE_PUNTO_MAX_MS 400U
 
 typedef struct
 {
   char     patron[MORSE_MAX_SIMBOLOS + 1U]; /* Tras devolver un carácter: lo manipulado */
+  uint16_t pulso_ms[MORSE_MAX_SIMBOLOS];    /* Duraciones de la letra en curso */
   uint8_t  n;          /* Símbolos de la letra en curso (satura en MAX + 1) */
   uint8_t  pulsado;
   uint8_t  palabra;    /* Hay letras desde el último espacio */
   uint16_t ms;         /* Duración de la pulsación o del silencio en curso */
-  uint16_t punto_ms;
-  uint16_t palabra_ms; /* Umbral de fin de palabra */
+  uint16_t punto_ms;   /* Punto estimado del usuario (1200 / punto_ms = sus WPM) */
+  uint16_t palabra_ms; /* Umbral de fin de palabra según la reproducción */
 } Morse_Decodificador;
 
-/** @param t  Velocidad esperada; se puede ajustar en hardware si el usuario manipula distinto. */
+/** @param t  Velocidad de reproducción: punto inicial y umbral de palabra. */
 void Morse_DecodInit(Morse_Decodificador *d, Morse_Tiempos t);
+
+/** @brief Descarta la letra en curso y conserva el punto estimado. */
+void Morse_DecodVaciar(Morse_Decodificador *d);
 
 /**
  * @return El carácter al cerrar una letra ('?' si el patrón no existe),

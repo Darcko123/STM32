@@ -134,9 +134,18 @@ uint8_t Morse_ReprodTick(Morse_Reproductor *r)
 
 void Morse_DecodInit(Morse_Decodificador *d, Morse_Tiempos t)
 {
-  memset(d, 0, sizeof *d);
   d->punto_ms   = t.punto_ms;
   d->palabra_ms = (uint16_t)(((uint32_t)t.letra_ms + t.palabra_ms) / 2U);
+  Morse_DecodVaciar(d);
+}
+
+void Morse_DecodVaciar(Morse_Decodificador *d)
+{
+  uint16_t punto   = d->punto_ms;
+  uint16_t palabra = d->palabra_ms;
+  memset(d, 0, sizeof *d);
+  d->punto_ms   = punto;
+  d->palabra_ms = palabra;
 }
 
 static char BuscarPatron(const char *patron)
@@ -158,15 +167,59 @@ static char BuscarPatron(const char *patron)
   return '?';
 }
 
+/* Media móvil (peso 1/4) del punto del usuario. Cada muestra se limita a [u/2, 2u]:
+   una pulsación de varios segundos no descoloca la estimación de golpe. */
+static void Adaptar(Morse_Decodificador *d, uint32_t muestra)
+{
+  uint32_t u = d->punto_ms;
+  muestra = (muestra < u / 2U) ? u / 2U : (muestra > 2U * u) ? 2U * u : muestra;
+  u = (3U * u + muestra + 2U) / 4U;
+  d->punto_ms = (uint16_t)((u < MORSE_PUNTO_MIN_MS) ? MORSE_PUNTO_MIN_MS
+                         : (u > MORSE_PUNTO_MAX_MS) ? MORSE_PUNTO_MAX_MS : u);
+}
+
+/* Clasifica las pulsaciones guardadas (ver morse.h) y, si el carácter existe,
+   ajusta el punto estimado con cada símbolo (raya / 3 = un punto). */
+static char CerrarLetra(Morse_Decodificador *d)
+{
+  uint8_t  largo = (d->n <= MORSE_MAX_SIMBOLOS) ? d->n : MORSE_MAX_SIMBOLOS;
+  uint16_t corta = UINT16_MAX;
+  uint16_t larga = 0;
+  for (uint8_t i = 0; i < largo; i++)
+  {
+    corta = (d->pulso_ms[i] < corta) ? d->pulso_ms[i] : corta;
+    larga = (d->pulso_ms[i] > larga) ? d->pulso_ms[i] : larga;
+  }
+  /* ponytail: una raya muy sobrada (O como 180/400/180 ms) pasa por mezcla → R;
+     si molesta, exigir además que el umbral medio no se aleje de 2u */
+  uint32_t umbral = (larga >= 2U * (uint32_t)corta) ? ((uint32_t)corta + larga) / 2U
+                                                    : 2U * (uint32_t)d->punto_ms;
+  for (uint8_t i = 0; i < largo; i++)
+  {
+    d->patron[i] = (d->pulso_ms[i] < umbral) ? '.' : '-';
+  }
+  d->patron[largo] = '\0';
+
+  char c = (d->n <= MORSE_MAX_SIMBOLOS) ? BuscarPatron(d->patron) : '?';  /* > 5: no existe */
+  if (c != '?')
+  {
+    for (uint8_t i = 0; i < largo; i++)
+    {
+      Adaptar(d, (d->patron[i] == '.') ? d->pulso_ms[i] : d->pulso_ms[i] / 3U);
+    }
+  }
+  return c;
+}
+
 char Morse_DecodTick(Morse_Decodificador *d, uint8_t pulsado)
 {
   if (pulsado != d->pulsado)                    /* Flanco: reinicia la cuenta */
   {
-    if (d->pulsado && d->n <= MORSE_MAX_SIMBOLOS)   /* Al soltar se clasifica */
+    if (d->pulsado && d->n <= MORSE_MAX_SIMBOLOS)   /* Al soltar se anota la duración */
     {
       if (d->n < MORSE_MAX_SIMBOLOS)
       {
-        d->patron[d->n] = (d->ms < 2U * d->punto_ms) ? '.' : '-';
+        d->pulso_ms[d->n] = d->ms;
       }
       d->n++;
     }
@@ -184,16 +237,16 @@ char Morse_DecodTick(Morse_Decodificador *d, uint8_t pulsado)
 
   if (d->n != 0U && d->ms > 2U * d->punto_ms)  /* Fin de letra */
   {
-    uint8_t largo = (d->n <= MORSE_MAX_SIMBOLOS) ? d->n : MORSE_MAX_SIMBOLOS;
-    d->patron[largo] = '\0';
-    char c = (d->n <= MORSE_MAX_SIMBOLOS) ? BuscarPatron(d->patron) : '?';  /* > 5: no existe */
+    char c = CerrarLetra(d);
     d->n       = 0;
     d->palabra = 1;
     return c;
   }
-  if (d->palabra && d->ms > d->palabra_ms)  /* Fin de palabra, una sola vez */
+  /* Nunca por debajo del fin de letra: si no, saldría un espacio dentro de una letra lenta */
+  uint32_t palabra = 5U * (uint32_t)d->punto_ms;
+  if (d->palabra && d->ms > ((d->palabra_ms > palabra) ? d->palabra_ms : palabra))
   {
-    d->palabra = 0;
+    d->palabra = 0;                             /* Fin de palabra, una sola vez */
     return ' ';
   }
   return 0;
