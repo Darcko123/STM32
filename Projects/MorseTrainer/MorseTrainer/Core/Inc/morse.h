@@ -75,6 +75,7 @@ typedef struct
 {
   char     patron[MORSE_MAX_SIMBOLOS + 1U]; /* Tras devolver un carácter: lo manipulado */
   uint16_t pulso_ms[MORSE_MAX_SIMBOLOS];    /* Duraciones de la letra en curso */
+  uint16_t hueco_ms[MORSE_MAX_SIMBOLOS - 1U]; /* Silencio tras cada símbolo, dentro de la letra */
   uint8_t  n;          /* Símbolos de la letra en curso (satura en MAX + 1) */
   uint8_t  pulsado;
   uint8_t  palabra;    /* Hay letras desde el último espacio */
@@ -94,6 +95,17 @@ void Morse_DecodVaciar(Morse_Decodificador *d);
  *         ' ' al cerrar una palabra, o 0 si no hay nada nuevo.
  */
 char Morse_DecodTick(Morse_Decodificador *d, uint8_t pulsado);
+
+/**
+ * @brief  Calidad de la manipulación de la última letra cerrada, comparada con el
+ *         carácter esperado. La tolerancia se estrecha con el nivel Koch: relación
+ *         raya/punto 3 ± 1 en el nivel 2 → 3 ± 0,5 en el 36; hueco máximo entre
+ *         símbolos 1,8 → 1,4 puntos.
+ * @param  d  Decodificador justo tras devolver el carácter (pulso_ms, hueco_ms, patron).
+ * @return Indicación breve para la pantalla, o NULL si el ritmo es bueno o si se
+ *         manipuló otro carácter (confusión de oído, no de ritmo).
+ */
+const char *Morse_EvaluarManip(const Morse_Decodificador *d, char esperado, uint8_t nivel);
 
 /* ---------------------------------------------------------------------------
  * Progresión Koch: los caracteres se desbloquean en el orden KOCH_ORDEN (LCWO);

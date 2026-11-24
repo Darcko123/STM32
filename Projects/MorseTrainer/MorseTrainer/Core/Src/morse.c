@@ -223,6 +223,10 @@ char Morse_DecodTick(Morse_Decodificador *d, uint8_t pulsado)
       }
       d->n++;
     }
+    else if (pulsado && d->n != 0U && d->n < MORSE_MAX_SIMBOLOS)  /* Al pulsar, el hueco */
+    {
+      d->hueco_ms[d->n - 1U] = d->ms;
+    }
     d->pulsado = pulsado;
     d->ms      = 0;
   }
@@ -250,6 +254,68 @@ char Morse_DecodTick(Morse_Decodificador *d, uint8_t pulsado)
     return ' ';
   }
   return 0;
+}
+
+const char *Morse_EvaluarManip(const Morse_Decodificador *d, char esperado, uint8_t nivel)
+{
+  const char *e  = Morse_Patron(esperado);
+  size_t      n  = strlen(d->patron);
+  if (e == NULL || n == 0U)
+  {
+    return NULL;
+  }
+  size_t ne = strlen(e);
+  if (n < ne && strncmp(e, d->patron, n) == 0)
+  {
+    return "Letra partida";                     /* Una pausa larga cerró la letra antes */
+  }
+  if (n != ne)
+  {
+    return NULL;
+  }
+
+  /* Pulsaciones agrupadas según lo que debían ser, no según cómo se leyeron */
+  uint32_t punto = 0, raya = 0;
+  uint32_t np = 0, nr = 0;
+  uint16_t punto_max = 0, raya_min = UINT16_MAX;
+  for (size_t i = 0; i < n; i++)
+  {
+    uint16_t p = d->pulso_ms[i];
+    if (e[i] == '.') { punto += p; np++; punto_max = (p > punto_max) ? p : punto_max; }
+    else             { raya  += p; nr++; raya_min  = (p < raya_min)  ? p : raya_min;  }
+  }
+
+  nivel = (nivel < KOCH_MINIMO) ? KOCH_MINIMO : (nivel > KOCH_TOTAL) ? KOCH_TOTAL : nivel;
+  uint32_t tol = 10U - 5U * (nivel - KOCH_MINIMO) / (KOCH_TOTAL - KOCH_MINIMO);  /* Décimas */
+
+  if (np != 0U && nr != 0U && punto != 0U)
+  {
+    if (raya_min <= punto_max)
+    {
+      return NULL;   /* Alguna "raya" no supera a algún "punto": manipuló otro carácter */
+    }
+    uint32_t r = 10U * raya * np / (punto * nr);  /* Raya / punto, en décimas */
+    if (r < 30U - tol)
+    {
+      return "Rayas cortas";
+    }
+    if (r > 30U + tol)
+    {
+      return "Rayas largas";
+    }
+  }
+
+  uint32_t unidad = (np != 0U) ? punto / np : raya / (3U * nr);
+  uint32_t hueco  = 0;
+  for (size_t i = 0; i + 1U < n; i++)
+  {
+    hueco = (d->hueco_ms[i] > hueco) ? d->hueco_ms[i] : hueco;
+  }
+  if (10U * hueco > (10U + tol * 4U / 5U) * (unidad ? unidad : 1U))
+  {
+    return "Pausas largas";
+  }
+  return NULL;
 }
 
 /* ====================== Progresión Koch ====================== */
