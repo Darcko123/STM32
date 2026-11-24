@@ -34,7 +34,7 @@ typedef enum { MENU, APRENDER, IDENTIFICAR, GRUPOS, LIBRE, ESTADISTICAS } Modo;
 typedef enum { SONANDO, RESPUESTA, PAUSA } Paso;
 typedef enum
 {
-  OPC_APRENDER, OPC_IDENTIFICAR, OPC_GRUPOS, OPC_LIBRE, OPC_ESTADISTICAS, OPC_NIVEL, OPC_WPM, OPC_FARNSWORTH,
+  OPC_APRENDER, OPC_IDENTIFICAR, OPC_GRUPOS, OPC_REPASO, OPC_LIBRE, OPC_ESTADISTICAS, OPC_NIVEL, OPC_WPM, OPC_FARNSWORTH,
   OPC_TONO, OPC_PATRON, OPCIONES
 } Opcion;
 
@@ -110,6 +110,8 @@ static uint32_t pausa_desde;
 static char     actual;                     /* Carácter que se espera como respuesta */
 static uint8_t  siguiente;                  /* Aprender: índice en KOCH_ORDEN del próximo */
 static uint8_t  presentar;                  /* Identificar: presentar el recién desbloqueado */
+static uint8_t  repaso;                     /* Identificar solo entre fallados y confundidos */
+static char     repasar[SESION_REPASO_MAX + 1U];  /* Repaso: caracteres de la última elección */
 static char     sonido[GRUPO_LARGO + 1U];   /* Lo que suena; debe vivir hasta que acabe.
                                                En Grupos es también el grupo que se espera */
 static char     respuesta[GRUPO_LARGO + 1U];  /* Grupos: lo manipulado hasta ahora */
@@ -727,7 +729,7 @@ static void Preguntar(void)
   {
     for (uint8_t i = 0; i < GRUPO_LARGO; i++)
     {
-      sonido[i] = Sesion_Elegir(&sesion, koch.nivel, (uint32_t)rand());
+      sonido[i] = Sesion_Elegir(&sesion, koch.nivel, NULL, (uint32_t)rand());
     }
     sonido[GRUPO_LARGO] = '\0';
     memset(respuesta, 0, sizeof respuesta);
@@ -735,7 +737,11 @@ static void Preguntar(void)
   }
   else
   {
-    actual    = Sesion_Elegir(&sesion, koch.nivel, (uint32_t)rand());
+    if (repaso)                           /* Se recalcula con cada respuesta */
+    {
+      Sesion_Repaso(&sesion, koch.nivel, repasar);
+    }
+    actual    = Sesion_Elegir(&sesion, koch.nivel, repaso ? repasar : NULL, (uint32_t)rand());
     sonido[0] = actual;
     sonido[1] = '\0';
   }
@@ -771,7 +777,8 @@ static void Responder(char c)
   if (modo == IDENTIFICAR)
   {
     Sesion_Registrar(&sesion, actual, c, reconocido, latencia);
-    presentar = Koch_Registrar(&koch, reconocido);
+    /* El repaso no cuenta en la progresión: su muestra está sesgada hacia lo difícil */
+    presentar = repaso ? 0U : Koch_Registrar(&koch, reconocido);
     if (presentar)
     {
       AjustarVelocidad();
@@ -900,13 +907,15 @@ static void ElegirOpcion(void)
     case OPC_APRENDER:
     case OPC_IDENTIFICAR:
     case OPC_GRUPOS:
+    case OPC_REPASO:
       srand(HAL_GetTick());                 /* El momento de la pulsación es azar suficiente */
       if (sesion_desde == 0U)
       {
         sesion_desde = HAL_GetTick();       /* La sesión empieza con la primera lección */
       }
-      modo      = (opcion == OPC_APRENDER) ? APRENDER : (opcion == OPC_IDENTIFICAR) ? IDENTIFICAR
-                                                                       : GRUPOS;
+      modo      = (opcion == OPC_APRENDER) ? APRENDER : (opcion == OPC_GRUPOS) ? GRUPOS
+                                                                  : IDENTIFICAR;
+      repaso    = (opcion == OPC_REPASO);
       siguiente = (uint8_t)(koch.nivel - 1U);   /* Aprender empieza por el más nuevo */
       presentar = 0;
       Preguntar();
@@ -952,7 +961,7 @@ static void ElegirOpcion(void)
   redibujar = 1;
 }
 
-/** @brief Resumen de la sesión (cuentan Identificar y Grupos). */
+/** @brief Resumen de la sesión (cuentan Identificar, Repaso y Grupos). */
 static void DibujarEstadisticas(void)
 {
   char linea[20];
@@ -1031,6 +1040,7 @@ static void Dibujar(void)
         case OPC_APRENDER:    snprintf(linea, sizeof linea, "%c Aprender", marca); break;
         case OPC_IDENTIFICAR: snprintf(linea, sizeof linea, "%c Identificar", marca); break;
         case OPC_GRUPOS:      snprintf(linea, sizeof linea, "%c Grupos de %u", marca, GRUPO_LARGO); break;
+        case OPC_REPASO:      snprintf(linea, sizeof linea, "%c Repaso", marca); break;
         case OPC_LIBRE:       snprintf(linea, sizeof linea, "%c Libre", marca); break;
         case OPC_ESTADISTICAS: snprintf(linea, sizeof linea, "%c Estadisticas", marca); break;
         case OPC_NIVEL:
@@ -1088,6 +1098,10 @@ static void Dibujar(void)
     {
       snprintf(linea, sizeof linea, "Aprender %u/%u WPM", wpm_caracter,
                Koch_WpmEfectivo(koch.nivel, wpm_efectivo, wpm_caracter));
+    }
+    else if (repaso)                        /* Sin fallos aún: elige entre todos */
+    {
+      snprintf(linea, sizeof linea, "Repaso %s", repasar[0] ? repasar : "todos");
     }
     else
     {

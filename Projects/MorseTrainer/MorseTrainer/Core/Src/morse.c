@@ -404,17 +404,27 @@ static uint32_t Peso(const Sesion *s, uint8_t nivel, uint8_t i)
   return (i == nivel - 1U && n < SESION_NUEVO_INTENTOS) ? 3U * w : w;
 }
 
-char Sesion_Elegir(const Sesion *s, uint8_t nivel, uint32_t azar)
+/* Peso 0 para los que no están en 'solo' (NULL = todos) */
+static uint32_t PesoDe(const Sesion *s, uint8_t nivel, const char *solo, uint8_t i)
+{
+  return (solo == NULL || strchr(solo, KOCH_ORDEN[i]) != NULL) ? Peso(s, nivel, i) : 0U;
+}
+
+char Sesion_Elegir(const Sesion *s, uint8_t nivel, const char *solo, uint32_t azar)
 {
   uint32_t total = 0;
   for (uint8_t i = 0; i < nivel; i++)
   {
-    total += Peso(s, nivel, i);
+    total += PesoDe(s, nivel, solo, i);
+  }
+  if (total == 0U)
+  {
+    return Sesion_Elegir(s, nivel, NULL, azar);   /* 'solo' vacío o sin desbloqueados */
   }
   azar %= total;
   for (uint8_t i = 0; i < nivel; i++)
   {
-    uint32_t w = Peso(s, nivel, i);
+    uint32_t w = PesoDe(s, nivel, solo, i);
     if (azar < w)
     {
       return KOCH_ORDEN[i];
@@ -488,4 +498,22 @@ uint8_t Sesion_Confusiones(const Sesion *s, char *salida, uint8_t max)
   }
   salida[2 * k] = '\0';
   return k;
+}
+
+uint8_t Sesion_Repaso(const Sesion *s, uint8_t nivel, char *salida)
+{
+  char cand[SESION_REPASO_MAX + 1U];          /* 3 fallados + 3 pares */
+  Sesion_MasFallados(s, cand, 3);
+  Sesion_Confusiones(s, cand + strlen(cand), 3);
+  uint8_t n = 0;
+  for (const char *c = cand; *c != '\0'; c++)
+  {
+    int i = KochIndice(*c);                     /* Siempre ≥ 0: salen de KOCH_ORDEN */
+    if (i >= 0 && i < (int)nivel && memchr(salida, *c, n) == NULL)
+    {
+      salida[n++] = *c;
+    }
+  }
+  salida[n] = '\0';
+  return n;
 }

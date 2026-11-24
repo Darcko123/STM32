@@ -162,9 +162,18 @@ void Sesion_Registrar(Sesion *s, char oido, char respondido, uint8_t reconocido,
 /**
  * @brief  Carácter aleatorio entre KOCH_ORDEN[0 .. nivel - 1], con más peso para los
  *         de menor acierto y para el recién desbloqueado en sus primeros intentos.
+ * @param  solo  Restringe la elección a estos caracteres (NULL, vacío o sin ninguno
+ *               desbloqueado = todos).
  * @param  azar  Cualquier número aleatorio (p. ej. rand()).
  */
-char    Sesion_Elegir(const Sesion *s, uint8_t nivel, uint32_t azar);
+char    Sesion_Elegir(const Sesion *s, uint8_t nivel, const char *solo, uint32_t azar);
+/**
+ * @brief  Caracteres para el repaso dirigido: los 3 más fallados y los dos de cada uno
+ *         de los 3 pares más confundidos, sin repetir y solo los desbloqueados.
+ * @param  salida  De SESION_REPASO_MAX + 1; "" si no hay fallos.
+ */
+#define SESION_REPASO_MAX 9U
+uint8_t Sesion_Repaso(const Sesion *s, uint8_t nivel, char *salida);
 /** @brief Hasta 'max' caracteres con fallos, de más a menos ('salida' de max + 1). */
 uint8_t Sesion_MasFallados(const Sesion *s, char *salida, uint8_t max);
 /** @brief Hasta 'max' pares "oído respondido" más repetidos ('salida' de 2·max + 1). */
