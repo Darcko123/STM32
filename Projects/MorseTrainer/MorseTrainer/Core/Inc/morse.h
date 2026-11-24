@@ -108,4 +108,38 @@ uint8_t Koch_Aciertos(const Koch_Progreso *p);
 /** @return 1 si el intento desbloqueó KOCH_ORDEN[nivel - 1] (la ventana vuelve a empezar). */
 uint8_t Koch_Registrar(Koch_Progreso *p, uint8_t acierto);
 
+/* ---------------------------------------------------------------------------
+ * Estadísticas de la sesión (modo Identificar) y selección ponderada.
+ * Índices en KOCH_ORDEN. "Reconocido" = correcto y dentro de la latencia máxima.
+ * ------------------------------------------------------------------------- */
+#define SESION_SIN_LATENCIA   UINT16_MAX  /* No hubo pulsación (sin respuesta) */
+#define SESION_NUEVO_INTENTOS 10U         /* Intentos con peso extra del recién desbloqueado */
+
+typedef struct
+{
+  uint16_t intentos[KOCH_TOTAL];
+  uint16_t aciertos[KOCH_TOTAL];                /* Reconocidos */
+  uint8_t  confusion[KOCH_TOTAL][KOCH_TOTAL];   /* [oído][respondido], satura en 255 */
+  uint32_t latencia_total_ms;
+  uint16_t latencias;                           /* Respuestas con latencia medida */
+} Sesion;
+
+void Sesion_Init(Sesion *s);
+/**
+ * @param respondido  Carácter manipulado; '?' o 0 (sin respuesta) no cuentan como confusión.
+ * @param latencia_ms Fin de la reproducción → primera pulsación, o SESION_SIN_LATENCIA.
+ */
+void Sesion_Registrar(Sesion *s, char oido, char respondido, uint8_t reconocido,
+                      uint16_t latencia_ms);
+/**
+ * @brief  Carácter aleatorio entre KOCH_ORDEN[0 .. nivel - 1], con más peso para los
+ *         de menor acierto y para el recién desbloqueado en sus primeros intentos.
+ * @param  azar  Cualquier número aleatorio (p. ej. rand()).
+ */
+char    Sesion_Elegir(const Sesion *s, uint8_t nivel, uint32_t azar);
+/** @brief Hasta 'max' caracteres con fallos, de más a menos ('salida' de max + 1). */
+uint8_t Sesion_MasFallados(const Sesion *s, char *salida, uint8_t max);
+/** @brief Hasta 'max' pares "oído respondido" más repetidos ('salida' de 2·max + 1). */
+uint8_t Sesion_Confusiones(const Sesion *s, char *salida, uint8_t max);
+
 #endif /* MORSE_H */

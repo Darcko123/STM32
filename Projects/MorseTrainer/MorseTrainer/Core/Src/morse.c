@@ -229,3 +229,136 @@ uint8_t Koch_Registrar(Koch_Progreso *p, uint8_t acierto)
   Koch_Init(p, (uint8_t)(p->nivel + 1U));
   return 1;
 }
+
+/* ================= Estadísticas de la sesión ================= */
+
+/* Índice en KOCH_ORDEN, o -1 si no está (incluido 0, que strchr encontraría) */
+static int KochIndice(char c)
+{
+  const char *p = (c != '\0') ? strchr(KOCH_ORDEN, c) : NULL;
+  return (p != NULL) ? (int)(p - KOCH_ORDEN) : -1;
+}
+
+void Sesion_Init(Sesion *s)
+{
+  memset(s, 0, sizeof *s);
+}
+
+void Sesion_Registrar(Sesion *s, char oido, char respondido, uint8_t reconocido,
+                      uint16_t latencia_ms)
+{
+  int i = KochIndice(oido);
+  if (i < 0)
+  {
+    return;
+  }
+  /* Sin saturación: 65 535 intentos son más de 50 h seguidas */
+  s->intentos[i]++;
+  s->aciertos[i] = (uint16_t)(s->aciertos[i] + (reconocido != 0U));
+
+  int j = KochIndice(respondido);
+  if (j >= 0 && j != i && s->confusion[i][j] < UINT8_MAX)
+  {
+    s->confusion[i][j]++;
+  }
+  if (latencia_ms != SESION_SIN_LATENCIA)
+  {
+    s->latencia_total_ms += latencia_ms;
+    s->latencias++;
+  }
+}
+
+/* 1 + 4 · tasa de fallo suavizada: 3 sin intentos, → 1 si siempre acierta, → 5 si
+   siempre falla. ×3 para el recién desbloqueado en sus primeros intentos. */
+static uint32_t Peso(const Sesion *s, uint8_t nivel, uint8_t i)
+{
+  uint32_t n = s->intentos[i];
+  uint32_t w = 1U + 4U * (n - s->aciertos[i] + 1U) / (n + 2U);
+  return (i == nivel - 1U && n < SESION_NUEVO_INTENTOS) ? 3U * w : w;
+}
+
+char Sesion_Elegir(const Sesion *s, uint8_t nivel, uint32_t azar)
+{
+  uint32_t total = 0;
+  for (uint8_t i = 0; i < nivel; i++)
+  {
+    total += Peso(s, nivel, i);
+  }
+  azar %= total;
+  for (uint8_t i = 0; i < nivel; i++)
+  {
+    uint32_t w = Peso(s, nivel, i);
+    if (azar < w)
+    {
+      return KOCH_ORDEN[i];
+    }
+    azar -= w;
+  }
+  return KOCH_ORDEN[nivel - 1U];   /* Inalcanzable */
+}
+
+uint8_t Sesion_MasFallados(const Sesion *s, char *salida, uint8_t max)
+{
+  /* Orden: fallos descendentes, empate por orden Koch. Cada vuelta busca el
+     siguiente tras (antes_f, antes_i), así no hace falta marcar los ya elegidos. */
+  uint32_t antes_f = UINT32_MAX;
+  int      antes_i = -1;
+  uint8_t  k = 0;
+  for (; k < max; k++)
+  {
+    int mejor = -1;
+    uint32_t mejor_f = 0;
+    for (int i = 0; i < (int)KOCH_TOTAL; i++)
+    {
+      uint32_t f = (uint32_t)(s->intentos[i] - s->aciertos[i]);
+      uint8_t despues = (f < antes_f) || (f == antes_f && i > antes_i);
+      if (f > mejor_f && despues)
+      {
+        mejor   = i;
+        mejor_f = f;
+      }
+    }
+    if (mejor < 0)
+    {
+      break;
+    }
+    salida[k] = KOCH_ORDEN[mejor];
+    antes_f   = mejor_f;
+    antes_i   = mejor;
+  }
+  salida[k] = '\0';
+  return k;
+}
+
+uint8_t Sesion_Confusiones(const Sesion *s, char *salida, uint8_t max)
+{
+  /* Mismo recorrido que Sesion_MasFallados sobre la matriz aplanada */
+  uint32_t antes_c = UINT32_MAX;
+  int      antes_i = -1;
+  uint8_t  k = 0;
+  for (; k < max; k++)
+  {
+    int mejor = -1;
+    uint32_t mejor_c = 0;
+    for (int i = 0; i < (int)(KOCH_TOTAL * KOCH_TOTAL); i++)
+    {
+      uint32_t c = s->confusion[i / KOCH_TOTAL][i % KOCH_TOTAL];
+      uint8_t despues = (c < antes_c) || (c == antes_c && i > antes_i);
+      if (c > mejor_c && despues)
+      {
+        mejor   = i;
+        mejor_c = c;
+      }
+    }
+    if (mejor < 0)
+    {
+      break;
+    }
+    salida[2 * k]      = KOCH_ORDEN[mejor / (int)KOCH_TOTAL];
+    salida[2 * k + 1U] = KOCH_ORDEN[mejor % (int)KOCH_TOTAL];
+    antes_c = mejor_c;
+    antes_i = mejor;
+  }
+  salida[2 * k] = '\0';
+  return k;
+}
