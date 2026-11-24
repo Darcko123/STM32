@@ -108,6 +108,7 @@ static uint8_t  fin_sesion;                 /* Estadísticas abiertas por el tem
 static char        grande;                  /* Carácter en grande; 0 = ninguno */
 static uint8_t     ver_patron;
 static const char *estado = "";             /* Línea inferior */
+static const char *aviso  = NULL;           /* Indicación de ritmo de la última respuesta */
 static uint8_t     redibujar = 1;
 
 /* USER CODE END PV */
@@ -676,6 +677,7 @@ static void Preguntar(void)
     return;
   }
 
+  aviso = NULL;
   if (modo == APRENDER || presentar)
   {
     actual = KOCH_ORDEN[(modo == APRENDER) ? siguiente : koch.nivel - 1U];
@@ -715,6 +717,12 @@ static void Responder(char c)
   uint8_t  reconocido = correcto && (modo == APRENDER || latencia <= LATENCIA_MAX_MS);
   grande = actual;
 
+  /* Copia con la IRQ parada: si ya empezó otra letra, la ISR pisaría las duraciones */
+  HAL_NVIC_DisableIRQ(TIM2_IRQn);
+  Morse_Decodificador manip = decodificador;
+  HAL_NVIC_EnableIRQ(TIM2_IRQn);
+  aviso = (c != 0) ? Morse_EvaluarManip(&manip, actual, koch.nivel) : NULL;
+
   if (modo == IDENTIFICAR)
   {
     Sesion_Registrar(&sesion, actual, c, reconocido, latencia);
@@ -742,8 +750,7 @@ static void Responder(char c)
     return;
   }
 
-  /* Antes de Sonar(), que vacía el decodificador */
-  snprintf(tu, sizeof tu, "Tu: %s", decodificador.patron);
+  snprintf(tu, sizeof tu, "Tu: %s", manip.patron);
   ver_patron = mostrar_patron;
   estado     = (c == 0) ? "Sin respuesta" : mostrar_patron ? tu : "Fallo";
   /* "K M": el correcto, pausa de palabra y lo manipulado ('?' y 0 no suenan) */
@@ -903,6 +910,11 @@ static void Dibujar(void)
         SSD1306_GotoXY(40, 20);
         SSD1306_Puts((char *)Morse_Patron(grande), &Font_11x18, SSD1306_COLOR_WHITE);
       }
+    }
+    if (aviso != NULL)                      /* Línea libre bajo el carácter grande */
+    {
+      SSD1306_GotoXY(0, 42);
+      SSD1306_Puts((char *)aviso, &Font_7x10, SSD1306_COLOR_WHITE);
     }
     SSD1306_GotoXY(0, 52);
     SSD1306_Puts((char *)estado, &Font_7x10, SSD1306_COLOR_WHITE);
