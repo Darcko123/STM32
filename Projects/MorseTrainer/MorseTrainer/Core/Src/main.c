@@ -34,7 +34,8 @@ typedef enum { MENU, APRENDER, IDENTIFICAR, GRUPOS, LIBRE, ESTADISTICAS } Modo;
 typedef enum { SONANDO, RESPUESTA, PAUSA } Paso;
 typedef enum
 {
-  OPC_APRENDER, OPC_IDENTIFICAR, OPC_GRUPOS, OPC_LIBRE, OPC_ESTADISTICAS, OPC_NIVEL, OPC_PATRON, OPCIONES
+  OPC_APRENDER, OPC_IDENTIFICAR, OPC_GRUPOS, OPC_LIBRE, OPC_ESTADISTICAS, OPC_NIVEL, OPC_WPM, OPC_FARNSWORTH,
+  OPC_TONO, OPC_PATRON, OPCIONES
 } Opcion;
 
 typedef struct
@@ -54,8 +55,12 @@ typedef struct
 #define LED_PIN         GPIO_PIN_13     /* LED de la Black Pill, activo en bajo */
 #define ANTIRREBOTE_MS  5U              /* Muestras iguales seguidas para aceptar un cambio */
 #define PRUEBA_TONO_MS  300U            /* Bip de arranque para comprobar la frecuencia */
-#define WPM_CARACTER    18U             /* Velocidad de los símbolos */
-#define WPM_EFECTIVO    8U              /* Farnsworth en el nivel 2; llega a WPM_CARACTER en el 36 */
+/* Ajustables desde el menú; estos son los valores al encender. Cada letra manipulada
+   sobre la opción avanza un paso y al pasar del máximo vuelve al mínimo. */
+#define WPM_CARACTER    18U             /* Velocidad de los símbolos: 12..30, de 2 en 2 */
+#define WPM_EFECTIVO    8U              /* Farnsworth en el nivel 2 (llega a la de carácter en
+                                           el 36): 4..carácter, de 2 en 2 */
+#define TONO_HZ         700U            /* 400..1000 Hz, de 100 en 100 */
 #define BIP_MS          60U             /* Bip de acierto, al doble de la frecuencia del tono */
 #define PAUSA_MS        800U            /* Silencio antes del siguiente carácter */
 #define LATENCIA_MAX_MS 2000U           /* Más hasta la primera pulsación = no reconocido */
@@ -88,10 +93,14 @@ static volatile char       recibido = 0;    /* Último carácter decodificado; 0
 static volatile uint8_t    menu_pulsado = 0;  /* Se pulsó el botón de menú; 0 = ya leído */
 static volatile uint16_t   bip_ms = 0;      /* Lo que queda del bip de acierto */
 static volatile uint32_t   pulsado_en = 0;  /* HAL_GetTick() de la primera pulsación; 0 = ninguna */
+static volatile uint16_t   tono_arr = (uint16_t)(1000000UL / TONO_HZ - 1U);  /* ARR del tono */
 
 /* -- Solo bucle principal -- */
 static Morse_Tiempos tiempos;
 static Koch_Progreso koch;
+static uint8_t  wpm_caracter = WPM_CARACTER;
+static uint8_t  wpm_efectivo = WPM_EFECTIVO;  /* Nunca mayor que wpm_caracter */
+static uint16_t tono_hz      = TONO_HZ;
 static Modo     modo = MENU;
 static Opcion   opcion = OPC_APRENDER;      /* Resaltada en el menú */
 static uint8_t  mostrar_patron = 1;         /* Patrón al presentar y al fallar */
@@ -199,7 +208,7 @@ int main(void)
   }
 
   /* -- Bip de arranque: medir aquí la frecuencia (700 Hz esperados) -- */
-  Tono((uint16_t)htim3.Init.Period);
+  Tono(tono_arr);
   HAL_Delay(PRUEBA_TONO_MS);
   Tono(0);
 
@@ -551,8 +560,8 @@ static void MX_GPIO_Init(void)
  * @brief Tono del buzzer: arr = 0 lo silencia; si no, suena a f = 1 MHz / (arr + 1)
  *        con ciclo del 50 %. ARR y CCR tienen precarga, así que el cambio entra al
  *        acabar el periodo en curso, sin cortes. Seguro desde la ISR.
- *        La frecuencia del tono es htim3.Init.Period (.ioc): ARR = 1 000 000 / f - 1.
- *        Se escribe TIM3->ARR directamente porque __HAL_TIM_SET_AUTORELOAD pisaría Init.Period.
+ *        La frecuencia del tono es tono_arr (ajustable en el menú): ARR = 1 000 000 / f - 1.
+ *        htim3.Init.Period (.ioc) es solo la configuración inicial del timer.
  */
 static void Tono(uint16_t arr)
 {
@@ -618,7 +627,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     bip_ms--;
     bip = 1;
   }
-  uint16_t arr = (uint16_t)htim3.Init.Period;
+  uint16_t arr = tono_arr;
   Tono(morse ? arr : bip ? (uint16_t)(arr / 2U) : 0U);
   HAL_GPIO_WritePin(LED_PORT, LED_PIN, morse ? GPIO_PIN_RESET : GPIO_PIN_SET);
 
@@ -638,8 +647,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
  */
 static void AjustarVelocidad(void)
 {
-  tiempos = Morse_CalcularTiempos(WPM_CARACTER,
-                                  Koch_WpmEfectivo(koch.nivel, WPM_EFECTIVO, WPM_CARACTER));
+  tiempos = Morse_CalcularTiempos(wpm_caracter,
+                                  Koch_WpmEfectivo(koch.nivel, wpm_efectivo, wpm_caracter));
 }
 
 /**
@@ -917,6 +926,25 @@ static void ElegirOpcion(void)
       Koch_Init(&koch, (koch.nivel >= KOCH_TOTAL) ? KOCH_MINIMO : (uint8_t)(koch.nivel + 1U));
       AjustarVelocidad();
       break;
+    case OPC_WPM:
+      wpm_caracter = (wpm_caracter >= 30U) ? 12U : (uint8_t)(wpm_caracter + 2U);
+      if (wpm_efectivo > wpm_caracter)
+      {
+        wpm_efectivo = wpm_caracter;
+      }
+      AjustarVelocidad();
+      break;
+    case OPC_FARNSWORTH:                    /* Igual a la de carácter = sin Farnsworth */
+      wpm_efectivo = (wpm_efectivo >= wpm_caracter) ? 4U
+                   : (wpm_efectivo + 2U > wpm_caracter) ? wpm_caracter
+                   : (uint8_t)(wpm_efectivo + 2U);
+      AjustarVelocidad();
+      break;
+    case OPC_TONO:
+      tono_hz  = (tono_hz >= 1000U) ? 400U : (uint16_t)(tono_hz + 100U);
+      tono_arr = (uint16_t)(1000000UL / tono_hz - 1U);
+      Reiniciar("T");                       /* Una raya para oír el tono nuevo */
+      break;
     default:
       mostrar_patron = !mostrar_patron;
       break;
@@ -989,7 +1017,7 @@ static void DibujarEstadisticas(void)
 
 static void Dibujar(void)
 {
-  char linea[20];
+  char linea[22];                          /* 18 visibles; holgura para -Wformat-truncation */
   SSD1306_Fill(SSD1306_COLOR_BLACK);
 
   if (modo == MENU)
@@ -1008,6 +1036,22 @@ static void Dibujar(void)
         case OPC_NIVEL:
           snprintf(linea, sizeof linea, "%c Nivel %u (..%c)", marca, koch.nivel,
                    KOCH_ORDEN[koch.nivel - 1U]);
+          break;
+        case OPC_WPM:
+          snprintf(linea, sizeof linea, "%c Velocidad %u WPM", marca, wpm_caracter);
+          break;
+        case OPC_FARNSWORTH:
+          if (wpm_efectivo < wpm_caracter)
+          {
+            snprintf(linea, sizeof linea, "%c Farnsworth %u", marca, wpm_efectivo);
+          }
+          else
+          {
+            snprintf(linea, sizeof linea, "%c Farnsworth no", marca);
+          }
+          break;
+        case OPC_TONO:
+          snprintf(linea, sizeof linea, "%c Tono %u Hz", marca, tono_hz);
           break;
         default:
           snprintf(linea, sizeof linea, "%c Patron: %s", marca, mostrar_patron ? "si" : "no");
@@ -1042,8 +1086,8 @@ static void Dibujar(void)
   {
     if (modo == APRENDER)
     {
-      snprintf(linea, sizeof linea, "Aprender %u/%u WPM", WPM_CARACTER,
-               Koch_WpmEfectivo(koch.nivel, WPM_EFECTIVO, WPM_CARACTER));
+      snprintf(linea, sizeof linea, "Aprender %u/%u WPM", wpm_caracter,
+               Koch_WpmEfectivo(koch.nivel, wpm_efectivo, wpm_caracter));
     }
     else
     {
