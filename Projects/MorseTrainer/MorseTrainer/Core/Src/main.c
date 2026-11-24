@@ -55,7 +55,7 @@ typedef struct
 #define ANTIRREBOTE_MS  5U              /* Muestras iguales seguidas para aceptar un cambio */
 #define PRUEBA_TONO_MS  300U            /* Bip de arranque para comprobar la frecuencia */
 #define WPM_CARACTER    18U             /* Velocidad de los símbolos */
-#define WPM_EFECTIVO    8U              /* Velocidad con el espaciado Farnsworth */
+#define WPM_EFECTIVO    8U              /* Farnsworth en el nivel 2; llega a WPM_CARACTER en el 36 */
 #define BIP_MS          60U             /* Bip de acierto, al doble de la frecuencia del tono */
 #define PAUSA_MS        800U            /* Silencio antes del siguiente carácter */
 #define LATENCIA_MAX_MS 2000U           /* Más hasta la primera pulsación = no reconocido */
@@ -121,6 +121,7 @@ static void MX_TIM3_Init(void);
 /* USER CODE BEGIN PFP */
 static void Tono(uint16_t arr);
 static uint8_t Antirrebote(Entrada *e, uint8_t crudo);
+static void AjustarVelocidad(void);
 static void Reiniciar(const char *texto);
 static void Sonar(Paso despues);
 static void Escuchar(void);
@@ -191,10 +192,10 @@ int main(void)
   Tono(0);
 
   /* -- Se inicializan antes del tick, así no hay carrera con la ISR -- */
-  tiempos = Morse_CalcularTiempos(WPM_CARACTER, WPM_EFECTIVO);
+  Koch_Init(&koch, KOCH_MINIMO);
+  AjustarVelocidad();
   Morse_DecodInit(&decodificador, tiempos);
   Morse_Reproducir(&reproductor, "", tiempos);
-  Koch_Init(&koch, KOCH_MINIMO);
   Sesion_Init(&sesion);
 
   /* -- Tick de 1 ms: antirrebote, tono, reproductor y decodificador -- */
@@ -608,6 +609,17 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 /* ============================ Lecciones ============================ */
 
 /**
+ * @brief Farnsworth decreciente: los silencios entre caracteres se acortan con el
+ *        nivel hasta igualar la velocidad de carácter. Lo que esté sonando sigue
+ *        con los tiempos anteriores (el reproductor guarda su copia).
+ */
+static void AjustarVelocidad(void)
+{
+  tiempos = Morse_CalcularTiempos(WPM_CARACTER,
+                                  Koch_WpmEfectivo(koch.nivel, WPM_EFECTIVO, WPM_CARACTER));
+}
+
+/**
  * @brief Empieza a reproducir un texto ("" = silencio) y vacía el decodificador:
  *        lo manipulado antes no cuenta como respuesta. El punto que el decodificador
  *        ha aprendido del usuario se conserva.
@@ -707,6 +719,10 @@ static void Responder(char c)
   {
     Sesion_Registrar(&sesion, actual, c, reconocido, latencia);
     presentar = Koch_Registrar(&koch, reconocido);
+    if (presentar)
+    {
+      AjustarVelocidad();
+    }
   }
 
   if (correcto)
@@ -759,6 +775,7 @@ static void ElegirOpcion(void)
       break;
     case OPC_NIVEL:                         /* Sustituye a la persistencia: se elige al encender */
       Koch_Init(&koch, (koch.nivel >= KOCH_TOTAL) ? KOCH_MINIMO : (uint8_t)(koch.nivel + 1U));
+      AjustarVelocidad();
       break;
     default:
       mostrar_patron = !mostrar_patron;
@@ -867,7 +884,8 @@ static void Dibujar(void)
   {
     if (modo == APRENDER)
     {
-      snprintf(linea, sizeof linea, "Aprender");
+      snprintf(linea, sizeof linea, "Aprender %u/%u WPM", WPM_CARACTER,
+               Koch_WpmEfectivo(koch.nivel, WPM_EFECTIVO, WPM_CARACTER));
     }
     else
     {
