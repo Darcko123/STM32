@@ -609,13 +609,14 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
 /**
  * @brief Empieza a reproducir un texto ("" = silencio) y vacía el decodificador:
- *        lo manipulado antes no cuenta como respuesta.
+ *        lo manipulado antes no cuenta como respuesta. El punto que el decodificador
+ *        ha aprendido del usuario se conserva.
  */
 static void Reiniciar(const char *texto)
 {
   HAL_NVIC_DisableIRQ(TIM2_IRQn);
   Morse_Reproducir(&reproductor, texto, tiempos);
-  Morse_DecodInit(&decodificador, tiempos);
+  Morse_DecodVaciar(&decodificador);
   recibido   = 0;
   pulsado_en = 0;
   HAL_NVIC_EnableIRQ(TIM2_IRQn);
@@ -822,8 +823,11 @@ static void DibujarEstadisticas(void)
   SSD1306_GotoXY(0, 40);
   SSD1306_Puts(linea, &Font_7x10, SSD1306_COLOR_WHITE);
 
+  /* Velocidad a la que manipula el usuario, según el decodificador adaptativo */
+  snprintf(linea, sizeof linea, "Tu %u WPM Menu=sal",
+           (uint8_t)(1200U / decodificador.punto_ms));   /* ≤ 60: punto ≥ 20 ms */
   SSD1306_GotoXY(0, 52);
-  SSD1306_Puts("Menu=volver", &Font_7x10, SSD1306_COLOR_WHITE);
+  SSD1306_Puts(linea, &Font_7x10, SSD1306_COLOR_WHITE);
 }
 
 static void Dibujar(void)
