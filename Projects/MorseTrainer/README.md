@@ -12,9 +12,9 @@
   - [Tabla de Contenidos](#tabla-de-contenidos)
   - [Descripción](#descripción)
   - [Características Principales](#características-principales)
-    - [🎓 Pedagogía](#-pedagogía)
-    - [🎧 Modos](#-modos)
-    - [⚙️ Técnicas](#️-técnicas)
+    - [Pedagogía](#pedagogía)
+    - [Modos](#modos)
+    - [Técnicas](#técnicas)
   - [Requisitos del Sistema](#requisitos-del-sistema)
     - [Hardware Requerido](#hardware-requerido)
     - [Software Requerido](#software-requerido)
@@ -50,7 +50,7 @@ El entrenamiento sigue el **método Koch** con **espaciado Farnsworth**, el esqu
 
 ## Características Principales
 
-### 🎓 Pedagogía
+### Pedagogía
 - **Progresión Koch**: empieza con K y M; desbloquea el siguiente carácter al acertar 18 de los últimos 20 intentos (90 %), en el orden de LCWO.
 - **Farnsworth progresivo**: caracteres a 18 WPM y silencios de 8 WPM efectivas en el nivel 2, que se acortan con el nivel hasta desaparecer en el 36.
 - **Reconocimiento inmediato**: se mide la latencia hasta la primera pulsación; más de 2 s cuenta como no reconocido aunque sea correcto.
@@ -59,13 +59,13 @@ El entrenamiento sigue el **método Koch** con **espaciado Farnsworth**, el esqu
 - **Calidad de manipulación**: avisos concretos ("Rayas cortas", "Letra partida"…) con una exigencia que crece con el nivel.
 - **Sesiones cortas**: aviso a los 15 minutos con resumen de la sesión.
 
-### 🎧 Modos
+### Modos
 - **Aprender**, **Identificar**, **Grupos de 5**, **Repaso** dirigido, **Libre** y **Estadísticas** (ver [Modos de entrenamiento](#modos-de-entrenamiento)).
 
-### ⚙️ Técnicas
+### Técnicas
 - **Arquitectura no bloqueante**: reproductor, decodificador y antirrebote avanzan en una ISR de 1 ms; el bucle principal solo dibuja y decide.
 - **Decodificador adaptativo**: sigue la velocidad real del usuario (3–60 WPM) en lugar de exigirle la de reproducción.
-- **Lógica Morse sin HAL**: `MORSE.c` compila igual en el STM32 y en el PC, con pruebas `assert` en [pruebas/test_morse.c](pruebas/test_morse.c).
+- **Lógica Morse sin HAL**: `MORSE.c` compila igual en el STM32 y en el PC.
 - **Tono ajustable** de 400 a 1000 Hz por PWM con buzzer pasivo, sin librerías.
 
 ## Requisitos del Sistema
@@ -81,7 +81,6 @@ El entrenamiento sigue el **método Koch** con **espaciado Farnsworth**, el esqu
 
 ### Software Requerido
 - **STM32CubeIDE** (incluye STM32CubeMX y el HAL de STM32F4xx)
-- **gcc** en el PC, solo para las pruebas de [pruebas/](pruebas/)
 
 ## Configuración de Hardware
 
@@ -107,9 +106,6 @@ Buzzer magnético:  3V3 ──[ buzzer ]── C
                                       E ── GND
 ```
 
-> [!NOTE]
-> PB0 está configurado en el `.ioc` como entrada con pull-down, pero el firmware no lo usa.
-
 ### Configuración del `.ioc`
 
 | Periférico | Parámetro | Valor | Resultado |
@@ -130,10 +126,10 @@ El driver de la pantalla **no se copia**: `SSD1306.c/.h` y `FONTS.c/.h` están e
 
 ### Diagrama de bloques
 ```text
-                ┌──────────────────── ISR TIM2 (1 ms) ────────────────────┐
+                ┌──────────────────── ISR TIM2 (1 ms) ─────────────────────┐
  Manipulador ──►│ Antirrebote (5 muestras) ─► MORSE_DecodTick() ─► carácter│──┐
-     PB1        │                         └─► tono local + LED PC13      │  │
-                │ MORSE_ReprodTick() ─► abre/cierra el CCR de TIM3 ─► PA6│  │
+     PB1        │                         └─► tono local + LED PC13        │  │
+                │ MORSE_ReprodTick() ─► abre/cierra el CCR de TIM3 ─► PA6  │  │
                 └──────────────────────────────────────────────────────────┘  │
                                                                               ▼
                 ┌──────────────────────── Bucle principal ────────────────────┐

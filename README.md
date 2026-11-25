@@ -80,6 +80,7 @@ STM32/
 │   ├── 4DOF_RobotArm/
 │   ├── ClockWithMenu/
 │   ├── KeypadWithAdvancedDisplay/
+│   ├── MorseTrainer/
 │   └── UARTToMorseCode/
 │
 ├── PerifericosBasicos/      # Uso de periféricos básicos
