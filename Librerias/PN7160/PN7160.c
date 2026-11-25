@@ -38,6 +38,7 @@
 #define PN7160_MFC_KEY_B        0x80U   /**< Key selector: clave B en lugar de A */
 #define PN7160_MFC_READ         0x30U   /**< Comando MIFARE READ (16 bytes) */
 #define PN7160_MFC_WRITE        0xA0U   /**< Comando MIFARE WRITE (dos fases: dirección y 16 bytes) */
+#define PN7160_MFC_ACK          0x0AU   /**< ACK de 4 bits del tag a cada fase de MIFARE WRITE */
 #define PN7160_MFC_MAX_SECTOR   39U     /**< Último sector de una Classic 4K (1K: 0-15) */
 
 // ============================================================================
@@ -656,17 +657,21 @@ static PN7160_Status_t pn7160_DiscoveryFinish(PN7160_Status_t status, uint8_t ke
 
 /**
  * @brief Envía un TAG-CMD de MIFARE Classic y valida la respuesta: repite el byte
- *        de comando y termina en un estado 0x00.
+ *        de comando y termina en un estado 0x00. Las fases de MIFARE WRITE no
+ *        devuelven datos sino el ACK de 4 bits del tag: 10 0A <estado>, donde el
+ *        estado no es 0x00 (así lo valida el HAL de NXP, NxpMfcReader.cc).
  *
  * @param         tx    Comando TAG-CMD (tx[0] = PN7160_MFC_AUTH o PN7160_MFC_XCHG).
  * @param         txLen Bytes de tx.
  * @param[out]    rx    Respuesta completa (eco + datos + estado).
  * @param[in,out] rxLen Entrada: capacidad de rx. Salida: bytes recibidos.
+ * @param         ack   1 = se espera el ACK de MIFARE WRITE en lugar del estado 0x00.
  *
  * @return PN7160_Status_t Estado de la operación; PN7160_ERROR si el tag activado
- *         no es MIFARE Classic o el PN7160/tag rechazó el comando.
+ *         no es MIFARE Classic o el PN7160/tag rechazó el comando (NAK).
  */
-static PN7160_Status_t pn7160_MfcCmd(const uint8_t* tx, uint16_t txLen, uint8_t* rx, uint16_t* rxLen)
+static PN7160_Status_t pn7160_MfcCmd(const uint8_t* tx, uint16_t txLen, uint8_t* rx, uint16_t* rxLen,
+                                     uint8_t ack)
 {
     if (!PN7160_Initialized)
     {
@@ -680,7 +685,9 @@ static PN7160_Status_t pn7160_MfcCmd(const uint8_t* tx, uint16_t txLen, uint8_t*
     PN7160_Status_t status = PN7160_Transceive(tx, txLen, rx, rxLen);
     if (status != PN7160_OK) { return status; }
 
-    return (*rxLen >= 2U && rx[0] == tx[0] && rx[*rxLen - 1U] == PN7160_NCI_STATUS_OK)
+    if (*rxLen < 2U || rx[0] != tx[0]) { return PN7160_ERROR; }
+
+    return (ack ? (*rxLen == 3U && rx[1] == PN7160_MFC_ACK) : (rx[*rxLen - 1U] == PN7160_NCI_STATUS_OK))
            ? PN7160_OK : PN7160_ERROR;
 }
 
@@ -1273,7 +1280,7 @@ PN7160_Status_t PN7160_MfcAuth(uint8_t sector, uint8_t keyB, const uint8_t key[6
                             (uint8_t)(PN7160_MFC_KEY_EMBEDDED | (keyB ? PN7160_MFC_KEY_B : 0U)) };
     memcpy(&tx[3], key, 6U);
 
-    return pn7160_MfcCmd(tx, sizeof(tx), rx, &n);
+    return pn7160_MfcCmd(tx, sizeof(tx), rx, &n, 0U);
 }
 
 /**
@@ -1295,7 +1302,7 @@ PN7160_Status_t PN7160_MfcRead(uint8_t block, uint8_t out[16])
         return PN7160_INVALID_PARAM;
     }
 
-    PN7160_Status_t status = pn7160_MfcCmd(tx, sizeof(tx), rx, &n);
+    PN7160_Status_t status = pn7160_MfcCmd(tx, sizeof(tx), rx, &n, 0U);
     if (status != PN7160_OK) { return status; }
     if (n != sizeof(rx)) { return PN7160_ERROR; }
 
@@ -1326,7 +1333,7 @@ PN7160_Status_t PN7160_MfcWrite(uint8_t block, const uint8_t data[16])
     }
 
     // 1. WRITE + dirección; el tag responde ACK
-    PN7160_Status_t status = pn7160_MfcCmd(cmd, sizeof(cmd), rx, &n);
+    PN7160_Status_t status = pn7160_MfcCmd(cmd, sizeof(cmd), rx, &n, 1U);
     if (status != PN7160_OK) { return status; }
 
     // 2. Los 16 bytes; el tag responde ACK al grabarlos
@@ -1334,5 +1341,5 @@ PN7160_Status_t PN7160_MfcWrite(uint8_t block, const uint8_t data[16])
     memcpy(&tx[1], data, 16U);
     n = sizeof(rx);
 
-    return pn7160_MfcCmd(tx, sizeof(tx), rx, &n);
+    return pn7160_MfcCmd(tx, sizeof(tx), rx, &n, 1U);
 }

@@ -546,8 +546,8 @@ PN7160_Status_t PN7160_MfcRead(uint8_t block, uint8_t out[16]);
 /**
  * @brief Escribe un bloque de 16 bytes en la MIFARE Classic activada.
  *
- * @details MIFARE WRITE en dos fases: TAG-CMD 10 A0 <bloque> -> ACK y después
- *          10 <16 bytes> -> ACK. El sector debe estar autenticado.
+ * @details MIFARE WRITE en dos fases: TAG-CMD 10 A0 <bloque> -> 10 0A <estado> (ACK)
+ *          y después 10 <16 bytes> -> 10 0A <estado>. El sector debe estar autenticado.
  *
  * @warning Escribir un trailer con claves o access bits mal formados puede dejar
  *          el sector inaccesible para siempre. El bloque 0 (fabricante) es de solo
