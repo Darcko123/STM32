@@ -4,8 +4,8 @@
  * @brief Librería para el control del CI NFC PN7160 mediante SPI o I2C.
  *
  * @author Daniel Ruiz
- * @date Noviembre 19, 2026
- * @version 0.1.0
+ * @date Noviembre 25, 2026
+ * @version 1.0.0
  */
 
 #ifndef PN7160_H
