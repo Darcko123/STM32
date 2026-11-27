@@ -42,6 +42,19 @@ Este repositorio está dividido en cuatro secciones principales:
 
 ---
 
+## **Proyectos Disponibles**
+
+| Proyecto | Versión | Plataforma | Descripción |
+|----------|---------|------------|-------------|
+| [3-band_Equalizer](./Projects/3-band_Equalizer/) | — | STM32F446 | Ecualizador de audio de 3 bandas con filtros FIR (ADC → DAC) |
+| [4DOF_RobotArm](./Projects/4DOF_RobotArm/) | — | STM32F411 | Brazo robótico KUKA de 4 GDL con cinemática directa e inversa |
+| [ClockWithMenu](./Projects/ClockWithMenu/) | — | STM32F103 | Reloj con menús, alarma y monitorización ambiental |
+| [KeypadWithAdvancedDisplay](./Projects/KeypadWithAdvancedDisplay/) | — | STM32F103 | Teclado matricial 4x4 con interfaz de terminal ANSI por UART |
+| [MorseTrainer](./Projects/MorseTrainer/) | v1.0.0 | STM32F411 | Entrenador de código Morse (método Koch + Farnsworth) con OLED y buzzer |
+| [UARTToMorseCode](./Projects/UARTToMorseCode/) | — | STM32F103 | Traductor de texto por UART a código Morse con LED y buzzer |
+
+---
+
 ## **Estructura del Repositorio**
 
 ```
@@ -76,12 +89,12 @@ STM32/
 │   └── SX1262/
 │
 ├── Projects/                # Proyectos varios
-│   ├── 3-band_Equalizer/
-│   ├── 4DOF_RobotArm/
-│   ├── ClockWithMenu/
-│   ├── KeypadWithAdvancedDisplay/
-│   ├── MorseTrainer/
-│   └── UARTToMorseCode/
+│   ├── 3-band_Equalizer/    # Ecualizador de audio de 3 bandas (FIR)
+│   ├── 4DOF_RobotArm/       # Brazo robótico KUKA de 4 GDL
+│   ├── ClockWithMenu/       # Reloj con menús y alarma
+│   ├── KeypadWithAdvancedDisplay/  # Teclado matricial con terminal ANSI
+│   ├── MorseTrainer/        # Entrenador de código Morse
+│   └── UARTToMorseCode/     # Traductor de UART a Morse
 │
 ├── PerifericosBasicos/      # Uso de periféricos básicos
 │   ├── ADC/

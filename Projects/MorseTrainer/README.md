@@ -5,7 +5,7 @@
 [![I2C](https://img.shields.io/badge/Protocol-I2C-yellow)](https://es.wikipedia.org/wiki/I2C)
 [![PWM](https://img.shields.io/badge/Audio-PWM-yellow)](https://es.wikipedia.org/wiki/Modulaci%C3%B3n_por_ancho_de_pulsos)
 [![SSD1306](https://img.shields.io/badge/Display-SSD1306-green)](/Librerias/SSD1306)
-[![Version](https://img.shields.io/badge/MORSE-0.1.0-green.svg)](MorseTrainer/Core/Inc/MORSE.h)
+[![Version](https://img.shields.io/badge/Version-1.0.0-green.svg)](MorseTrainer/Core/Inc/MORSE.h)
 
 ## Tabla de Contenidos
 - [Entrenador de Código Morse con STM32](#entrenador-de-código-morse-con-stm32)
@@ -39,6 +39,7 @@
   - [Solución de Problemas](#solución-de-problemas)
   - [Pendiente para Versiones Posteriores](#pendiente-para-versiones-posteriores)
   - [Licencia](#licencia)
+  - [Changelog](#changelog)
 
 ## Descripción
 Dispositivo autónomo para **aprender a recibir y transmitir código Morse** sin PC ni aplicación. El STM32 reproduce caracteres por un buzzer, el usuario responde **manipulando en Morse** con un pulsador o un manipulador real, y una pantalla OLED SSD1306 muestra el resultado, las estadísticas y los ajustes.
@@ -342,3 +343,25 @@ Projects/MorseTrainer/
 
 ## Licencia
 Este proyecto se distribuye bajo la licencia MIT. Consulte el archivo [LICENSE](/LICENSE.md) para más detalles.
+
+## Changelog
+
+Todos los cambios notables de este proyecto se documentan en esta sección.  
+El formato está basado en [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+---
+
+### [1.0.0] - 26-11-2026
+
+Primera versión del entrenador de código Morse para la Black Pill STM32F411, probada en hardware.
+
+#### Added
+- **Hardware**: tono por PWM (TIM3 CH1) con buzzer pasivo, tick de 1 ms (TIM2) con antirrebote del manipulador (PB1) y del botón KEY (PA0), pantalla SSD1306 enlazada desde `Librerias/SSD1306`.
+- **Módulo `MORSE.c/.h`** sin HAL: codificación A–Z/0–9, tiempos por WPM con Farnsworth, reproductor y decodificador no bloqueantes por ticks de 1 ms, decodificador adaptativo a la velocidad del usuario, evaluación de la calidad de manipulación, progresión Koch, selección ponderada y estadísticas de la sesión.
+- **Modos**: Aprender, Identificar (con latencia máxima de 2 s), Grupos de 5, Repaso dirigido a los caracteres y pares más confundidos, Libre y Estadísticas.
+- **Progresión Koch** en el orden de LCWO, con desbloqueo al 90 % sobre los últimos 20 intentos y espaciado Farnsworth que se reduce con el nivel.
+- **Ajustes desde el menú**: nivel, velocidad de carácter (12–30 WPM), Farnsworth, tono (400–1000 Hz) y mostrar u ocultar el patrón.
+- **Temporizador de sesión** de 15 minutos con resumen al terminar.
+- **Pruebas en PC** de `MORSE.c` (`pruebas/test_morse.c`) y documentación pedagógica ([PEDAGOGIA.md](PEDAGOGIA.md)).
+
+---

@@ -15,8 +15,8 @@
  * valor directamente y esperan punteros válidos.
  *
  * @author Daniel Ruiz
- * @date Noviembre 24, 2026
- * @version 0.1.0
+ * @date Noviembre 26, 2026
+ * @version 1.0.0
  */
 
 #ifndef MORSE_H
